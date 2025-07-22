@@ -2,8 +2,8 @@ package stats
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"v2ray-stat/config"
+	"v2ray-stat/db/manager"
 	"v2ray-stat/telegram"
+	"v2ray-stat/util"
 )
 
 var (
@@ -30,54 +32,9 @@ var (
 	memoryPercentages []float64
 )
 
-// getIPAddresses returns the system's IPv4 and IPv6 addresses.
-func getIPAddresses() (ipv4, ipv6 string) {
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		log.Printf("Error retrieving IP addresses: %v", err)
-		return "unknown", "unknown"
-	}
-
-	for _, addr := range addrs {
-		if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
-			if ipNet.IP.To4() != nil {
-				ipv4 = ipNet.IP.String()
-			} else if ipNet.IP.To16() != nil {
-				ipv6 = ipNet.IP.String()
-			}
-		}
-	}
-
-	if ipv4 == "" {
-		ipv4 = "none"
-	}
-	if ipv6 == "" {
-		ipv6 = "none"
-	}
-	return ipv4, ipv6
-}
-
-// getConnectionCounts returns the number of TCP and UDP connections (placeholder).
-func getConnectionCounts() (tcpCount, udpCount int) {
-	tcpData, err := os.ReadFile("/proc/net/tcp")
-	if err != nil {
-		log.Printf("Error reading /proc/net/tcp: %v", err)
-	} else {
-		tcpLines := strings.Split(string(tcpData), "\n")
-		tcpCount = len(tcpLines) - 1 // Subtract header line
-	}
-
-	udpData, err := os.ReadFile("/proc/net/udp")
-	if err != nil {
-		log.Printf("Error reading /proc/net/udp: %v", err)
-	} else {
-		udpLines := strings.Split(string(udpData), "\n")
-		udpCount = len(udpLines) - 1 // Subtract header line
-	}
-	return tcpCount, udpCount
-}
-
+// getCoreVersion retrieves the version of the core binary (xray or sing-box).
 func getCoreVersion(cfg *config.Config) string {
+	cfg.Logger.Debug("Retrieving core version", "type", cfg.V2rayStat.Type)
 	var binaryName string
 	switch cfg.V2rayStat.Type {
 	case "xray":
@@ -90,7 +47,7 @@ func getCoreVersion(cfg *config.Config) string {
 	cmd := exec.Command(binaryPath, "version")
 	output, err := cmd.Output()
 	if err != nil {
-		log.Printf("Error retrieving %s version: %v", cfg.V2rayStat.Type, err)
+		cfg.Logger.Error("Failed to retrieve core version", "type", cfg.V2rayStat.Type, "error", err)
 		return "unknown"
 	}
 
@@ -98,60 +55,221 @@ func getCoreVersion(cfg *config.Config) string {
 	if len(lines) > 0 {
 		parts := strings.Fields(lines[0])
 		if cfg.V2rayStat.Type == "xray" && len(parts) >= 2 {
-			return parts[1] // Xray version is the second field (e.g., 25.3.6)
+			cfg.Logger.Debug("Core version retrieved", "type", cfg.V2rayStat.Type, "version", parts[1])
+			return parts[1]
 		} else if cfg.V2rayStat.Type == "singbox" && len(parts) >= 3 {
-			return parts[2] // Singbox version is the third field (e.g., 1.11.13)
+			cfg.Logger.Debug("Core version retrieved", "type", cfg.V2rayStat.Type, "version", parts[2])
+			return parts[2]
 		}
 	}
-	log.Printf("Error: invalid version output for %s", cfg.V2rayStat.Type)
+	cfg.Logger.Error("Invalid version output", "type", cfg.V2rayStat.Type)
 	return "unknown"
 }
 
-// isServiceRunning returns true if a process with the name svc is found in /proc
-func isServiceRunning(svc string) bool {
+// getIPAddresses returns the system's IPv4 and IPv6 addresses.
+func getIPAddresses(cfg *config.Config) (ipv4, ipv6 string) {
+	cfg.Logger.Debug("Retrieving IP addresses")
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		cfg.Logger.Error("Failed to retrieve IP addresses", "error", err)
+		return "unknown", "unknown"
+	}
+
+	for _, addr := range addrs {
+		if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
+			cfg.Logger.Trace("Processing IP address", "address", addr.String())
+			if ipNet.IP.To4() != nil {
+				ipv4 = ipNet.IP.String()
+			} else if ipNet.IP.To16() != nil {
+				ipv6 = ipNet.IP.String()
+			}
+		}
+	}
+
+	if ipv4 == "" {
+		cfg.Logger.Trace("No IPv4 address found")
+		ipv4 = "none"
+	}
+	if ipv6 == "" {
+		cfg.Logger.Trace("No IPv6 address found")
+		ipv6 = "none"
+	}
+	cfg.Logger.Debug("IP addresses retrieved", "ipv4", ipv4, "ipv6", ipv6)
+	return ipv4, ipv6
+}
+
+// GetUptime returns the system uptime.
+func GetUptime(cfg *config.Config) string {
+	cfg.Logger.Debug("Retrieving system uptime")
+	data, err := os.ReadFile("/proc/uptime")
+	if err != nil {
+		cfg.Logger.Error("Failed to read /proc/uptime", "error", err)
+		return "unknown"
+	}
+	var uptimeSeconds float64
+	fmt.Sscanf(string(data), "%f", &uptimeSeconds)
+
+	days := int(uptimeSeconds / (24 * 3600))
+	hours := int(uptimeSeconds/3600) % 24
+	cfg.Logger.Trace("System uptime retrieved", "days", days, "hours", hours)
+	return fmt.Sprintf("%d days %02d hours", days, hours)
+}
+
+// GetLoadAverage returns the system load average.
+func GetLoadAverage(cfg *config.Config) string {
+	cfg.Logger.Debug("Retrieving system load average")
+	data, err := os.ReadFile("/proc/loadavg")
+	if err != nil {
+		cfg.Logger.Error("Failed to read /proc/loadavg", "error", err)
+		return "unknown"
+	}
+	var load1, load5, load15 float64
+	fmt.Sscanf(string(data), "%f %f %f", &load1, &load5, &load15)
+	cfg.Logger.Trace("System load average retrieved", "load1", load1, "load5", load5, "load15", load15)
+	return fmt.Sprintf("%.2f, %.2f, %.2f", load1, load5, load15)
+}
+
+// GetMemoryUsage returns memory usage information without sending notifications.
+func GetMemoryUsage(cfg *config.Config) string {
+	cfg.Logger.Debug("Retrieving memory usage")
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		cfg.Logger.Error("Failed to read /proc/meminfo", "error", err)
+		return "unknown"
+	}
+
+	var memTotal, memAvailable uint64
+	lines := strings.SplitSeq(string(data), "\n")
+	for line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			cfg.Logger.Trace("Skipping empty or invalid line in /proc/meminfo")
+			continue
+		}
+		if fields[0] == "MemTotal:" {
+			memTotal, _ = strconv.ParseUint(fields[1], 10, 64)
+			cfg.Logger.Trace("Parsed MemTotal", "value", memTotal)
+		}
+		if fields[0] == "MemAvailable:" {
+			memAvailable, _ = strconv.ParseUint(fields[1], 10, 64)
+			cfg.Logger.Trace("Parsed MemAvailable", "value", memAvailable)
+		}
+	}
+
+	if memTotal == 0 {
+		cfg.Logger.Error("Invalid memory data: MemTotal is zero")
+		return "unknown"
+	}
+
+	usedMem := memTotal - memAvailable
+	cfg.Logger.Trace("Memory usage retrieved", "used_mb", float64(usedMem)/1024, "total_mb", float64(memTotal)/1024)
+	return fmt.Sprintf("%.2f MB used / %.2f MB total", float64(usedMem)/1024, float64(memTotal)/1024)
+}
+
+// getConnectionCounts returns the number of TCP and UDP connections.
+func getConnectionCounts(cfg *config.Config) (tcpCount, udpCount int) {
+	cfg.Logger.Debug("Retrieving connection counts")
+	tcpData, err := os.ReadFile("/proc/net/tcp")
+	if err != nil {
+		cfg.Logger.Error("Failed to read /proc/net/tcp", "error", err)
+	} else {
+		tcpLines := strings.Split(string(tcpData), "\n")
+		tcpCount = len(tcpLines) - 1 // Subtract header line
+		cfg.Logger.Trace("TCP connections counted", "count", tcpCount)
+	}
+
+	udpData, err := os.ReadFile("/proc/net/udp")
+	if err != nil {
+		cfg.Logger.Error("Failed to read /proc/net/udp", "error", err)
+	} else {
+		udpLines := strings.Split(string(udpData), "\n")
+		udpCount = len(udpLines) - 1 // Subtract header line
+		cfg.Logger.Trace("UDP connections counted", "count", udpCount)
+	}
+	return tcpCount, udpCount
+}
+
+// LoadTrafficStats retrieves traffic statistics from the database.
+func LoadTrafficStats(manager *manager.DatabaseManager, cfg *config.Config) (totalTraffic, uplinkTraffic, downlinkTraffic string, err error) {
+	cfg.Logger.Debug("Retrieving traffic stats")
+	var uplink, downlink uint64
+	err = manager.ExecuteLowPriority(func(db *sql.DB) error {
+		err := db.QueryRow("SELECT uplink, downlink FROM traffic_stats WHERE source = 'direct'").Scan(&uplink, &downlink)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				cfg.Logger.Warn("Traffic data not found, setting default values", "source", "direct")
+				uplink, downlink = 0, 0
+				return nil
+			}
+			cfg.Logger.Error("Failed to query traffic_stats table", "error", err)
+			return fmt.Errorf("failed to query database: %v", err)
+		}
+		cfg.Logger.Trace("Traffic data retrieved", "uplink", uplink, "downlink", downlink)
+		return nil
+	})
+	if err != nil {
+		cfg.Logger.Error("Failed to retrieve traffic stats", "error", err)
+		uplink, downlink = 0, 0
+	}
+
+	totalTraffic = util.FormatData(float64(uplink+downlink), "byte")
+	uplinkTraffic = util.FormatData(float64(uplink), "byte")
+	downlinkTraffic = util.FormatData(float64(downlink), "byte")
+	cfg.Logger.Debug("Traffic stats formatted", "total", totalTraffic, "uplink", uplinkTraffic, "downlink", downlinkTraffic)
+	return totalTraffic, uplinkTraffic, downlinkTraffic, nil
+}
+
+// isServiceRunning checks if a service is running by checking /proc.
+func isServiceRunning(svc string, cfg *config.Config) bool {
+	cfg.Logger.Debug("Checking service status", "service", svc)
 	procDir, err := os.Open("/proc")
 	if err != nil {
-		log.Printf("Error opening /proc for service %s: %v", svc, err)
+		cfg.Logger.Error("Failed to open /proc for service", "service", svc, "error", err)
 		return false
 	}
 	defer procDir.Close()
 
 	entries, err := procDir.Readdirnames(-1)
 	if err != nil {
-		log.Printf("Error reading /proc for service %s: %v", svc, err)
+		cfg.Logger.Error("Failed to read /proc for service", "service", svc, "error", err)
 		return false
 	}
 
 	for _, entry := range entries {
 		if _, err := strconv.Atoi(entry); err != nil {
+			cfg.Logger.Trace("Skipping non-numeric entry", "entry", entry)
 			continue
 		}
 		commPath := filepath.Join("/proc", entry, "comm")
 		commData, err := os.ReadFile(commPath)
 		if err != nil {
-			log.Printf("Error reading %s for service %s: %v", commPath, svc, err)
+			cfg.Logger.Error("Failed to read comm file for service", "path", commPath, "service", svc, "error", err)
 			continue
 		}
 		if strings.TrimSpace(string(commData)) == svc {
+			cfg.Logger.Trace("Service is running", "service", svc)
 			return true
 		}
 	}
+	cfg.Logger.Info("Service is not running", "service", svc)
 	return false
 }
 
-// CheckServiceStatus checks service statuses and sends a notification if something changes
-func CheckServiceStatus(token, chatID string, services []string) {
+// CheckServiceStatus checks service statuses and sends notifications if changed.
+func CheckServiceStatus(cfg *config.Config) {
+	cfg.Logger.Debug("Checking service statuses")
 	statusMutex.Lock()
 	defer statusMutex.Unlock()
 
 	var changed []string
 	var statusLines []string
 
-	for _, svc := range services {
-		running := isServiceRunning(svc)
+	for _, svc := range cfg.Services {
+		running := isServiceRunning(svc, cfg)
 		prev, seen := serviceStatuses[svc]
 
 		if !isFirstCheck && seen && prev != running {
+			cfg.Logger.Info("Service status changed", "service", svc, "running", running)
 			changed = append(changed, svc)
 		}
 
@@ -164,85 +282,26 @@ func CheckServiceStatus(token, chatID string, services []string) {
 	}
 
 	if !isFirstCheck && len(changed) > 0 {
-		msg := fmt.Sprintf("⚠️ Service Status Update:\n%s", strings.Join(statusLines, "\n"))
-		if err := telegram.SendNotification(token, chatID, msg); err != nil {
-			log.Printf("Error sending service status notification: %v", err)
+		message := fmt.Sprintf("⚠️ Service Status Update:\n%s", strings.Join(statusLines, "\n"))
+		if err := telegram.SendNotification(cfg, message); err != nil {
+			cfg.Logger.Error("Failed to send service status notification", "error", err)
 		} else {
-			log.Println("Service status notification sent successfully")
+			cfg.Logger.Info("Service status notification sent successfully")
 		}
 	}
 
 	if isFirstCheck {
+		cfg.Logger.Debug("First service status check completed")
 		isFirstCheck = false
 	}
 }
 
-// GetUptime returns the system uptime
-func GetUptime() string {
-	data, err := os.ReadFile("/proc/uptime")
-	if err != nil {
-		log.Printf("Error reading /proc/uptime: %v", err)
-		return "unknown"
-	}
-	var uptimeSeconds float64
-	fmt.Sscanf(string(data), "%f", &uptimeSeconds)
-
-	days := int(uptimeSeconds / (24 * 3600))
-	hours := int(uptimeSeconds/3600) % 24
-
-	return fmt.Sprintf("%d days %02d hours", days, hours)
-}
-
-// GetLoadAverage returns the system load average
-func GetLoadAverage() string {
-	data, err := os.ReadFile("/proc/loadavg")
-	if err != nil {
-		log.Printf("Error reading /proc/loadavg: %v", err)
-		return "unknown"
-	}
-	var load1, load5, load15 float64
-	fmt.Sscanf(string(data), "%f %f %f", &load1, &load5, &load15)
-	return fmt.Sprintf("%.2f, %.2f, %.2f", load1, load5, load15)
-}
-
-// GetMemoryUsage returns memory usage information without sending notifications
-func GetMemoryUsage() string {
+// CheckMemoryUsage checks memory usage and sends notifications if thresholds are exceeded.
+func CheckMemoryUsage(cfg *config.Config) {
+	cfg.Logger.Debug("Checking memory usage")
 	data, err := os.ReadFile("/proc/meminfo")
 	if err != nil {
-		log.Printf("Error reading /proc/meminfo: %v", err)
-		return "unknown"
-	}
-
-	var memTotal, memAvailable uint64
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		if fields[0] == "MemTotal:" {
-			memTotal, _ = strconv.ParseUint(fields[1], 10, 64)
-		}
-		if fields[0] == "MemAvailable:" {
-			memAvailable, _ = strconv.ParseUint(fields[1], 10, 64)
-		}
-	}
-
-	if memTotal == 0 {
-		log.Printf("Invalid memory data: MemTotal is zero")
-		return "unknown"
-	}
-
-	usedMem := memTotal - memAvailable
-	return fmt.Sprintf("%.2f MB used / %.2f MB total",
-		float64(usedMem)/(1024), float64(memTotal)/(1024))
-}
-
-// CheckMemoryUsage checks memory usage and sends notifications if thresholds are exceeded
-func CheckMemoryUsage(token string, chatID string, threshold int, interval int) {
-	data, err := os.ReadFile("/proc/meminfo")
-	if err != nil {
-		log.Printf("Error reading /proc/meminfo: %v", err)
+		cfg.Logger.Error("Failed to read /proc/meminfo", "error", err)
 		return
 	}
 
@@ -251,18 +310,21 @@ func CheckMemoryUsage(token string, chatID string, threshold int, interval int) 
 	for _, line := range lines {
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
+			cfg.Logger.Trace("Skipping empty or invalid line in /proc/meminfo")
 			continue
 		}
 		if fields[0] == "MemTotal:" {
 			memTotal, _ = strconv.ParseUint(fields[1], 10, 64)
+			cfg.Logger.Trace("Parsed MemTotal", "value", memTotal)
 		}
 		if fields[0] == "MemAvailable:" {
 			memAvailable, _ = strconv.ParseUint(fields[1], 10, 64)
+			cfg.Logger.Trace("Parsed MemAvailable", "value", memAvailable)
 		}
 	}
 
 	if memTotal == 0 {
-		log.Printf("Invalid memory data: MemTotal is zero")
+		cfg.Logger.Error("Invalid memory data: MemTotal is zero")
 		return
 	}
 
@@ -273,11 +335,7 @@ func CheckMemoryUsage(token string, chatID string, threshold int, interval int) 
 	defer memoryMutex.Unlock()
 
 	const tickInterval = 10
-	measurements := (interval + tickInterval - 1) / tickInterval
-	if measurements < 1 {
-		measurements = 1
-	}
-
+	measurements := max((cfg.SystemMonitoring.AverageInterval+tickInterval-1)/tickInterval, 1)
 	memoryPercentages = append(memoryPercentages, percentage)
 	if len(memoryPercentages) > measurements {
 		memoryPercentages = memoryPercentages[1:]
@@ -289,32 +347,34 @@ func CheckMemoryUsage(token string, chatID string, threshold int, interval int) 
 			sum += p
 		}
 		average := sum / float64(len(memoryPercentages))
+		cfg.Logger.Debug("Calculated average memory usage", "average", average)
 
-		if average > float64(threshold) && !memoryExceeded {
-			message := fmt.Sprintf("🚨 ALERT: Average memory usage over *%d* seconds exceeded *%d%%*! (Current: *%.2f%%*)", interval, threshold, average)
-			if err := telegram.SendNotification(token, chatID, message); err != nil {
-				log.Printf("Error sending memory usage notification to Telegram: %v", err)
+		if average > float64(cfg.SystemMonitoring.Memory.Threshold) && !memoryExceeded {
+			message := fmt.Sprintf("🚨 ALERT: Average memory usage over *%d* seconds exceeded *%d%%*! (Current: *%.2f%%*)", cfg.SystemMonitoring.AverageInterval, cfg.SystemMonitoring.Memory.Threshold, average)
+			if err := telegram.SendNotification(cfg, message); err != nil {
+				cfg.Logger.Error("Failed to send memory usage notification", "error", err)
 			} else {
-				log.Println("Memory usage notification sent successfully to Telegram")
+				cfg.Logger.Info("Memory usage notification sent successfully")
+				memoryExceeded = true
 			}
-			memoryExceeded = true
-		} else if average <= float64(threshold) && memoryExceeded {
-			message := fmt.Sprintf("✅ Average memory usage over *%d* seconds dropped below *%d%%*. (Current: *%.2f%%*)", interval, threshold, average)
-			if err := telegram.SendNotification(token, chatID, message); err != nil {
-				log.Printf("Error sending memory usage notification to Telegram: %v", err)
+		} else if average <= float64(cfg.SystemMonitoring.Memory.Threshold) && memoryExceeded {
+			message := fmt.Sprintf("✅ Average memory usage over *%d* seconds dropped below *%d%%*. (Current: *%.2f%%*)", cfg.SystemMonitoring.AverageInterval, cfg.SystemMonitoring.Memory.Threshold, average)
+			if err := telegram.SendNotification(cfg, message); err != nil {
+				cfg.Logger.Error("Failed to send memory usage notification", "error", err)
 			} else {
-				log.Println("Memory usage notification sent successfully to Telegram")
+				cfg.Logger.Info("Memory usage notification sent successfully")
+				memoryExceeded = false
 			}
-			memoryExceeded = false
 		}
 	}
 }
 
-// GetDiskUsage returns disk usage information without sending notifications
-func GetDiskUsage() string {
+// GetDiskUsage returns disk usage information without sending notifications.
+func GetDiskUsage(cfg *config.Config) string {
+	cfg.Logger.Debug("Retrieving disk usage")
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs("/", &stat); err != nil {
-		log.Printf("Error getting disk usage: %v", err)
+		cfg.Logger.Error("Failed to get disk usage", "error", err)
 		return "unknown"
 	}
 
@@ -323,19 +383,20 @@ func GetDiskUsage() string {
 	used := total - free
 
 	if total == 0 {
-		log.Printf("Invalid disk data: total size is zero")
+		cfg.Logger.Error("Invalid disk data: total size is zero")
 		return "unknown"
 	}
 
-	return fmt.Sprintf("%.2f GB used / %.2f GB total",
-		float64(used)/(1024*1024*1024), float64(total)/(1024*1024*1024))
+	cfg.Logger.Info("Disk usage retrieved", "used_gb", float64(used)/(1024*1024*1024), "total_gb", float64(total)/(1024*1024*1024))
+	return fmt.Sprintf("%.2f GB used / %.2f GB total", float64(used)/(1024*1024*1024), float64(total)/(1024*1024*1024))
 }
 
-// CheckDiskUsage checks disk usage and sends notifications if thresholds are exceeded
-func CheckDiskUsage(token string, chatID string, threshold int, interval int) {
+// CheckDiskUsage checks disk usage and sends notifications if thresholds are exceeded.
+func CheckDiskUsage(cfg *config.Config) {
+	cfg.Logger.Debug("Checking disk usage")
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs("/", &stat); err != nil {
-		log.Printf("Error getting disk usage: %v", err)
+		cfg.Logger.Error("Failed to get disk usage", "error", err)
 		return
 	}
 
@@ -344,7 +405,7 @@ func CheckDiskUsage(token string, chatID string, threshold int, interval int) {
 	used := total - free
 
 	if total == 0 {
-		log.Printf("Invalid disk data: total size is zero")
+		cfg.Logger.Error("Invalid disk data: total size is zero")
 		return
 	}
 
@@ -354,11 +415,7 @@ func CheckDiskUsage(token string, chatID string, threshold int, interval int) {
 	defer diskMutex.Unlock()
 
 	const tickInterval = 10
-	measurements := (interval + tickInterval - 1) / tickInterval
-	if measurements < 1 {
-		measurements = 1
-	}
-
+	measurements := max((cfg.SystemMonitoring.AverageInterval+tickInterval-1)/tickInterval, 1)
 	diskPercentages = append(diskPercentages, percentage)
 	if len(diskPercentages) > measurements {
 		diskPercentages = diskPercentages[1:]
@@ -370,63 +427,38 @@ func CheckDiskUsage(token string, chatID string, threshold int, interval int) {
 			sum += p
 		}
 		average := sum / float64(len(diskPercentages))
+		cfg.Logger.Debug("Calculated average disk usage", "average", average)
 
-		if average > float64(threshold) && !diskExceeded {
-			message := fmt.Sprintf("🚨 ALERT: Average disk usage over *%d* seconds exceeded *%d%%*! (Current: *%.2f%%*)", interval, threshold, average)
-			if err := telegram.SendNotification(token, chatID, message); err != nil {
-				log.Printf("Error sending disk usage notification to Telegram: %v", err)
+		if average > float64(cfg.SystemMonitoring.Disk.Threshold) && !diskExceeded {
+			message := fmt.Sprintf("🚨 ALERT: Average disk usage over *%d* seconds exceeded *%d%%*! (Current: *%.2f%%*)", cfg.SystemMonitoring.AverageInterval, cfg.SystemMonitoring.Disk.Threshold, average)
+			if err := telegram.SendNotification(cfg, message); err != nil {
+				cfg.Logger.Error("Failed to send disk usage notification", "error", err)
 			} else {
-				log.Println("Disk usage notification sent successfully to Telegram")
+				cfg.Logger.Info("Disk usage notification sent successfully")
+				diskExceeded = true
 			}
-			diskExceeded = true
-		} else if average <= float64(threshold) && diskExceeded {
-			message := fmt.Sprintf("✅ Average disk usage over *%d* seconds dropped below *%d%%*. (Current: *%.2f%%*)", interval, threshold, average)
-			if err := telegram.SendNotification(token, chatID, message); err != nil {
-				log.Printf("Error sending disk usage notification to Telegram: %v", err)
+		} else if average <= float64(cfg.SystemMonitoring.Disk.Threshold) && diskExceeded {
+			message := fmt.Sprintf("✅ Average disk usage over *%d* seconds dropped below *%d%%*. (Current: *%.2f%%*)", cfg.SystemMonitoring.AverageInterval, cfg.SystemMonitoring.Disk.Threshold, average)
+			if err := telegram.SendNotification(cfg, message); err != nil {
+				cfg.Logger.Error("Failed to send disk usage notification", "error", err)
 			} else {
-				log.Println("Disk usage notification sent successfully to Telegram")
+				cfg.Logger.Info("Disk usage notification sent successfully")
+				diskExceeded = false
 			}
-			diskExceeded = false
 		}
 	}
 }
 
-// GetStatus returns the status of specified services without sending notifications
-func GetStatus(services []string) string {
+// GetStatus returns the status of specified services without sending notifications.
+func GetStatus(cfg *config.Config) string {
+	cfg.Logger.Debug("Retrieving service statuses")
 	var status strings.Builder
 
 	statusMutex.Lock()
 	defer statusMutex.Unlock()
 
-	for _, svc := range services {
-		isRunning := false
-		procDir, err := os.Open("/proc")
-		if err != nil {
-			log.Printf("Error opening /proc for service %s: %v", svc, err)
-			continue
-		}
-		defer procDir.Close()
-		entries, err := procDir.Readdirnames(-1)
-		if err != nil {
-			log.Printf("Error reading /proc for service %s: %v", svc, err)
-			continue
-		}
-		for _, entry := range entries {
-			if _, err := strconv.Atoi(entry); err == nil {
-				commPath := filepath.Join("/proc", entry, "comm")
-				commData, err := os.ReadFile(commPath)
-				if err != nil {
-					log.Printf("Error reading %s for service %s: %v", commPath, svc, err)
-					continue
-				}
-				comm := strings.TrimSpace(string(commData))
-				if comm == svc {
-					isRunning = true
-					break
-				}
-			}
-		}
-
+	for _, svc := range cfg.Services {
+		isRunning := isServiceRunning(svc, cfg)
 		serviceStatuses[svc] = isRunning
 
 		state := "▼"
@@ -436,10 +468,14 @@ func GetStatus(services []string) string {
 		fmt.Fprintf(&status, "%s %s ", state, svc)
 	}
 
-	return strings.TrimSpace(status.String())
+	result := strings.TrimSpace(status.String())
+	cfg.Logger.Trace("Service statuses retrieved", "status", result)
+	return result
 }
 
+// MonitorStats runs periodic checks for service, disk, and memory usage.
 func MonitorStats(ctx context.Context, cfg *config.Config, wg *sync.WaitGroup) {
+	cfg.Logger.Debug("Starting stats monitoring")
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -448,10 +484,12 @@ func MonitorStats(ctx context.Context, cfg *config.Config, wg *sync.WaitGroup) {
 		for {
 			select {
 			case <-ticker.C:
-				CheckServiceStatus(cfg.Telegram.BotToken, cfg.Telegram.ChatID, cfg.Services)
-				CheckDiskUsage(cfg.Telegram.BotToken, cfg.Telegram.ChatID, cfg.SystemMonitoring.Disk.Threshold, cfg.SystemMonitoring.AverageInterval)
-				CheckMemoryUsage(cfg.Telegram.BotToken, cfg.Telegram.ChatID, cfg.SystemMonitoring.Memory.Threshold, cfg.SystemMonitoring.AverageInterval)
+				cfg.Logger.Debug("Running periodic stats check")
+				CheckServiceStatus(cfg)
+				CheckDiskUsage(cfg)
+				CheckMemoryUsage(cfg)
 			case <-ctx.Done():
+				cfg.Logger.Debug("Stopped stats monitoring")
 				return
 			}
 		}

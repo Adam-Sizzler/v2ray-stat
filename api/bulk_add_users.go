@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -16,158 +15,204 @@ import (
 	"github.com/google/uuid"
 )
 
-// generateRandomPassword generates a random 30-character password for trojan protocol using A-Za-z0-9
-func generateRandomPassword() (string, error) {
+// generateRandomPassword generates a random 30-character password for the trojan protocol using A-Za-z0-9.
+func generateRandomPassword(cfg *config.Config) (string, error) {
+	cfg.Logger.Debug("Generating random password for trojan protocol")
 	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 	const length = 30
 	bytes := make([]byte, length)
 	if _, err := rand.Read(bytes); err != nil {
-		return "", err
+		cfg.Logger.Error("Failed to generate random password", "error", err)
+		return "", fmt.Errorf("failed to generate random password: %v", err)
 	}
 	for i, b := range bytes {
 		bytes[i] = charset[b%byte(len(charset))]
 	}
-	return string(bytes), nil
+	password := string(bytes)
+	cfg.Logger.Trace("Generated password", "password_length", len(password))
+	return password, nil
 }
 
-// getProtocolByInboundTag determines the protocol (vless or trojan) based on inboundTag
+// getProtocolByInboundTag determines the protocol (vless or trojan) by inboundTag.
 func getProtocolByInboundTag(inboundTag string, cfg *config.Config) (string, error) {
-	configPath := cfg.V2rayStat.Type
+	if inboundTag == "" {
+		cfg.Logger.Warn("Empty inboundTag")
+		return "", fmt.Errorf("inboundTag is empty")
+	}
+
+	cfg.Logger.Debug("Reading config file to determine protocol", "inboundTag", inboundTag)
+	configPath := cfg.Core.Config
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return "", fmt.Errorf("error reading config.json: %v", err)
+		cfg.Logger.Error("Failed to read config file", "path", configPath, "error", err)
+		return "", fmt.Errorf("failed to read config.json: %v", err)
 	}
 
 	switch cfg.V2rayStat.Type {
 	case "xray":
 		var cfgXray config.ConfigXray
 		if err := json.Unmarshal(data, &cfgXray); err != nil {
-			return "", fmt.Errorf("error parsing JSON: %v", err)
+			cfg.Logger.Error("Failed to parse JSON for Xray", "error", err)
+			return "", fmt.Errorf("failed to parse JSON: %v", err)
 		}
 		for _, inbound := range cfgXray.Inbounds {
 			if inbound.Tag == inboundTag {
+				cfg.Logger.Trace("Found protocol for inboundTag", "inboundTag", inboundTag, "protocol", inbound.Protocol)
 				return inbound.Protocol, nil
 			}
 		}
 	case "singbox":
 		var cfgSingBox config.ConfigSingbox
 		if err := json.Unmarshal(data, &cfgSingBox); err != nil {
-			return "", fmt.Errorf("error parsing JSON: %v", err)
+			cfg.Logger.Error("Failed to parse JSON for Singbox", "error", err)
+			return "", fmt.Errorf("failed to parse JSON: %v", err)
 		}
 		for _, inbound := range cfgSingBox.Inbounds {
 			if inbound.Tag == inboundTag {
+				cfg.Logger.Trace("Found protocol for inboundTag", "inboundTag", inboundTag, "protocol", inbound.Type)
 				return inbound.Type, nil
 			}
 		}
 	}
+	cfg.Logger.Warn("inboundTag not found in configuration", "inboundTag", inboundTag)
 	return "", fmt.Errorf("inbound with tag %s not found", inboundTag)
 }
 
-// AddUsersFromFile adds users from a file with the format: user,credential[,inboundTag]
+// AddUsersFromFile adds users from a file with format: user,credential[,inboundTag].
 func AddUsersFromFile(file io.Reader, cfg *config.Config) error {
+	cfg.Logger.Debug("Starting processing of users file")
 	scanner := bufio.NewScanner(file)
 	lineNumber := 0
+	successCount := 0
+
 	for scanner.Scan() {
 		lineNumber++
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
-			log.Printf("Строка %d: Пропущена пустая строка", lineNumber)
+			cfg.Logger.Warn("Skipping empty line", "line_number", lineNumber)
 			continue
 		}
 
-		// Разделяем строку по первому пробелу, игнорируя комментарии
+		// Split line by first space, ignoring comments
 		parts := strings.SplitN(line, " ", 2)
 		data := strings.TrimSpace(parts[0])
 		if len(parts) > 1 {
-			// Комментарий игнорируется, не логируем
-			_ = strings.TrimSpace(parts[1])
+			cfg.Logger.Trace("Found comment in line", "line_number", lineNumber, "comment", strings.TrimSpace(parts[1]))
 		}
 
 		if data == "" {
-			log.Printf("Строка %d: Данные до пробела пустые", lineNumber)
+			cfg.Logger.Warn("Data before space is empty", "line_number", lineNumber)
 			continue
 		}
 
-		// Разделяем данные по запятым
+		// Split data by commas
 		fields := strings.Split(data, ",")
 		for i, field := range fields {
 			fields[i] = strings.TrimSpace(field)
 		}
 
-		// Проверяем количество полей
+		// Check for user name presence
 		if len(fields) < 1 || fields[0] == "" {
-			log.Printf("Строка %d: Ошибка: имя пользователя не указано в строке: %s", lineNumber, data)
+			cfg.Logger.Warn("User name not specified", "line_number", lineNumber, "data", data)
 			continue
 		}
 
 		user := fields[0]
-		credential := ""
-		if len(fields) > 1 && fields[1] != "" {
-			credential = fields[1]
-		}
-		inboundTag := "vless-in" // Значение по умолчанию
-		if len(fields) > 2 && fields[2] != "" {
-			inboundTag = fields[2]
-		}
-
-		// Определяем протокол по inboundTag
-		protocol, err := getProtocolByInboundTag(inboundTag, cfg)
-		if err != nil {
-			log.Printf("Строка %d: Ошибка определения протокола для inboundTag %s: %v", lineNumber, inboundTag, err)
+		if len(user) > 40 {
+			cfg.Logger.Warn("User name too long", "line_number", lineNumber, "user", user, "length", len(user))
 			continue
 		}
 
-		// Генерация credential в зависимости от протокола
-		if credential == "" {
-			if protocol == "vless" {
-				credential = uuid.New().String()
-			} else if protocol == "trojan" {
-				credential, err = generateRandomPassword()
-				if err != nil {
-					log.Printf("Строка %d: Ошибка генерации пароля для пользователя %s: %v", lineNumber, user, err)
-					continue
-				}
-			} else {
-				log.Printf("Строка %d: Неподдерживаемый протокол %s для inboundTag %s", lineNumber, protocol, inboundTag)
+		credential := ""
+		if len(fields) > 1 && fields[1] != "" {
+			credential = fields[1]
+			if len(credential) > 40 {
+				cfg.Logger.Warn("Credential too long", "line_number", lineNumber, "user", user, "credential_length", len(credential))
 				continue
 			}
 		}
 
-		if err := AddUserToConfig(user, credential, inboundTag, cfg); err != nil {
-			log.Printf("Строка %d: Не удалось добавить пользователя %s: %v", lineNumber, user, err)
+		inboundTag := "vless-in" // Default value
+		if len(fields) > 2 && fields[2] != "" {
+			inboundTag = fields[2]
+		}
+
+		cfg.Logger.Trace("Processing line", "line_number", lineNumber, "user", user, "credential", credential, "inboundTag", inboundTag)
+
+		// Determine protocol by inboundTag
+		protocol, err := getProtocolByInboundTag(inboundTag, cfg)
+		if err != nil {
+			cfg.Logger.Error("Failed to determine protocol", "line_number", lineNumber, "inboundTag", inboundTag, "error", err)
 			continue
 		}
+
+		// Generate credential based on protocol
+		if credential == "" {
+			if protocol == "vless" {
+				credential = uuid.New().String()
+				cfg.Logger.Debug("Generated UUID for vless", "user", user, "credential", credential)
+			} else if protocol == "trojan" {
+				credential, err = generateRandomPassword(cfg)
+				if err != nil {
+					cfg.Logger.Error("Failed to generate password", "line_number", lineNumber, "user", user, "error", err)
+					continue
+				}
+				cfg.Logger.Debug("Generated password for trojan", "user", user)
+			} else {
+				cfg.Logger.Warn("Unsupported protocol", "line_number", lineNumber, "protocol", protocol, "inboundTag", inboundTag)
+				continue
+			}
+		}
+
+		cfg.Logger.Debug("Adding user to configuration", "user", user, "inboundTag", inboundTag)
+		if err := AddUserToConfig(user, credential, inboundTag, cfg); err != nil {
+			cfg.Logger.Error("Failed to add user", "line_number", lineNumber, "user", user, "error", err)
+			continue
+		}
+
+		successCount++
+		cfg.Logger.Info("User added successfully", "line_number", lineNumber, "user", user)
 	}
 
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("ошибка чтения файла: %v", err)
+		cfg.Logger.Error("Failed to read file", "error", err)
+		return fmt.Errorf("failed to read file: %v", err)
 	}
+
+	cfg.Logger.Info("File processing completed", "success_count", successCount, "total_lines", lineNumber)
 	return nil
 }
 
-// BulkAddUsersHandler обрабатывает POST-запрос с файлом пользователей
+// BulkAddUsersHandler handles POST requests with a users file.
 func BulkAddUsersHandler(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg.Logger.Debug("Starting BulkAddUsersHandler request processing")
+
 		if r.Method != http.MethodPost {
-			http.Error(w, "Метод не поддерживается, используйте POST", http.StatusMethodNotAllowed)
+			cfg.Logger.Warn("Invalid HTTP method", "method", r.Method)
+			http.Error(w, "Method not allowed, use POST", http.StatusMethodNotAllowed)
 			return
 		}
 
-		// Получение файла из запроса
+		// Retrieve file from request
 		file, _, err := r.FormFile("users_file")
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Ошибка получения файла: %v", err), http.StatusBadRequest)
+			cfg.Logger.Error("Failed to retrieve file", "error", err)
+			http.Error(w, fmt.Sprintf("Failed to retrieve file: %v", err), http.StatusBadRequest)
 			return
 		}
 		defer file.Close()
 
-		// Обработка файла с помощью функции из пакета bulkadd
+		// Process file
+		cfg.Logger.Debug("Processing users file")
 		if err := AddUsersFromFile(file, cfg); err != nil {
-			http.Error(w, fmt.Sprintf("Ошибка обработки файла: %v", err), http.StatusInternalServerError)
+			cfg.Logger.Error("Failed to process file", "error", err)
+			http.Error(w, fmt.Sprintf("Failed to process file: %v", err), http.StatusInternalServerError)
 			return
 		}
 
+		cfg.Logger.Info("Users added successfully")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "Пользователи успешно добавлены")
+		fmt.Fprintln(w, "Users added successfully")
 	}
 }

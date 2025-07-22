@@ -6,23 +6,24 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"v2ray-stat/config"
 	"v2ray-stat/constant"
 	"v2ray-stat/db"
+	"v2ray-stat/db/manager"
 	"v2ray-stat/lua"
 	"v2ray-stat/stats"
+	"v2ray-stat/util"
 )
 
+// User represents a user entity from the clients_stats table.
 type User struct {
 	User          string `json:"user"`
 	Uuid          string `json:"uuid"`
@@ -39,122 +40,81 @@ type User struct {
 	Sess_downlink int64  `json:"sess_downlink"`
 }
 
-func UsersHandler(memDB *sql.DB, dbMutex *sync.Mutex) http.HandlerFunc {
+// UsersHandler returns a list of users from the database in JSON format.
+func UsersHandler(manager *manager.DatabaseManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg.Logger.Debug("Starting UsersHandler request processing")
+
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
 		if r.Method != http.MethodGet {
+			cfg.Logger.Warn("Invalid HTTP method", "method", r.Method)
 			http.Error(w, "Invalid method. Use GET", http.StatusMethodNotAllowed)
 			return
 		}
 
-		if memDB == nil {
-			http.Error(w, "Database not initialized", http.StatusInternalServerError)
-			return
-		}
-
-		dbMutex.Lock()
-		defer dbMutex.Unlock()
-
-		rows, err := memDB.Query("SELECT user, uuid, rate, enabled, created, sub_end, renew, lim_ip, ips, uplink, downlink, sess_uplink, sess_downlink FROM clients_stats")
-		if err != nil {
-			log.Printf("Error executing SQL query: %v", err)
-			http.Error(w, "Error executing query", http.StatusInternalServerError)
-			return
-		}
-		defer rows.Close()
-
 		var users []User
-		for rows.Next() {
-			var user User
-			if err := rows.Scan(&user.User, &user.Uuid, &user.Rate, &user.Enabled, &user.Created, &user.Sub_end, &user.Renew, &user.Lim_ip, &user.Ips, &user.Uplink, &user.Downlink, &user.Sess_uplink, &user.Sess_downlink); err != nil {
-				log.Printf("Error reading result: %v", err)
-				http.Error(w, "Error processing data", http.StatusInternalServerError)
-				return
+		err := manager.ExecuteLowPriority(func(db *sql.DB) error {
+			cfg.Logger.Debug("Executing query on clients_stats table")
+			rows, err := db.Query("SELECT user, uuid, rate, enabled, created, sub_end, renew, lim_ip, ips, uplink, downlink, sess_uplink, sess_downlink FROM clients_stats")
+			if err != nil {
+				cfg.Logger.Error("Failed to execute SQL query", "error", err)
+				return fmt.Errorf("failed to execute SQL query: %v", err)
 			}
-			users = append(users, user)
-		}
+			defer rows.Close()
 
-		if err := rows.Err(); err != nil {
-			log.Printf("Error in query result: %v", err)
+			for rows.Next() {
+				var user User
+				if err := rows.Scan(&user.User, &user.Uuid, &user.Rate, &user.Enabled, &user.Created, &user.Sub_end, &user.Renew, &user.Lim_ip, &user.Ips, &user.Uplink, &user.Downlink, &user.Sess_uplink, &user.Sess_downlink); err != nil {
+					cfg.Logger.Error("Failed to scan row", "error", err)
+					return fmt.Errorf("failed to scan row: %v", err)
+				}
+				cfg.Logger.Trace("Read user", "user", user.User, "uuid", user.Uuid, "enabled", user.Enabled)
+				users = append(users, user)
+			}
+			if err := rows.Err(); err != nil {
+				cfg.Logger.Error("Error iterating rows", "error", err)
+				return fmt.Errorf("error iterating rows: %v", err)
+			}
+
+			if len(users) == 0 {
+				cfg.Logger.Warn("No users found in clients_stats table")
+			}
+			return nil
+		})
+		if err != nil {
+			cfg.Logger.Error("Error in UsersHandler", "error", err)
 			http.Error(w, "Error processing data", http.StatusInternalServerError)
 			return
 		}
 
+		cfg.Logger.Debug("Encoding response to JSON", "users_count", len(users))
 		if err := json.NewEncoder(w).Encode(users); err != nil {
-			log.Printf("Error encoding JSON: %v", err)
+			cfg.Logger.Error("Failed to encode JSON", "error", err)
 			http.Error(w, "Error forming response", http.StatusInternalServerError)
 			return
 		}
+
+		cfg.Logger.Info("UsersHandler completed successfully", "users_count", len(users))
 	}
 }
 
+// contains checks if an item exists in a slice.
 func contains(slice []string, item string) bool {
 	return slices.Contains(slice, item)
 }
 
-func formatSpeed(speed float64) string {
-	const (
-		gbit = 1_000_000_000
-		mbit = 1_000_000
-		kbit = 1_000
-	)
-	switch {
-	case speed >= gbit:
-		return fmt.Sprintf("%.2f Gbit/s", speed/1_000_000_000)
-	case speed >= mbit:
-		return fmt.Sprintf("%.2f Mbit/s", speed/1_000_000)
-	case speed >= kbit:
-		return fmt.Sprintf("%.2f kbit/s", speed/1_000)
-	default:
-		return fmt.Sprintf("%.0f bit/s", speed)
-	}
-}
-
-func formatTraffic(value int64, isRate bool) string {
-	if isRate {
-		// Константы для скоростей (бит/с)
-		const (
-			mbit = 1_000_000 // Мегабит
-			kbit = 1_000     // Килобит
-		)
-		switch {
-		case value >= mbit:
-			return fmt.Sprintf("%.2f Mbps", float64(value)/mbit)
-		case value >= kbit:
-			return fmt.Sprintf("%.2f Kbps", float64(value)/kbit)
-		default:
-			return fmt.Sprintf("%d bps", value)
-		}
-	}
-
-	// Константы для объемов трафика (байты)
-	const (
-		gib = 1_073_741_824 // Гигабайт (1024^3)
-		mib = 1_048_576     // Мегабайт (1024^2)
-		kib = 1_024         // Килобайт (1024)
-	)
-	switch {
-	case value >= gib:
-		return fmt.Sprintf("%.2f GB", float64(value)/gib)
-	case value >= mib:
-		return fmt.Sprintf("%.2f MB", float64(value)/mib)
-	case value >= kib:
-		return fmt.Sprintf("%.2f KB", float64(value)/kib)
-	default:
-		return fmt.Sprintf("%d B", value)
-	}
-}
-
-// appendStats is a helper to reduce repetitive WriteString calls
+// appendStats appends content to a strings.Builder.
 func appendStats(builder *strings.Builder, content string) {
 	builder.WriteString(content)
 }
 
-func formatTable(rows *sql.Rows, trafficColumns []string) (string, error) {
+// formatTable formats SQL query results into a table.
+func formatTable(rows *sql.Rows, trafficColumns []string, cfg *config.Config) (string, error) {
 	columns, err := rows.Columns()
 	if err != nil {
-		return "", fmt.Errorf("error retrieving column names: %v", err)
+		cfg.Logger.Error("Failed to get column names", "error", err)
+		return "", fmt.Errorf("failed to get column names: %v", err)
 	}
 
 	maxWidths := make([]int, len(columns))
@@ -171,16 +131,24 @@ func formatTable(rows *sql.Rows, trafficColumns []string) (string, error) {
 		}
 
 		if err := rows.Scan(valuePtrs...); err != nil {
-			return "", fmt.Errorf("error scanning row: %v", err)
+			cfg.Logger.Error("Failed to scan row", "error", err)
+			return "", fmt.Errorf("failed to scan row: %v", err)
 		}
 
 		row := make([]string, len(columns))
 		for i, val := range values {
 			strVal := fmt.Sprintf("%v", val)
+			if len(strVal) > 255 {
+				cfg.Logger.Warn("Value too long in column", "column", columns[i], "length", len(strVal))
+				strVal = strVal[:255]
+			}
 			if contains(trafficColumns, columns[i]) {
 				if numVal, ok := val.(int64); ok {
-					isRate := columns[i] == "Rate"
-					strVal = formatTraffic(numVal, isRate)
+					unit := "byte"
+					if columns[i] == "Rate" {
+						unit = "bps"
+					}
+					strVal = util.FormatData(float64(numVal), unit)
 				}
 			}
 			row[i] = strVal
@@ -189,6 +157,10 @@ func formatTable(rows *sql.Rows, trafficColumns []string) (string, error) {
 			}
 		}
 		data = append(data, row)
+	}
+
+	if len(data) == 0 {
+		cfg.Logger.Warn("SQL query result is empty")
 	}
 
 	var header strings.Builder
@@ -220,29 +192,34 @@ func formatTable(rows *sql.Rows, trafficColumns []string) (string, error) {
 	return table.String(), nil
 }
 
-// buildServerStateStats collects server state statistics
-func buildServerStateStats(builder *strings.Builder, services []string) {
+// buildServerStateStats collects server state statistics.
+func buildServerStateStats(builder *strings.Builder, cfg *config.Config) {
+	cfg.Logger.Debug("Collecting server state statistics")
 	appendStats(builder, "➤  Server State:\n")
-	appendStats(builder, fmt.Sprintf("%-13s %s\n", "Uptime:", stats.GetUptime()))
-	appendStats(builder, fmt.Sprintf("%-13s %s\n", "Load average:", stats.GetLoadAverage()))
-	appendStats(builder, fmt.Sprintf("%-13s %s\n", "Memory:", stats.GetMemoryUsage()))
-	appendStats(builder, fmt.Sprintf("%-13s %s\n", "Disk usage:", stats.GetDiskUsage()))
-	appendStats(builder, fmt.Sprintf("%-13s %s\n", "Status:", stats.GetStatus(services)))
+	appendStats(builder, fmt.Sprintf("%-13s %s\n", "Uptime:", stats.GetUptime(cfg)))
+	appendStats(builder, fmt.Sprintf("%-13s %s\n", "Load average:", stats.GetLoadAverage(cfg)))
+	appendStats(builder, fmt.Sprintf("%-13s %s\n", "Memory:", stats.GetMemoryUsage(cfg)))
+	appendStats(builder, fmt.Sprintf("%-13s %s\n", "Disk usage:", stats.GetDiskUsage(cfg)))
+	appendStats(builder, fmt.Sprintf("%-13s %s\n", "Status:", stats.GetStatus(cfg)))
 	appendStats(builder, "\n")
 }
 
-// buildNetworkStats collects network statistics
-func buildNetworkStats(builder *strings.Builder) {
+// buildNetworkStats collects network statistics.
+func buildNetworkStats(builder *strings.Builder, cfg *config.Config) {
 	trafficMonitor := stats.GetTrafficMonitor()
 	if trafficMonitor != nil {
 		rxSpeed, txSpeed, rxPacketsPerSec, txPacketsPerSec, totalRxBytes, totalTxBytes := trafficMonitor.GetStats()
 		appendStats(builder, fmt.Sprintf("➤  Network (%s):\n", trafficMonitor.Iface))
-		appendStats(builder, fmt.Sprintf("   rx: %s   %.0f p/s    %s\n", formatSpeed(rxSpeed), rxPacketsPerSec, stats.FormatTraffic(totalRxBytes)))
-		appendStats(builder, fmt.Sprintf("   tx: %s   %.0f p/s    %s\n\n", formatSpeed(txSpeed), txPacketsPerSec, stats.FormatTraffic(totalTxBytes)))
+		appendStats(builder, fmt.Sprintf("rx: %s   %.0f p/s   %s\n", util.FormatData(float64(rxSpeed), "bps"), rxPacketsPerSec, util.FormatData(float64(totalRxBytes), "byte")))
+		appendStats(builder, fmt.Sprintf("tx: %s   %.0f p/s   %s\n\n", util.FormatData(float64(txSpeed), "bps"), txPacketsPerSec, util.FormatData(float64(totalTxBytes), "byte")))
+	} else {
+		cfg.Logger.Warn("Traffic monitor not initialized")
 	}
 }
 
-func buildServerCustomStats(builder *strings.Builder, memDB *sql.DB, dbMutex *sync.Mutex, cfg *config.Config) error {
+// buildServerCustomStats collects custom server statistics.
+func buildServerCustomStats(builder *strings.Builder, manager *manager.DatabaseManager, cfg *config.Config) error {
+	cfg.Logger.Debug("Collecting custom server statistics")
 	serverColumnAliases := map[string]string{
 		"source":        "Source",
 		"rate":          "Rate",
@@ -259,10 +236,6 @@ func buildServerCustomStats(builder *strings.Builder, memDB *sql.DB, dbMutex *sy
 		"Sess Down",
 	}
 
-	dbMutex.Lock()
-	defer dbMutex.Unlock()
-
-	// Server stats
 	if len(cfg.StatsColumns.Server.Columns) > 0 {
 		var serverCols []string
 		for _, col := range cfg.StatsColumns.Server.Columns {
@@ -273,24 +246,40 @@ func buildServerCustomStats(builder *strings.Builder, memDB *sql.DB, dbMutex *sy
 		serverQuery := fmt.Sprintf("SELECT %s FROM traffic_stats ORDER BY %s %s;",
 			strings.Join(serverCols, ", "), cfg.StatsColumns.Server.SortBy, cfg.StatsColumns.Server.SortOrder)
 
-		rows, err := memDB.Query(serverQuery)
-		if err != nil {
-			return fmt.Errorf("error executing custom server stats query: %v", err)
-		}
-		defer rows.Close()
+		err := manager.ExecuteLowPriority(func(db *sql.DB) error {
+			cfg.Logger.Debug("Executing server custom stats query", "query", serverQuery)
+			rows, err := db.Query(serverQuery)
+			if err != nil {
+				cfg.Logger.Error("Failed to execute server stats query", "error", err)
+				return fmt.Errorf("failed to execute server stats query: %v", err)
+			}
+			defer rows.Close()
 
-		appendStats(builder, "➤  Server Statistics:\n")
-		serverTable, err := formatTable(rows, trafficAliases)
+			appendStats(builder, "➤  Server Statistics:\n")
+			serverTable, err := formatTable(rows, trafficAliases, cfg)
+			if err != nil {
+				cfg.Logger.Error("Failed to format server stats table", "error", err)
+				return fmt.Errorf("failed to format server stats table: %v", err)
+			}
+			appendStats(builder, serverTable)
+			appendStats(builder, "\n")
+			return nil
+		})
+
 		if err != nil {
-			return fmt.Errorf("error formatting server stats table: %v", err)
+			cfg.Logger.Error("Error processing server custom stats", "error", err)
+			return err
 		}
-		appendStats(builder, serverTable)
-		appendStats(builder, "\n")
+	} else {
+		cfg.Logger.Warn("No columns specified for server stats in configuration")
 	}
 	return nil
 }
 
-func buildClientCustomStats(builder *strings.Builder, memDB *sql.DB, dbMutex *sync.Mutex, cfg *config.Config, sortBy, sortOrder string) error {
+// buildClientCustomStats collects custom client statistics.
+func buildClientCustomStats(builder *strings.Builder, manager *manager.DatabaseManager, cfg *config.Config, sortBy, sortOrder string) error {
+	cfg.Logger.Debug("Collecting custom client statistics")
+
 	clientColumnAliases := map[string]string{
 		"user":          "User",
 		"uuid":          "ID",
@@ -315,10 +304,6 @@ func buildClientCustomStats(builder *strings.Builder, memDB *sql.DB, dbMutex *sy
 		"Sess Down",
 	}
 
-	dbMutex.Lock()
-	defer dbMutex.Unlock()
-
-	// Client stats
 	if len(cfg.StatsColumns.Client.Columns) > 0 {
 		var clientCols []string
 		for _, col := range cfg.StatsColumns.Client.Columns {
@@ -340,49 +325,59 @@ func buildClientCustomStats(builder *strings.Builder, memDB *sql.DB, dbMutex *sy
 		clientQuery := fmt.Sprintf("SELECT %s FROM clients_stats ORDER BY %s %s;",
 			strings.Join(clientCols, ", "), clientSortBy, clientSortOrder)
 
-		rows, err := memDB.Query(clientQuery)
-		if err != nil {
-			return fmt.Errorf("error executing custom client stats query: %v", err)
-		}
-		defer rows.Close()
+		err := manager.ExecuteLowPriority(func(db *sql.DB) error {
+			cfg.Logger.Debug("Executing client stats query", "query", clientQuery)
+			rows, err := db.Query(clientQuery)
+			if err != nil {
+				cfg.Logger.Error("Failed to execute client stats query", "error", err)
+				return fmt.Errorf("failed to execute client stats query: %v", err)
+			}
+			defer rows.Close()
 
-		appendStats(builder, "➤  Client Statistics:\n")
-		clientTable, err := formatTable(rows, clientAliases)
+			appendStats(builder, "➤  Client Statistics:\n")
+			clientTable, err := formatTable(rows, clientAliases, cfg)
+			if err != nil {
+				cfg.Logger.Error("Failed to format client stats table", "error", err)
+				return fmt.Errorf("failed to format client stats table: %v", err)
+			}
+			appendStats(builder, clientTable)
+			return nil
+		})
+
 		if err != nil {
-			return fmt.Errorf("error formatting client stats table: %v", err)
+			cfg.Logger.Error("Error processing client stats", "error", err)
+			return err
 		}
-		appendStats(builder, clientTable)
+	} else {
+		cfg.Logger.Warn("No columns specified for client stats in configuration")
 	}
 	return nil
 }
 
-// StatsCustomHandler handles requests to /api/v1/stats_custom
-func StatsCustomHandler(memDB *sql.DB, dbMutex *sync.Mutex, cfg *config.Config) http.HandlerFunc {
+// StatsCustomHandler handles requests to /api/v1/stats_custom.
+func StatsCustomHandler(manager *manager.DatabaseManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg.Logger.Debug("Starting StatsCustomHandler request processing")
+
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 
 		if r.Method != http.MethodGet {
+			cfg.Logger.Warn("Invalid HTTP method", "method", r.Method)
 			http.Error(w, "Invalid method. Use GET", http.StatusMethodNotAllowed)
 			return
 		}
 
-		if memDB == nil {
-			http.Error(w, "Database not initialized", http.StatusInternalServerError)
-			return
-		}
-
 		sortBy := r.URL.Query().Get("sort_by")
-		sortOrder := r.URL.Query().Get("sort_order")
-
-		// Валидация sort_by
 		validSortColumns := []string{"user", "uuid", "last_seen", "rate", "sess_uplink", "sess_downlink", "uplink", "downlink", "enabled", "sub_end", "renew", "lim_ip", "ips", "created"}
 		if sortBy != "" && !contains(validSortColumns, sortBy) {
+			cfg.Logger.Warn("Invalid sort_by parameter", "sort_by", sortBy)
 			http.Error(w, fmt.Sprintf("Invalid sort_by parameter: %s, must be one of %v", sortBy, validSortColumns), http.StatusBadRequest)
 			return
 		}
 
-		// Валидация sort_order
+		sortOrder := r.URL.Query().Get("sort_order")
 		if sortOrder != "" && sortOrder != "ASC" && sortOrder != "DESC" {
+			cfg.Logger.Warn("Invalid sort_order parameter", "sort_order", sortOrder)
 			http.Error(w, fmt.Sprintf("Invalid sort_order parameter: %s, must be ASC or DESC", sortOrder), http.StatusBadRequest)
 			return
 		}
@@ -390,44 +385,41 @@ func StatsCustomHandler(memDB *sql.DB, dbMutex *sync.Mutex, cfg *config.Config) 
 		var statsBuilder strings.Builder
 
 		if cfg.Features["system_monitoring"] {
-			buildServerStateStats(&statsBuilder, cfg.Services)
+			cfg.Logger.Debug("Collecting system statistics")
+			buildServerStateStats(&statsBuilder, cfg)
 		}
 		if cfg.Features["network"] {
-			buildNetworkStats(&statsBuilder)
+			cfg.Logger.Debug("Collecting network statistics")
+			buildNetworkStats(&statsBuilder, cfg)
 		}
 
-		// Формируем серверную статистику
-		if err := buildServerCustomStats(&statsBuilder, memDB, dbMutex, cfg); err != nil {
-			log.Printf("Server stats error: %v", err)
-			http.Error(w, "Server stats query failed", http.StatusInternalServerError)
+		if err := buildServerCustomStats(&statsBuilder, manager, cfg); err != nil {
+			cfg.Logger.Error("Failed to retrieve server statistics", "error", err)
+			http.Error(w, "Error retrieving server statistics", http.StatusInternalServerError)
 			return
 		}
 
-		// Формируем клиентскую статистику
-		if err := buildClientCustomStats(&statsBuilder, memDB, dbMutex, cfg, sortBy, sortOrder); err != nil {
-			log.Printf("Client stats error: %v", err)
-			http.Error(w, "Client stats query failed", http.StatusInternalServerError)
+		if err := buildClientCustomStats(&statsBuilder, manager, cfg, sortBy, sortOrder); err != nil {
+			cfg.Logger.Error("Failed to retrieve client statistics", "error", err)
+			http.Error(w, "Error retrieving client statistics", http.StatusInternalServerError)
 			return
 		}
 
-		// If no data to display
 		if statsBuilder.String() == "" {
-			fmt.Fprintln(w, "No custom columns specified in config.")
+			cfg.Logger.Warn("No custom columns specified in configuration")
+			fmt.Fprintln(w, "No custom columns specified in configuration.")
 			return
 		}
 
+		cfg.Logger.Debug("Writing response", "response_length", len(statsBuilder.String()))
 		fmt.Fprintln(w, statsBuilder.String())
+		cfg.Logger.Debug("StatsCustomHandler completed successfully")
 	}
 }
 
-func buildTrafficStats(builder *strings.Builder, memDB *sql.DB, dbMutex *sync.Mutex, mode, sortBy, sortOrder string) {
-	if memDB == nil {
-		log.Printf("Database not initialized in buildTrafficStats")
-		return
-	}
-
-	dbMutex.Lock()
-	defer dbMutex.Unlock()
+// buildTrafficStats collects traffic statistics.
+func buildTrafficStats(builder *strings.Builder, manager *manager.DatabaseManager, cfg *config.Config, mode, sortBy, sortOrder string) error {
+	cfg.Logger.Debug("Collecting traffic statistics")
 
 	appendStats(builder, "➤  Server Statistics:\n")
 	var serverQuery string
@@ -455,15 +447,27 @@ func buildTrafficStats(builder *strings.Builder, memDB *sql.DB, dbMutex *sync.Mu
 		trafficColsServer = []string{"Rate", "Sess Up", "Sess Down", "Uplink", "Downlink"}
 	}
 
-	rows, err := memDB.Query(serverQuery)
-	if err != nil {
-		log.Printf("Error executing server stats query: %v", err)
-		return
-	}
-	defer rows.Close()
+	err := manager.ExecuteLowPriority(func(db *sql.DB) error {
+		cfg.Logger.Debug("Executing server traffic stats query", "query", serverQuery)
+		rows, err := db.Query(serverQuery)
+		if err != nil {
+			cfg.Logger.Error("Failed to execute server stats query", "error", err)
+			return fmt.Errorf("failed to execute server stats query: %v", err)
+		}
+		defer rows.Close()
 
-	serverTable, _ := formatTable(rows, trafficColsServer)
-	appendStats(builder, serverTable)
+		serverTable, err := formatTable(rows, trafficColsServer, cfg)
+		if err != nil {
+			cfg.Logger.Error("Failed to format server stats table", "error", err)
+			return err
+		}
+		appendStats(builder, serverTable)
+		return nil
+	})
+	if err != nil {
+		cfg.Logger.Error("Error processing server traffic stats", "error", err)
+		return err
+	}
 
 	appendStats(builder, "\n➤  Client Statistics:\n")
 	var clientQuery string
@@ -532,22 +536,41 @@ func buildTrafficStats(builder *strings.Builder, memDB *sql.DB, dbMutex *sync.Mu
 		trafficColsClients = []string{"Rate", "Sess Up", "Sess Down", "Uplink", "Downlink"}
 	}
 
-	rows, err = memDB.Query(clientQuery)
-	if err != nil {
-		log.Printf("Error executing client stats query: %v", err)
-		return
-	}
-	defer rows.Close()
+	err = manager.ExecuteLowPriority(func(db *sql.DB) error {
+		cfg.Logger.Debug("Executing client traffic stats query", "query", clientQuery)
+		rows, err := db.Query(clientQuery)
+		if err != nil {
+			cfg.Logger.Error("Failed to execute client stats query", "error", err)
+			return fmt.Errorf("failed to execute client stats query: %v", err)
+		}
+		defer rows.Close()
 
-	clientTable, _ := formatTable(rows, trafficColsClients)
-	appendStats(builder, clientTable)
+		clientTable, err := formatTable(rows, trafficColsClients, cfg)
+		if err != nil {
+			cfg.Logger.Error("Failed to format client stats table", "error", err)
+			return err
+		}
+		appendStats(builder, clientTable)
+		return nil
+	})
+	if err != nil {
+		cfg.Logger.Error("Error processing client traffic stats", "error", err)
+		return err
+	}
+
+	cfg.Logger.Debug("Traffic statistics collected successfully")
+	return nil
 }
 
-func StatsHandler(memDB *sql.DB, dbMutex *sync.Mutex, cfg *config.Config) http.HandlerFunc {
+// StatsHandler handles requests to /api/v1/stats.
+func StatsHandler(manager *manager.DatabaseManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg.Logger.Debug("Starting StatsHandler request processing")
+
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 
 		if r.Method != http.MethodGet {
+			cfg.Logger.Warn("Invalid HTTP method", "method", r.Method)
 			http.Error(w, "Invalid method. Use GET", http.StatusMethodNotAllowed)
 			return
 		}
@@ -556,81 +579,182 @@ func StatsHandler(memDB *sql.DB, dbMutex *sync.Mutex, cfg *config.Config) http.H
 		validModes := []string{"minimal", "standard", "extended", "full"}
 		if !contains(validModes, mode) {
 			if mode != "" {
+				cfg.Logger.Warn("Invalid mode parameter", "mode", mode)
 				http.Error(w, fmt.Sprintf("Invalid mode parameter: %s, must be one of %v", mode, validModes), http.StatusBadRequest)
 				return
 			}
+			cfg.Logger.Debug("Setting default mode", "mode", "minimal")
 			mode = "minimal"
 		}
 
 		sortBy := r.URL.Query().Get("sort_by")
 		validSortColumns := []string{"user", "uuid", "last_seen", "rate", "sess_uplink", "sess_downlink", "uplink", "downlink", "enabled", "sub_end", "renew", "lim_ip", "ips", "created"}
-		if !contains(validSortColumns, sortBy) {
-			if sortBy != "" {
-				http.Error(w, fmt.Sprintf("Invalid sort_by parameter: %s, must be one of %v", sortBy, validSortColumns), http.StatusBadRequest)
-				return
-			}
-			sortBy = "user"
+		if sortBy != "" && !contains(validSortColumns, sortBy) {
+			cfg.Logger.Warn("Invalid sort_by parameter", "sort_by", sortBy)
+			http.Error(w, fmt.Sprintf("Invalid sort_by parameter: %s, must be one of %v", sortBy, validSortColumns), http.StatusBadRequest)
+			return
 		}
 
 		sortOrder := r.URL.Query().Get("sort_order")
-		if sortOrder != "ASC" && sortOrder != "DESC" {
-			if sortOrder != "" {
-				http.Error(w, fmt.Sprintf("Invalid sort_order parameter: %s, must be ASC or DESC", sortOrder), http.StatusBadRequest)
-				return
-			}
-			sortOrder = "ASC"
+		if sortOrder != "" && sortOrder != "ASC" && sortOrder != "DESC" {
+			cfg.Logger.Warn("Invalid sort_order parameter", "sort_order", sortOrder)
+			http.Error(w, fmt.Sprintf("Invalid sort_order parameter: %s, must be ASC or DESC", sortOrder), http.StatusBadRequest)
+			return
 		}
 
 		var statsBuilder strings.Builder
 
 		if cfg.Features["system_monitoring"] {
-			buildServerStateStats(&statsBuilder, cfg.Services)
+			cfg.Logger.Debug("Collecting system statistics")
+			buildServerStateStats(&statsBuilder, cfg)
 		}
 		if cfg.Features["network"] {
-			buildNetworkStats(&statsBuilder)
+			cfg.Logger.Debug("Collecting network statistics")
+			buildNetworkStats(&statsBuilder, cfg)
 		}
-		buildTrafficStats(&statsBuilder, memDB, dbMutex, mode, sortBy, sortOrder)
 
+		if err := buildTrafficStats(&statsBuilder, manager, cfg, mode, sortBy, sortOrder); err != nil {
+			cfg.Logger.Error("Failed to retrieve traffic statistics", "error", err)
+			http.Error(w, "Error processing statistics", http.StatusInternalServerError)
+			return
+		}
+
+		cfg.Logger.Debug("Writing response", "response_length", len(statsBuilder.String()))
 		fmt.Fprintln(w, statsBuilder.String())
+		cfg.Logger.Info("StatsHandler completed successfully")
 	}
 }
 
-func ResetTrafficHandler() http.HandlerFunc {
+// ResetTrafficHandler handles requests to reset traffic statistics.
+func ResetTrafficHandler(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg.Logger.Debug("Starting ResetTrafficHandler request processing")
+
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 
 		if r.Method != http.MethodPost {
+			cfg.Logger.Warn("Invalid HTTP method", "method", r.Method)
 			http.Error(w, "Invalid method. Use POST", http.StatusMethodNotAllowed)
 			return
 		}
 
+		cfg.Logger.Trace("Checking request parameters", "query_params", r.URL.Query().Encode())
+
+		cfg.Logger.Debug("Retrieving traffic monitor")
 		trafficMonitor := stats.GetTrafficMonitor()
 		if trafficMonitor == nil {
+			cfg.Logger.Error("Traffic monitor not initialized")
 			http.Error(w, "Traffic monitor not initialized", http.StatusInternalServerError)
 			return
 		}
 
-		err := trafficMonitor.ResetTraffic()
+		cfg.Logger.Debug("Resetting traffic statistics")
+		err := trafficMonitor.ResetTraffic(cfg)
 		if err != nil {
+			cfg.Logger.Error("Failed to reset traffic", "error", err)
 			http.Error(w, fmt.Sprintf("Failed to reset traffic: %v", err), http.StatusInternalServerError)
 			return
 		}
 
-		log.Printf("Traffic reset successfully")
+		cfg.Logger.Info("Traffic reset successfully")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "Traffic reset successfully")
 	}
 }
 
-func DnsStatsHandler(memDB *sql.DB, dbMutex *sync.Mutex) http.HandlerFunc {
+// DnsStat represents DNS query statistics.
+type DnsStat struct {
+	User   string
+	Count  int
+	Domain string
+}
+
+// getDnsStats executes a query and returns formatted DNS statistics.
+func getDnsStats(manager *manager.DatabaseManager, cfg *config.Config, user, count string) (string, error) {
+	if user == "" {
+		cfg.Logger.Warn("Missing user parameter")
+		return "", fmt.Errorf("missing user parameter")
+	}
+
+	countInt, err := strconv.Atoi(count)
+	if err != nil {
+		cfg.Logger.Warn("Invalid count parameter", "count", count, "error", err)
+		return "", fmt.Errorf("invalid count parameter: %v", err)
+	}
+	if countInt <= 0 {
+		cfg.Logger.Warn("Count must be positive", "count", count)
+		return "", fmt.Errorf("count must be positive: %s", count)
+	}
+	if countInt > 1000 {
+		cfg.Logger.Warn("Count exceeds maximum limit", "count", count)
+		return "", fmt.Errorf("count exceeds maximum limit: %s", count)
+	}
+
+	var statsBuilder strings.Builder
+	statsBuilder.WriteString(" 📊 DNS Query Statistics:\n")
+	statsBuilder.WriteString(fmt.Sprintf("%-12s %-6s %-s\n", "User", "Count", "Domain"))
+	statsBuilder.WriteString("-------------------------------------------------------------\n")
+
+	err = manager.ExecuteLowPriority(func(db *sql.DB) error {
+		cfg.Logger.Debug("Executing query on dns_stats table", "user", user, "count", count)
+		rows, err := db.Query(`
+			SELECT user AS "User", count AS "Count", domain AS "Domain"
+			FROM dns_stats
+			WHERE user = ?
+			ORDER BY count DESC
+			LIMIT ?`, user, count)
+		if err != nil {
+			cfg.Logger.Error("Failed to execute SQL query", "user", user, "error", err)
+			return fmt.Errorf("failed to execute SQL query: %v", err)
+		}
+		defer rows.Close()
+
+		var stats []DnsStat
+		for rows.Next() {
+			var stat DnsStat
+			if err := rows.Scan(&stat.User, &stat.Count, &stat.Domain); err != nil {
+				cfg.Logger.Error("Failed to scan row", "error", err)
+				return fmt.Errorf("failed to scan row: %v", err)
+			}
+			if stat.User == "" {
+				cfg.Logger.Warn("Empty user found in DNS stats", "domain", stat.Domain)
+				continue
+			}
+			cfg.Logger.Trace("Read DNS stat", "user", stat.User, "count", stat.Count, "domain", stat.Domain)
+			stats = append(stats, stat)
+		}
+		if err := rows.Err(); err != nil {
+			cfg.Logger.Error("Error iterating rows", "error", err)
+			return fmt.Errorf("error iterating rows: %v", err)
+		}
+
+		if len(stats) == 0 {
+			cfg.Logger.Warn("No DNS statistics found", "user", user)
+		}
+
+		cfg.Logger.Debug("Formatting DNS statistics", "stats_count", len(stats))
+		for _, stat := range stats {
+			statsBuilder.WriteString(fmt.Sprintf("%-12s %-6d %-s\n", stat.User, stat.Count, stat.Domain))
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return statsBuilder.String(), nil
+}
+
+// DnsStatsHandler handles HTTP requests for DNS statistics.
+func DnsStatsHandler(manager *manager.DatabaseManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg.Logger.Debug("Starting DnsStatsHandler request processing")
+
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 
 		if r.Method != http.MethodGet {
+			cfg.Logger.Warn("Invalid HTTP method", "method", r.Method)
 			http.Error(w, "Invalid method. Use GET", http.StatusMethodNotAllowed)
-			return
-		}
-
-		if memDB == nil {
-			http.Error(w, "Database not initialized", http.StatusInternalServerError)
 			return
 		}
 
@@ -638,314 +762,436 @@ func DnsStatsHandler(memDB *sql.DB, dbMutex *sync.Mutex) http.HandlerFunc {
 		count := r.URL.Query().Get("count")
 
 		if user == "" {
+			cfg.Logger.Warn("Missing user parameter")
 			http.Error(w, "Missing user parameter", http.StatusBadRequest)
 			return
 		}
 
 		if count == "" {
 			count = "20"
+			cfg.Logger.Debug("Setting default count value", "count", count)
 		}
 
-		if _, err := strconv.Atoi(count); err != nil {
-			http.Error(w, "Invalid count parameter", http.StatusBadRequest)
-			return
-		}
-
-		dbMutex.Lock()
-		defer dbMutex.Unlock()
-
-		stats := " 📊 DNS Query Statistics:\n"
-		stats += fmt.Sprintf("%-12s %-6s %-s\n", "User", "Count", "Domain")
-		stats += "-------------------------------------------------------------\n"
-		rows, err := memDB.Query(`
-			SELECT user AS "User", count AS "Count", domain AS "Domain"
-			FROM dns_stats
-			WHERE user = ?
-			ORDER BY count DESC
-			LIMIT ?`, user, count)
+		response, err := getDnsStats(manager, cfg, user, count)
 		if err != nil {
-			log.Printf("Error executing SQL query: %v", err)
-			http.Error(w, "Error executing query", http.StatusInternalServerError)
+			cfg.Logger.Error("Error in DnsStatsHandler retrieving stats", "user", user, "error", err)
+			http.Error(w, "Error processing data", http.StatusInternalServerError)
 			return
 		}
-		defer rows.Close()
 
-		for rows.Next() {
-			var user, domain string
-			var count int
-			if err := rows.Scan(&user, &count, &domain); err != nil {
-				log.Printf("Error reading result: %v", err)
-				http.Error(w, "Error processing data", http.StatusInternalServerError)
-				return
-			}
-			stats += fmt.Sprintf("%-12s %-6d %-s\n", user, count, domain)
-		}
-
-		fmt.Fprintln(w, stats)
+		cfg.Logger.Debug("Writing response", "user", user, "response_length", len(response))
+		fmt.Fprintln(w, response)
+		cfg.Logger.Info("DnsStatsHandler completed successfully", "user", user)
 	}
 }
 
-func UpdateIPLimitHandler(memDB *sql.DB, dbMutex *sync.Mutex) http.HandlerFunc {
+// UpdateIPLimitHandler updates the IP limit for a user in the clients_stats table.
+func UpdateIPLimitHandler(manager *manager.DatabaseManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
+		cfg.Logger.Debug("Starting UpdateIPLimitHandler request processing")
+
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 
 		if r.Method != http.MethodPatch {
+			cfg.Logger.Warn("Invalid HTTP method", "method", r.Method)
 			http.Error(w, "Invalid method. Use PATCH", http.StatusMethodNotAllowed)
 			return
 		}
 
-		if memDB == nil {
-			http.Error(w, "Database not initialized", http.StatusInternalServerError)
-			return
-		}
-
-		err := r.ParseForm()
-		if err != nil {
-			http.Error(w, "Error parsing form", http.StatusBadRequest)
+		cfg.Logger.Debug("Parsing form data")
+		if err := r.ParseForm(); err != nil {
+			cfg.Logger.Error("Failed to parse form data", "error", err)
+			http.Error(w, "Error parsing form data", http.StatusBadRequest)
 			return
 		}
 
 		userIdentifier := r.FormValue("user")
 		ipLimit := r.FormValue("lim_ip")
+		cfg.Logger.Trace("Received form parameters", "user", userIdentifier, "lim_ip", ipLimit)
 
 		if userIdentifier == "" {
-			http.Error(w, "Invalid parameters. Use user", http.StatusBadRequest)
+			cfg.Logger.Warn("Empty user identifier")
+			http.Error(w, "User field is required", http.StatusBadRequest)
+			return
+		}
+		if len(userIdentifier) > 40 {
+			cfg.Logger.Warn("User identifier too long", "length", len(userIdentifier))
+			http.Error(w, "User identifier too long (max 40 characters)", http.StatusBadRequest)
+			return
+		}
+		if ipLimit != "" && len(ipLimit) > 40 {
+			cfg.Logger.Warn("lim_ip value too long", "length", len(ipLimit))
+			http.Error(w, "lim_ip value too long (max 40 characters)", http.StatusBadRequest)
 			return
 		}
 
 		var ipLimitInt int
 		if ipLimit == "" {
 			ipLimitInt = 0
+			cfg.Logger.Debug("lim_ip not specified, set to 0")
 		} else {
 			var err error
 			ipLimitInt, err = strconv.Atoi(ipLimit)
 			if err != nil {
+				cfg.Logger.Warn("Invalid lim_ip value", "lim_ip", ipLimit, "error", err)
 				http.Error(w, "lim_ip must be a number", http.StatusBadRequest)
 				return
 			}
-
 			if ipLimitInt < 0 || ipLimitInt > 100 {
-				http.Error(w, "lim_ip must be between 1 and 100", http.StatusBadRequest)
+				cfg.Logger.Warn("Invalid lim_ip value", "lim_ip", ipLimitInt)
+				http.Error(w, "lim_ip must be between 0 and 100", http.StatusBadRequest)
 				return
 			}
 		}
 
-		dbMutex.Lock()
-		defer dbMutex.Unlock()
+		cfg.Logger.Debug("Updating IP limit for user", "user", userIdentifier, "lim_ip", ipLimitInt)
+		err := manager.ExecuteHighPriority(func(db1 *sql.DB) error {
+			cfg.Logger.Debug("Starting transaction for IP limit update")
+			tx, err := db1.Begin()
+			if err != nil {
+				cfg.Logger.Error("Failed to start transaction", "error", err)
+				return fmt.Errorf("failed to start transaction: %v", err)
+			}
+			defer tx.Rollback()
 
-		query := "UPDATE clients_stats SET lim_ip = ? WHERE user = ?"
-		result, err := memDB.Exec(query, ipLimitInt, userIdentifier)
+			cfg.Logger.Debug("Executing IP limit update query")
+			result, err := tx.Exec("UPDATE clients_stats SET lim_ip = ? WHERE user = ?", ipLimitInt, userIdentifier)
+			if err != nil {
+				cfg.Logger.Error("Failed to update lim_ip for user", "user", userIdentifier, "error", err)
+				return fmt.Errorf("failed to update lim_ip for user %s: %v", userIdentifier, err)
+			}
+
+			rowsAffected, err := result.RowsAffected()
+			if err != nil {
+				cfg.Logger.Error("Failed to get affected rows", "user", userIdentifier, "error", err)
+				return fmt.Errorf("failed to get affected rows for user %s: %v", userIdentifier, err)
+			}
+			if rowsAffected == 0 {
+				cfg.Logger.Warn("User not found", "user", userIdentifier)
+				return fmt.Errorf("user '%s' not found", userIdentifier)
+			}
+
+			cfg.Logger.Debug("Committing transaction")
+			if err := tx.Commit(); err != nil {
+				cfg.Logger.Error("Failed to commit transaction", "error", err)
+				return fmt.Errorf("failed to commit transaction: %v", err)
+			}
+
+			cfg.Logger.Info("IP limit updated successfully", "user", userIdentifier, "lim_ip", ipLimitInt)
+			return nil
+		})
+
 		if err != nil {
-			log.Printf("Error updating lim_ip for user %s: %v", userIdentifier, err)
-			http.Error(w, "Error updating lim_ip", http.StatusInternalServerError)
+			cfg.Logger.Error("Error in UpdateIPLimitHandler", "error", err)
+			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
 
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			log.Printf("Error checking rows affected for user %s: %v", userIdentifier, err)
-			http.Error(w, "Error processing update", http.StatusInternalServerError)
-			return
-		}
-
-		if rowsAffected == 0 {
-			http.Error(w, fmt.Sprintf("User '%s' not found", userIdentifier), http.StatusNotFound)
-			return
-		}
-
-		log.Printf("IP address limit for user %s set to %d [%v]", userIdentifier, ipLimitInt, time.Since(start))
+		cfg.Logger.Debug("IP limit update request completed successfully", "user", userIdentifier, "lim_ip", ipLimitInt)
 		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "IP limit updated successfully")
 	}
 }
 
-func DeleteDNSStatsHandler(memDB *sql.DB, dbMutex *sync.Mutex) http.HandlerFunc {
+// DeleteDNSStatsHandler deletes all records from the dns_stats table.
+func DeleteDNSStatsHandler(manager *manager.DatabaseManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg.Logger.Debug("Starting DeleteDNSStatsHandler request processing")
+
 		if r.Method != http.MethodPost {
+			cfg.Logger.Warn("Invalid HTTP method", "method", r.Method)
 			http.Error(w, "Invalid method. Use POST", http.StatusMethodNotAllowed)
 			return
 		}
 
-		if memDB == nil {
-			http.Error(w, "Database not initialized", http.StatusInternalServerError)
-			return
-		}
+		cfg.Logger.Trace("Request to delete DNS stats records", "remote_addr", r.RemoteAddr)
+		err := manager.ExecuteHighPriority(func(db1 *sql.DB) error {
+			cfg.Logger.Debug("Starting transaction for deleting records")
+			tx, err := db1.Begin()
+			if err != nil {
+				cfg.Logger.Error("Failed to start transaction", "error", err)
+				return fmt.Errorf("failed to start transaction: %v", err)
+			}
+			defer tx.Rollback()
 
-		dbMutex.Lock()
-		defer dbMutex.Unlock()
+			cfg.Logger.Debug("Executing delete query for dns_stats")
+			result, err := tx.Exec("DELETE FROM dns_stats")
+			if err != nil {
+				cfg.Logger.Error("Failed to delete records from dns_stats", "error", err)
+				return fmt.Errorf("failed to delete records from dns_stats: %v", err)
+			}
 
-		result, err := memDB.Exec("DELETE FROM dns_stats")
+			rowsAffected, err := result.RowsAffected()
+			if err != nil {
+				cfg.Logger.Error("Failed to get affected rows", "error", err)
+				return fmt.Errorf("failed to get affected rows: %v", err)
+			}
+			if rowsAffected == 0 {
+				cfg.Logger.Warn("No rows affected during deletion", "table", "dns_stats")
+			}
+
+			cfg.Logger.Debug("Committing transaction")
+			if err := tx.Commit(); err != nil {
+				cfg.Logger.Error("Failed to commit transaction", "error", err)
+				return fmt.Errorf("failed to commit transaction: %v", err)
+			}
+
+			return nil
+		})
 		if err != nil {
-			log.Printf("Error deleting records from dns_stats: %v", err)
-			http.Error(w, "Failed to delete records from dns_stats", http.StatusInternalServerError)
+			cfg.Logger.Error("Error in DeleteDNSStatsHandler", "error", err)
+			http.Error(w, "Failed to delete DNS stats records", http.StatusInternalServerError)
 			return
 		}
 
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			log.Printf("Error checking rows affected: %v", err)
-			http.Error(w, "Error processing deletion", http.StatusInternalServerError)
-			return
-		}
-
-		log.Printf("Received request to delete dns_stats from %s, %d rows affected", r.RemoteAddr, rowsAffected)
+		cfg.Logger.Info("DNS stats deletion request completed successfully", "remote_addr", r.RemoteAddr)
 		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "DNS stats records deleted successfully")
 	}
 }
 
-func ResetTrafficStatsHandler(memDB *sql.DB, dbMutex *sync.Mutex) http.HandlerFunc {
+// ResetTrafficStatsHandler resets traffic statistics in the traffic_stats table.
+func ResetTrafficStatsHandler(manager *manager.DatabaseManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg.Logger.Debug("Starting ResetTrafficStatsHandler request processing")
+
 		if r.Method != http.MethodPost {
+			cfg.Logger.Warn("Invalid HTTP method", "method", r.Method)
 			http.Error(w, "Invalid method. Use POST", http.StatusMethodNotAllowed)
 			return
 		}
 
-		if memDB == nil {
-			http.Error(w, "Database not initialized", http.StatusInternalServerError)
-			return
-		}
+		cfg.Logger.Trace("Request to reset traffic stats", "remote_addr", r.RemoteAddr)
+		err := manager.ExecuteHighPriority(func(db1 *sql.DB) error {
+			cfg.Logger.Debug("Starting transaction for resetting stats")
+			tx, err := db1.Begin()
+			if err != nil {
+				cfg.Logger.Error("Failed to start transaction", "error", err)
+				return fmt.Errorf("failed to start transaction: %v", err)
+			}
+			defer tx.Rollback()
 
-		dbMutex.Lock()
-		defer dbMutex.Unlock()
+			cfg.Logger.Debug("Executing reset traffic stats query")
+			result, err := tx.Exec("UPDATE traffic_stats SET uplink = 0, downlink = 0")
+			if err != nil {
+				cfg.Logger.Error("Failed to reset traffic stats", "error", err)
+				return fmt.Errorf("failed to reset traffic stats: %v", err)
+			}
 
-		result, err := memDB.Exec("UPDATE traffic_stats SET uplink = 0, downlink = 0")
+			rowsAffected, err := result.RowsAffected()
+			if err != nil {
+				cfg.Logger.Error("Failed to get affected rows", "error", err)
+				return fmt.Errorf("failed to get affected rows: %v", err)
+			}
+			if rowsAffected == 0 {
+				cfg.Logger.Warn("No rows affected during reset", "table", "traffic_stats")
+			}
+
+			cfg.Logger.Debug("Committing transaction")
+			if err := tx.Commit(); err != nil {
+				cfg.Logger.Error("Failed to commit transaction", "error", err)
+				return fmt.Errorf("failed to commit transaction: %v", err)
+			}
+
+			return nil
+		})
 		if err != nil {
-			log.Printf("Error resetting traffic statistics: %v", err)
-			http.Error(w, "Failed to reset traffic statistics", http.StatusInternalServerError)
+			cfg.Logger.Error("Error in ResetTrafficStatsHandler", "error", err)
+			http.Error(w, "Failed to reset traffic stats", http.StatusInternalServerError)
 			return
 		}
 
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			log.Printf("Error retrieving number of affected rows: %v", err)
-			http.Error(w, "Error processing result", http.StatusInternalServerError)
-			return
-		}
-
-		log.Printf("Received request to reset traffic_stats from %s, affected %d rows", r.RemoteAddr, rowsAffected)
+		cfg.Logger.Info("Traffic stats reset request completed successfully", "remote_addr", r.RemoteAddr)
 		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "Traffic stats reset successfully")
 	}
 }
 
-func ResetClientsStatsHandler(memDB *sql.DB, dbMutex *sync.Mutex) http.HandlerFunc {
+// ResetClientsStatsHandler resets traffic statistics in the clients_stats table.
+func ResetClientsStatsHandler(manager *manager.DatabaseManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg.Logger.Debug("Starting ResetClientsStatsHandler request processing")
+
 		if r.Method != http.MethodPost {
+			cfg.Logger.Warn("Invalid HTTP method", "method", r.Method)
 			http.Error(w, "Invalid method. Use POST", http.StatusMethodNotAllowed)
 			return
 		}
 
-		if memDB == nil {
-			http.Error(w, "Database not initialized", http.StatusInternalServerError)
-			return
-		}
+		cfg.Logger.Trace("Request to reset client traffic stats", "remote_addr", r.RemoteAddr)
+		err := manager.ExecuteHighPriority(func(db1 *sql.DB) error {
+			cfg.Logger.Debug("Starting transaction for resetting client stats")
+			tx, err := db1.Begin()
+			if err != nil {
+				cfg.Logger.Error("Failed to start transaction", "error", err)
+				return fmt.Errorf("failed to start transaction: %v", err)
+			}
+			defer tx.Rollback()
 
-		dbMutex.Lock()
-		defer dbMutex.Unlock()
+			cfg.Logger.Debug("Executing reset client traffic stats query")
+			result, err := tx.Exec("UPDATE clients_stats SET uplink = 0, downlink = 0")
+			if err != nil {
+				cfg.Logger.Error("Failed to reset client traffic stats", "error", err)
+				return fmt.Errorf("failed to reset client traffic stats: %v", err)
+			}
 
-		result, err := memDB.Exec("UPDATE clients_stats SET uplink = 0, downlink = 0")
+			rowsAffected, err := result.RowsAffected()
+			if err != nil {
+				cfg.Logger.Error("Failed to get affected rows", "error", err)
+				return fmt.Errorf("failed to get affected rows: %v", err)
+			}
+			if rowsAffected == 0 {
+				cfg.Logger.Warn("No rows affected during reset", "table", "clients_stats")
+			}
+
+			cfg.Logger.Debug("Committing transaction")
+			if err := tx.Commit(); err != nil {
+				cfg.Logger.Error("Failed to commit transaction", "error", err)
+				return fmt.Errorf("failed to commit transaction: %v", err)
+			}
+
+			cfg.Logger.Info("Client traffic stats reset successfully", "rows_affected", rowsAffected)
+			return nil
+		})
 		if err != nil {
-			log.Printf("Error resetting traffic statistics: %v", err)
-			http.Error(w, "Failed to reset traffic statistics", http.StatusInternalServerError)
+			cfg.Logger.Error("Error in ResetClientsStatsHandler", "error", err)
+			http.Error(w, "Failed to reset client traffic stats", http.StatusInternalServerError)
 			return
 		}
 
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			log.Printf("Error retrieving number of affected rows: %v", err)
-			http.Error(w, "Error processing result", http.StatusInternalServerError)
-			return
-		}
-
-		log.Printf("Received request to reset clients_stats from %s, affected %d rows", r.RemoteAddr, rowsAffected)
+		cfg.Logger.Info("Client traffic stats reset request completed successfully", "remote_addr", r.RemoteAddr)
 		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "Client traffic stats reset successfully")
 	}
 }
 
-func UpdateRenewHandler(memDB *sql.DB, dbMutex *sync.Mutex) http.HandlerFunc {
+// UpdateRenewHandler updates the renew value for a user in the clients_stats table.
+func UpdateRenewHandler(manager *manager.DatabaseManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg.Logger.Debug("Starting UpdateRenewHandler request processing")
+
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+
 		if r.Method != http.MethodPatch {
+			cfg.Logger.Warn("Invalid HTTP method", "method", r.Method)
 			http.Error(w, "Invalid method. Use PATCH", http.StatusMethodNotAllowed)
 			return
 		}
 
-		if memDB == nil {
-			http.Error(w, "Database not initialized", http.StatusInternalServerError)
-			return
-		}
-
+		cfg.Logger.Debug("Parsing form data")
 		if err := r.ParseForm(); err != nil {
-			http.Error(w, "Error parsing data", http.StatusBadRequest)
+			cfg.Logger.Error("Failed to parse form data", "error", err)
+			http.Error(w, "Error parsing form data", http.StatusBadRequest)
 			return
 		}
 
 		userIdentifier := r.FormValue("user")
 		renewStr := r.FormValue("renew")
+		cfg.Logger.Trace("Received form parameters", "user", userIdentifier, "renew", renewStr)
 
 		if userIdentifier == "" {
-			http.Error(w, "user is required", http.StatusBadRequest)
+			cfg.Logger.Warn("Empty user identifier")
+			http.Error(w, "User field is required", http.StatusBadRequest)
+			return
+		}
+		if len(userIdentifier) > 40 {
+			cfg.Logger.Warn("User identifier too long", "length", len(userIdentifier))
+			http.Error(w, "User identifier too long (max 40 characters)", http.StatusBadRequest)
+			return
+		}
+		if renewStr != "" && len(renewStr) > 40 {
+			cfg.Logger.Warn("Renew value too long", "length", len(renewStr))
+			http.Error(w, "Renew value too long (max 40 characters)", http.StatusBadRequest)
 			return
 		}
 
 		var renew int
 		if renewStr == "" {
 			renew = 0
+			cfg.Logger.Debug("Renew not specified, set to 0")
 		} else {
 			var err error
 			renew, err = strconv.Atoi(renewStr)
 			if err != nil {
-				http.Error(w, "renew must be an integer", http.StatusBadRequest)
+				cfg.Logger.Warn("Invalid renew value", "renew", renewStr, "error", err)
+				http.Error(w, "Renew must be an integer", http.StatusBadRequest)
 				return
 			}
 			if renew < 0 {
-				http.Error(w, "renew cannot be negative", http.StatusBadRequest)
+				cfg.Logger.Warn("Invalid renew value", "renew", renew)
+				http.Error(w, "Renew cannot be negative", http.StatusBadRequest)
 				return
 			}
 		}
 
-		dbMutex.Lock()
-		defer dbMutex.Unlock()
+		cfg.Logger.Debug("Updating renew value for user", "user", userIdentifier, "renew", renew)
+		err := manager.ExecuteHighPriority(func(db1 *sql.DB) error {
+			cfg.Logger.Debug("Starting transaction for renew update")
+			tx, err := db1.Begin()
+			if err != nil {
+				cfg.Logger.Error("Failed to start transaction", "error", err)
+				return fmt.Errorf("failed to start transaction: %v", err)
+			}
+			defer tx.Rollback()
 
-		result, err := memDB.Exec("UPDATE clients_stats SET renew = ? WHERE user = ?", renew, userIdentifier)
+			cfg.Logger.Debug("Executing renew update query")
+			result, err := tx.Exec("UPDATE clients_stats SET renew = ? WHERE user = ?", renew, userIdentifier)
+			if err != nil {
+				cfg.Logger.Error("Failed to update renew for user", "user", userIdentifier, "error", err)
+				return fmt.Errorf("failed to update renew for user %s: %v", userIdentifier, err)
+			}
+
+			rowsAffected, err := result.RowsAffected()
+			if err != nil {
+				cfg.Logger.Error("Failed to get affected rows", "user", userIdentifier, "error", err)
+				return fmt.Errorf("failed to get affected rows for user %s: %v", userIdentifier, err)
+			}
+			if rowsAffected == 0 {
+				cfg.Logger.Warn("User not found", "user", userIdentifier)
+				return fmt.Errorf("user '%s' not found", userIdentifier)
+			}
+
+			cfg.Logger.Debug("Committing transaction")
+			if err := tx.Commit(); err != nil {
+				cfg.Logger.Error("Failed to commit transaction", "error", err)
+				return fmt.Errorf("failed to commit transaction: %v", err)
+			}
+
+			return nil
+		})
 		if err != nil {
-			log.Printf("Error updating renew for %s: %v", userIdentifier, err)
-			http.Error(w, "Error updating database", http.StatusInternalServerError)
+			cfg.Logger.Error("Error in UpdateRenewHandler", "error", err)
+			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
 
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			log.Printf("Error getting RowsAffected: %v", err)
-			http.Error(w, "Server error", http.StatusInternalServerError)
-			return
-		}
-
-		if rowsAffected == 0 {
-			http.Error(w, fmt.Sprintf("User '%s' not found", userIdentifier), http.StatusNotFound)
-			return
-		}
-
-		log.Printf("Auto-renewal set to %d for user %s", renew, userIdentifier)
+		cfg.Logger.Info("Renew update request completed successfully", "user", userIdentifier, "renew", renew)
 		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "Renew value updated successfully")
 	}
 }
 
+// AddUserToConfig adds a user to the configuration file.
 func AddUserToConfig(user, credential, inboundTag string, cfg *config.Config) error {
+	cfg.Logger.Debug("Starting user addition to configuration", "user", user, "inboundTag", inboundTag)
 	start := time.Now()
 	configPath := cfg.Core.Config
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return fmt.Errorf("error reading config.json: %v", err)
+		cfg.Logger.Error("Failed to read config.json", "path", configPath, "error", err)
+		return fmt.Errorf("failed to read config.json: %v", err)
 	}
 
 	proxyType := cfg.V2rayStat.Type
 	var configData any
-	var protocol string // Для хранения типа протокола
+	var protocol string
 
 	switch proxyType {
 	case "xray":
 		var cfgXray config.ConfigXray
 		if err := json.Unmarshal(data, &cfgXray); err != nil {
-			return fmt.Errorf("error parsing JSON: %v", err)
+			cfg.Logger.Error("Failed to parse JSON", "error", err)
+			return fmt.Errorf("failed to parse JSON: %v", err)
 		}
 
 		found := false
@@ -954,8 +1200,10 @@ func AddUserToConfig(user, credential, inboundTag string, cfg *config.Config) er
 				protocol = inbound.Protocol
 				for _, client := range inbound.Settings.Clients {
 					if protocol == "vless" && client.ID == credential {
+						cfg.Logger.Warn("User with this ID already exists", "credential", credential)
 						return fmt.Errorf("user with this id already exists")
 					} else if protocol == "trojan" && client.Password == credential {
+						cfg.Logger.Warn("User with this password already exists", "credential", credential)
 						return fmt.Errorf("user with this password already exists")
 					}
 				}
@@ -972,6 +1220,7 @@ func AddUserToConfig(user, credential, inboundTag string, cfg *config.Config) er
 			}
 		}
 		if !found {
+			cfg.Logger.Warn("Inbound not found", "inboundTag", inboundTag)
 			return fmt.Errorf("inbound with tag %s not found", inboundTag)
 		}
 		configData = cfgXray
@@ -979,7 +1228,8 @@ func AddUserToConfig(user, credential, inboundTag string, cfg *config.Config) er
 	case "singbox":
 		var cfgSingBox config.ConfigSingbox
 		if err := json.Unmarshal(data, &cfgSingBox); err != nil {
-			return fmt.Errorf("error parsing JSON: %v", err)
+			cfg.Logger.Error("Failed to parse JSON", "error", err)
+			return fmt.Errorf("failed to parse JSON: %v", err)
 		}
 
 		found := false
@@ -988,8 +1238,10 @@ func AddUserToConfig(user, credential, inboundTag string, cfg *config.Config) er
 				protocol = inbound.Type
 				for _, user := range inbound.Users {
 					if protocol == "vless" && user.UUID == credential {
+						cfg.Logger.Warn("User with this UUID already exists", "credential", credential)
 						return fmt.Errorf("user with this uuid already exists")
 					} else if protocol == "trojan" && user.Password == credential {
+						cfg.Logger.Warn("User with this password already exists", "credential", credential)
 						return fmt.Errorf("user with this password already exists")
 					}
 				}
@@ -1006,52 +1258,64 @@ func AddUserToConfig(user, credential, inboundTag string, cfg *config.Config) er
 			}
 		}
 		if !found {
+			cfg.Logger.Warn("Inbound not found", "inboundTag", inboundTag)
 			return fmt.Errorf("inbound with tag %s not found", inboundTag)
 		}
 		configData = cfgSingBox
 
 	default:
+		cfg.Logger.Warn("Unsupported core type", "proxyType", proxyType)
 		return fmt.Errorf("unsupported core type: %s", proxyType)
 	}
 
 	updateData, err := json.MarshalIndent(configData, "", "  ")
 	if err != nil {
-		return fmt.Errorf("error marshaling JSON: %v", err)
+		cfg.Logger.Error("Failed to marshal JSON", "error", err)
+		return fmt.Errorf("failed to marshal JSON: %v", err)
 	}
 	if err := os.WriteFile(configPath, updateData, 0644); err != nil {
-		return fmt.Errorf("error writing config.json: %v", err)
+		cfg.Logger.Error("Failed to write config.json", "path", configPath, "error", err)
+		return fmt.Errorf("failed to write config.json: %v", err)
 	}
 
-	log.Printf("User %s added to configuration with inbound %s [%v]", user, inboundTag, time.Since(start))
+	cfg.Logger.Info("User added to configuration", "user", user, "inboundTag", inboundTag, "duration", time.Since(start))
 
 	if cfg.Features["auth_lua"] {
-		// Для trojan хэшируем пароль, для vless передаём credential как есть
+		cfg.Logger.Debug("Adding user to auth.lua", "user", user)
 		var credentialToAdd string
 		if protocol == "trojan" {
 			hash := sha256.Sum224([]byte(credential))
 			credentialToAdd = hex.EncodeToString(hash[:])
+			cfg.Logger.Trace("Hashed credential for trojan", "credential", credentialToAdd)
 		} else {
-			credentialToAdd = credential // Для vless используем UUID без хэширования
+			credentialToAdd = credential
+			cfg.Logger.Trace("Using raw credential for vless", "credential", credentialToAdd)
 		}
 		if err := lua.AddUserToAuthLua(cfg, user, credentialToAdd); err != nil {
-			log.Printf("Failed to add user %s to auth.lua: %v", user, err)
+			cfg.Logger.Error("Failed to add user to auth.lua", "user", user, "error", err)
+		} else {
+			cfg.Logger.Info("User added to auth.lua", "user", user, "duration", time.Since(start))
 		}
 	}
 
 	return nil
 }
 
+// AddUserHandler handles HTTP requests to add a new user.
 func AddUserHandler(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
+		cfg.Logger.Debug("Starting AddUserHandler request processing")
+
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 
 		if r.Method != http.MethodPost {
+			cfg.Logger.Warn("Invalid HTTP method", "method", r.Method)
 			http.Error(w, "Invalid method. Use POST", http.StatusMethodNotAllowed)
 			return
 		}
 
 		if err := r.ParseForm(); err != nil {
+			cfg.Logger.Error("Failed to parse form data", "error", err)
 			http.Error(w, "Error parsing form data", http.StatusBadRequest)
 			return
 		}
@@ -1059,46 +1323,68 @@ func AddUserHandler(cfg *config.Config) http.HandlerFunc {
 		userIdentifier := r.FormValue("user")
 		credential := r.FormValue("credential")
 		inboundTag := r.FormValue("inboundTag")
+
 		if userIdentifier == "" || credential == "" {
-			log.Printf("Error: user and credential parameters are missing or empty")
+			cfg.Logger.Warn("Missing or empty user or credential parameters")
 			http.Error(w, "user and credential are required", http.StatusBadRequest)
 			return
 		}
-		if inboundTag == "" {
-			inboundTag = "vless-in" // Default value
-			log.Printf("inboundTag parameter not specified, using default value: %s", inboundTag)
+
+		if len(userIdentifier) > 40 || len(credential) > 40 {
+			cfg.Logger.Warn("User or credential too long", "user_length", len(userIdentifier), "credential_length", len(credential))
+			http.Error(w, "user or credential too long (max 40 characters)", http.StatusBadRequest)
+			return
 		}
 
+		if inboundTag == "" {
+			inboundTag = "vless-in"
+			cfg.Logger.Debug("Setting default inboundTag", "inboundTag", inboundTag)
+		}
+
+		cfg.Logger.Trace("Request parameters", "user", userIdentifier, "credential", credential, "inboundTag", inboundTag)
+
+		cfg.Logger.Debug("Adding user to configuration", "user", userIdentifier)
 		err := AddUserToConfig(userIdentifier, credential, inboundTag, cfg)
 		if err != nil {
-			log.Printf("Failed to add user %s: %v [%v]", userIdentifier, err, time.Since(start))
+			cfg.Logger.Error("Failed to add user", "user", userIdentifier, "error", err)
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
+		cfg.Logger.Info("User added successfully", "user", userIdentifier)
 		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "User added successfully")
 	}
 }
 
-func saveConfig(w http.ResponseWriter, configPath string, configData any, logMessage string) error {
+// saveConfig saves configuration data to a file.
+func saveConfig(w http.ResponseWriter, configPath string, configData any, cfg *config.Config, logMessage string) error {
+	cfg.Logger.Debug("Marshaling JSON for configuration", "path", configPath)
 	updateData, err := json.MarshalIndent(configData, "", "  ")
 	if err != nil {
-		log.Printf("Error marshaling JSON: %v", err)
-		http.Error(w, "Error updating configuration", http.StatusInternalServerError)
+		cfg.Logger.Error("Failed to marshal JSON", "error", err)
+		if w != nil {
+			http.Error(w, "Error updating configuration", http.StatusInternalServerError)
+		}
 		return err
 	}
 
+	cfg.Logger.Debug("Writing configuration file", "path", configPath)
 	if err := os.WriteFile(configPath, updateData, 0644); err != nil {
-		log.Printf("Error writing config.json: %v", err)
-		http.Error(w, "Error saving configuration", http.StatusInternalServerError)
+		cfg.Logger.Error("Failed to write config.json", "path", configPath, "error", err)
+		if w != nil {
+			http.Error(w, "Error saving configuration", http.StatusInternalServerError)
+		}
 		return err
 	}
 
-	log.Print(logMessage)
+	cfg.Logger.Info(logMessage)
 	return nil
 }
 
+// DeleteUserFromConfig removes a user from the configuration files.
 func DeleteUserFromConfig(userIdentifier, inboundTag string, cfg *config.Config) error {
+	cfg.Logger.Debug("Starting user deletion from configuration", "user", userIdentifier, "inboundTag", inboundTag)
 	start := time.Now()
 	configPath := cfg.Core.Config
 	disabledUsersPath := filepath.Join(cfg.Core.Dir, ".disabled_users")
@@ -1108,22 +1394,25 @@ func DeleteUserFromConfig(userIdentifier, inboundTag string, cfg *config.Config)
 
 	switch proxyType {
 	case "xray":
-		// Read main config
+		cfg.Logger.Debug("Reading main config for Xray", "path", configPath)
 		mainConfigData, err := os.ReadFile(configPath)
 		if err != nil {
-			return fmt.Errorf("error reading config.json: %v", err)
+			cfg.Logger.Error("Failed to read config.json", "path", configPath, "error", err)
+			return fmt.Errorf("failed to read config.json: %v", err)
 		}
 		var mainConfig config.ConfigXray
 		if err := json.Unmarshal(mainConfigData, &mainConfig); err != nil {
-			return fmt.Errorf("error parsing JSON for config.json: %v", err)
+			cfg.Logger.Error("Failed to parse JSON for config.json", "error", err)
+			return fmt.Errorf("failed to parse JSON for config.json: %v", err)
 		}
 
-		// Read disabled users config
+		cfg.Logger.Debug("Reading disabled users config", "path", disabledUsersPath)
 		var disabledConfig config.DisabledUsersConfigXray
 		disabledConfigData, err := os.ReadFile(disabledUsersPath)
 		if err == nil && len(disabledConfigData) > 0 {
 			if err := json.Unmarshal(disabledConfigData, &disabledConfig); err != nil {
-				return fmt.Errorf("error parsing JSON for .disabled_users: %v", err)
+				cfg.Logger.Error("Failed to parse JSON for .disabled_users", "error", err)
+				return fmt.Errorf("failed to parse JSON for .disabled_users: %v", err)
 			}
 		} else {
 			disabledConfig = config.DisabledUsersConfigXray{Inbounds: []config.XrayInbound{}}
@@ -1152,7 +1441,8 @@ func DeleteUserFromConfig(userIdentifier, inboundTag string, cfg *config.Config)
 		mainUpdated, removedFromMain := removeXrayUser(mainConfig.Inbounds)
 		if removedFromMain {
 			mainConfig.Inbounds = mainUpdated
-			if err := saveConfig(nil, configPath, mainConfig, fmt.Sprintf("User %s successfully removed from config.json, inbound %s [%v]", userIdentifier, inboundTag, time.Since(start))); err != nil {
+			logMessage := fmt.Sprintf("User %s successfully removed from config.json, inbound %s [%v]", userIdentifier, inboundTag, time.Since(start))
+			if err := saveConfig(nil, configPath, mainConfig, cfg, logMessage); err != nil {
 				return err
 			}
 			userRemoved = true
@@ -1163,35 +1453,41 @@ func DeleteUserFromConfig(userIdentifier, inboundTag string, cfg *config.Config)
 		if removedFromDisabled {
 			disabledConfig.Inbounds = disabledUpdated
 			if len(disabledConfig.Inbounds) > 0 {
-				if err := saveConfig(nil, disabledUsersPath, disabledConfig, fmt.Sprintf("User %s successfully removed from .disabled_users, inbound %s [%v]", userIdentifier, inboundTag, time.Since(start))); err != nil {
+				logMessage := fmt.Sprintf("User %s successfully removed from .disabled_users, inbound %s [%v]", userIdentifier, inboundTag, time.Since(start))
+				if err := saveConfig(nil, disabledUsersPath, disabledConfig, cfg, logMessage); err != nil {
 					return err
 				}
 			} else {
+				cfg.Logger.Debug("Removing empty .disabled_users file", "path", disabledUsersPath)
 				if err := os.Remove(disabledUsersPath); err != nil && !os.IsNotExist(err) {
-					return fmt.Errorf("error removing empty .disabled_users: %v", err)
+					cfg.Logger.Error("Failed to remove empty .disabled_users", "error", err)
+					return fmt.Errorf("failed to remove empty .disabled_users: %v", err)
 				}
-				log.Printf("User %s successfully removed from .disabled_users, inbound %s [%v]", userIdentifier, inboundTag, time.Since(start))
+				cfg.Logger.Info("User removed from .disabled_users", "user", userIdentifier, "inboundTag", inboundTag, "duration", time.Since(start))
 			}
 			userRemoved = true
 		}
 
 	case "singbox":
-		// Read main config Singbox
+		cfg.Logger.Debug("Reading main config for Singbox", "path", configPath)
 		mainConfigData, err := os.ReadFile(configPath)
 		if err != nil {
-			return fmt.Errorf("error reading config.json: %v", err)
+			cfg.Logger.Error("Failed to read config.json", "path", configPath, "error", err)
+			return fmt.Errorf("failed to read config.json: %v", err)
 		}
 		var mainConfig config.ConfigSingbox
 		if err := json.Unmarshal(mainConfigData, &mainConfig); err != nil {
-			return fmt.Errorf("error parsing JSON for config.json: %v", err)
+			cfg.Logger.Error("Failed to parse JSON for config.json", "error", err)
+			return fmt.Errorf("failed to parse JSON for config.json: %v", err)
 		}
 
-		// Read disabled users config Singbox
+		cfg.Logger.Debug("Reading disabled users config", "path", disabledUsersPath)
 		var disabledConfig config.DisabledUsersConfigSingbox
 		disabledConfigData, err := os.ReadFile(disabledUsersPath)
 		if err == nil && len(disabledConfigData) > 0 {
 			if err := json.Unmarshal(disabledConfigData, &disabledConfig); err != nil {
-				return fmt.Errorf("error parsing JSON for .disabled_users: %v", err)
+				cfg.Logger.Error("Failed to parse JSON for .disabled_users", "error", err)
+				return fmt.Errorf("failed to parse JSON for .disabled_users: %v", err)
 			}
 		} else {
 			disabledConfig = config.DisabledUsersConfigSingbox{Inbounds: []config.SingboxInbound{}}
@@ -1220,7 +1516,8 @@ func DeleteUserFromConfig(userIdentifier, inboundTag string, cfg *config.Config)
 		mainUpdated, removedFromMain := removeSingboxUser(mainConfig.Inbounds)
 		if removedFromMain {
 			mainConfig.Inbounds = mainUpdated
-			if err := saveConfig(nil, configPath, mainConfig, fmt.Sprintf("User %s successfully removed from config.json, inbound %s [%v]", userIdentifier, inboundTag, time.Since(start))); err != nil {
+			logMessage := fmt.Sprintf("User %s successfully removed from config.json, inbound %s [%v]", userIdentifier, inboundTag, time.Since(start))
+			if err := saveConfig(nil, configPath, mainConfig, cfg, logMessage); err != nil {
 				return err
 			}
 			userRemoved = true
@@ -1231,14 +1528,17 @@ func DeleteUserFromConfig(userIdentifier, inboundTag string, cfg *config.Config)
 		if removedFromDisabled {
 			disabledConfig.Inbounds = disabledUpdated
 			if len(disabledConfig.Inbounds) > 0 {
-				if err := saveConfig(nil, disabledUsersPath, disabledConfig, fmt.Sprintf("User %s successfully removed from .disabled_users, inbound %s [%v]", userIdentifier, inboundTag, time.Since(start))); err != nil {
+				logMessage := fmt.Sprintf("User %s successfully removed from .disabled_users, inbound %s [%v]", userIdentifier, inboundTag, time.Since(start))
+				if err := saveConfig(nil, disabledUsersPath, disabledConfig, cfg, logMessage); err != nil {
 					return err
 				}
 			} else {
+				cfg.Logger.Debug("Removing empty .disabled_users file", "path", disabledUsersPath)
 				if err := os.Remove(disabledUsersPath); err != nil && !os.IsNotExist(err) {
-					return fmt.Errorf("error removing empty .disabled_users: %v", err)
+					cfg.Logger.Error("Failed to remove empty .disabled_users", "error", err)
+					return fmt.Errorf("failed to remove empty .disabled_users: %v", err)
 				}
-				log.Printf("User %s successfully removed from .disabled_users, inbound %s [%v]", userIdentifier, inboundTag, time.Since(start))
+				cfg.Logger.Info("User removed from .disabled_users", "user", userIdentifier, "inboundTag", inboundTag, "duration", time.Since(start))
 			}
 			userRemoved = true
 		}
@@ -1246,73 +1546,106 @@ func DeleteUserFromConfig(userIdentifier, inboundTag string, cfg *config.Config)
 
 	// Handle auth.lua update if user was removed
 	if userRemoved && cfg.Features["auth_lua"] {
+		cfg.Logger.Debug("Deleting user from auth.lua", "user", userIdentifier)
 		if err := lua.DeleteUserFromAuthLua(cfg, userIdentifier); err != nil {
-			log.Printf("Failed to delete user %s from auth.lua: %v", userIdentifier, err)
+			cfg.Logger.Error("Failed to delete user from auth.lua", "user", userIdentifier, "error", err)
 		} else {
-			log.Printf("User %s successfully removed from auth.lua [%v]", userIdentifier, time.Since(start))
+			cfg.Logger.Info("User removed from auth.lua", "user", userIdentifier, "duration", time.Since(start))
 		}
 	}
 
 	// If user not found
 	if !userRemoved {
+		cfg.Logger.Warn("User not found in configuration", "user", userIdentifier, "inboundTag", inboundTag)
 		return fmt.Errorf("user %s not found in inbound %s in either config.json or .disabled_users", userIdentifier, inboundTag)
 	}
 
+	cfg.Logger.Info("User deleted successfully", "user", userIdentifier, "inboundTag", inboundTag, "duration", time.Since(start))
 	return nil
 }
 
+// DeleteUserHandler handles HTTP requests to delete a user.
 func DeleteUserHandler(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg.Logger.Debug("Starting DeleteUserHandler request processing")
+
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 
 		if r.Method != http.MethodDelete {
+			cfg.Logger.Warn("Invalid HTTP method", "method", r.Method)
 			http.Error(w, "Invalid method. Use DELETE", http.StatusMethodNotAllowed)
 			return
 		}
 
 		if err := r.ParseForm(); err != nil {
+			cfg.Logger.Error("Failed to parse form data", "error", err)
 			http.Error(w, "Error parsing form data", http.StatusBadRequest)
 			return
 		}
 
-		userIdentifier := r.FormValue("user") // For Xray this is user, for Singbox this is name
+		userIdentifier := r.FormValue("user")
 		inboundTag := r.FormValue("inboundTag")
 		if userIdentifier == "" {
-			log.Printf("Error: user parameter is missing or empty")
+			cfg.Logger.Warn("Missing or empty user parameter")
 			http.Error(w, "user parameter is required", http.StatusBadRequest)
 			return
 		}
 		if inboundTag == "" {
-			inboundTag = "vless-in" // Default value
-			log.Printf("inboundTag parameter not specified, using default value: %s", inboundTag)
+			inboundTag = "vless-in"
+			cfg.Logger.Debug("Setting default inboundTag", "inboundTag", inboundTag)
 		}
 
+		cfg.Logger.Debug("Deleting user from configuration", "user", userIdentifier, "inboundTag", inboundTag)
 		err := DeleteUserFromConfig(userIdentifier, inboundTag, cfg)
 		if err != nil {
-			log.Printf("Failed to delete user %s: %v", userIdentifier, err)
+			cfg.Logger.Error("Failed to delete user", "user", userIdentifier, "error", err)
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+
+		cfg.Logger.Info("User deleted successfully", "user", userIdentifier, "inboundTag", inboundTag)
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "User deleted successfully")
 	}
 }
 
-func SetEnabledHandler(memDB *sql.DB, dbMutex *sync.Mutex, cfg *config.Config) http.HandlerFunc {
+// SetEnabledHandler handles requests to toggle a user's enabled status.
+func SetEnabledHandler(manager *manager.DatabaseManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg.Logger.Debug("Starting SetEnabledHandler request processing")
+
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+
 		if r.Method != http.MethodPatch {
+			cfg.Logger.Warn("Invalid HTTP method", "method", r.Method)
 			http.Error(w, "Invalid method. Use PATCH", http.StatusMethodNotAllowed)
 			return
 		}
 
+		cfg.Logger.Debug("Parsing form data")
 		if err := r.ParseForm(); err != nil {
+			cfg.Logger.Error("Failed to parse form data", "error", err)
 			http.Error(w, "Error parsing form data", http.StatusBadRequest)
 			return
 		}
 
 		userIdentifier := r.FormValue("user")
 		enabledStr := r.FormValue("enabled")
+		cfg.Logger.Trace("Received form parameters", "user", userIdentifier, "enabled", enabledStr)
 
 		if userIdentifier == "" {
-			http.Error(w, "user is required", http.StatusBadRequest)
+			cfg.Logger.Warn("Empty user identifier")
+			http.Error(w, "User field is required", http.StatusBadRequest)
+			return
+		}
+		if len(userIdentifier) > 40 {
+			cfg.Logger.Warn("User identifier too long", "length", len(userIdentifier))
+			http.Error(w, "User identifier too long (max 40 characters)", http.StatusBadRequest)
+			return
+		}
+		if enabledStr != "" && len(enabledStr) > 40 {
+			cfg.Logger.Warn("Enabled value too long", "length", len(enabledStr))
+			http.Error(w, "Enabled value too long (max 40 characters)", http.StatusBadRequest)
 			return
 		}
 
@@ -1320,90 +1653,190 @@ func SetEnabledHandler(memDB *sql.DB, dbMutex *sync.Mutex, cfg *config.Config) h
 		if enabledStr == "" {
 			enabled = true
 			enabledStr = "true"
+			cfg.Logger.Debug("Enabled not specified, set to true")
 		} else {
 			var err error
 			enabled, err = strconv.ParseBool(enabledStr)
 			if err != nil {
-				http.Error(w, "enabled must be true or false", http.StatusBadRequest)
+				cfg.Logger.Warn("Invalid enabled value", "enabled", enabledStr, "error", err)
+				http.Error(w, "Enabled must be true or false", http.StatusBadRequest)
 				return
 			}
+			cfg.Logger.Debug("Enabled value parsed successfully", "enabled", enabled)
 		}
 
-		if err := db.ToggleUserEnabled(userIdentifier, enabled, cfg, memDB, dbMutex); err != nil {
-			log.Printf("Error changing status: %v", err)
+		cfg.Logger.Debug("Updating user status", "user", userIdentifier, "enabled", enabled)
+		err := manager.ExecuteHighPriority(func(db1 *sql.DB) error {
+			cfg.Logger.Debug("Starting transaction for status update")
+			tx, err := db1.Begin()
+			if err != nil {
+				cfg.Logger.Error("Failed to start transaction", "error", err)
+				return fmt.Errorf("failed to start transaction: %v", err)
+			}
+			defer tx.Rollback()
+
+			if err := db.ToggleUserEnabled(manager, cfg, userIdentifier, enabled); err != nil {
+				cfg.Logger.Error("Failed to toggle user status in configuration", "user", userIdentifier, "enabled", enabled, "error", err)
+				return fmt.Errorf("failed to toggle user status: %v", err)
+			}
+
+			cfg.Logger.Debug("Executing status update query")
+			result, err := tx.Exec("UPDATE clients_stats SET enabled = ? WHERE user = ?", enabledStr, userIdentifier)
+			if err != nil {
+				cfg.Logger.Error("Failed to update status in database", "user", userIdentifier, "enabled", enabledStr, "error", err)
+				return fmt.Errorf("failed to update status for %s: %v", userIdentifier, err)
+			}
+
+			rowsAffected, err := result.RowsAffected()
+			if err != nil {
+				cfg.Logger.Error("Failed to get affected rows", "error", err)
+				return fmt.Errorf("failed to get affected rows: %v", err)
+			}
+			if rowsAffected == 0 {
+				cfg.Logger.Warn("User not found in database", "user", userIdentifier)
+				return fmt.Errorf("user %s not found", userIdentifier)
+			}
+
+			cfg.Logger.Debug("Committing transaction")
+			if err := tx.Commit(); err != nil {
+				cfg.Logger.Error("Failed to commit transaction", "error", err)
+				return fmt.Errorf("failed to commit transaction: %v", err)
+			}
+
+			return nil
+		})
+		if err != nil {
+			cfg.Logger.Error("Error in SetEnabledHandler", "error", err)
 			http.Error(w, "Error updating status", http.StatusInternalServerError)
 			return
 		}
 
+		cfg.Logger.Info("User status updated successfully", "user", userIdentifier, "enabled", enabled)
 		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "User status updated successfully")
 	}
 }
 
-func updateSubscriptionDate(memDB *sql.DB, dbMutex *sync.Mutex, cfg *config.Config, userIdentifier, subEnd string) error {
-	baseDate := time.Now().UTC()
-	var subEndStr string
+// updateSubscriptionDate updates the subscription date for a user.
+func updateSubscriptionDate(manager *manager.DatabaseManager, cfg *config.Config, userIdentifier, subEnd string) error {
+	cfg.Logger.Debug("Starting subscription date update", "user", userIdentifier)
 
-	err := memDB.QueryRow("SELECT sub_end FROM clients_stats WHERE user = ?", userIdentifier).Scan(&subEndStr)
-	if err != nil && err != sql.ErrNoRows {
-		return fmt.Errorf("error querying database: %v", err)
+	// Validate input parameters
+	if userIdentifier == "" {
+		cfg.Logger.Warn("Empty user identifier")
+		return fmt.Errorf("user identifier is empty")
 	}
-	if subEndStr != "" {
-		baseDate, err = time.Parse("2006-01-02-15", subEndStr)
+	if len(userIdentifier) > 40 {
+		cfg.Logger.Warn("User identifier too long", "length", len(userIdentifier))
+		return fmt.Errorf("user identifier too long (max 40 characters)")
+	}
+	if subEnd != "" && len(subEnd) > 40 {
+		cfg.Logger.Warn("Subscription date too long", "length", len(subEnd))
+		return fmt.Errorf("subscription date too long (max 40 characters)")
+	}
+
+	// Validate subEnd format if provided
+	if subEnd != "" {
+		_, err := time.Parse("2006-01-02-15", subEnd)
 		if err != nil {
-			return fmt.Errorf("error parsing sub_end: %v", err)
+			cfg.Logger.Warn("Invalid subscription date format", "subEnd", subEnd, "error", err)
+			return fmt.Errorf("invalid subscription date format: %v", err)
 		}
 	}
 
-	err = db.AdjustDateOffset(memDB, dbMutex, userIdentifier, subEnd, baseDate)
-	if err != nil {
-		return fmt.Errorf("error updating date: %v", err)
+	cfg.Logger.Debug("Querying current subscription date from database", "user", userIdentifier)
+	baseDate := time.Now().UTC()
+	var subEndStr string
+	err := manager.ExecuteLowPriority(func(db *sql.DB) error {
+		return db.QueryRow("SELECT sub_end FROM clients_stats WHERE user = ?", userIdentifier).Scan(&subEndStr)
+	})
+	if err != nil && err != sql.ErrNoRows {
+		cfg.Logger.Error("Failed to query database", "user", userIdentifier, "error", err)
+		return fmt.Errorf("failed to query database: %v", err)
+	}
+	if err == sql.ErrNoRows {
+		cfg.Logger.Warn("No record found for user", "user", userIdentifier)
+	}
+	cfg.Logger.Trace("Retrieved current subscription date", "subEndStr", subEndStr)
+
+	if subEndStr != "" {
+		cfg.Logger.Debug("Parsing current subscription date", "subEndStr", subEndStr)
+		baseDate, err = time.Parse("2006-01-02-15", subEndStr)
+		if err != nil {
+			cfg.Logger.Error("Failed to parse current subscription date", "subEndStr", subEndStr, "error", err)
+			return fmt.Errorf("failed to parse current subscription date: %v", err)
+		}
+		cfg.Logger.Trace("Parsed current subscription date", "baseDate", baseDate)
 	}
 
-	go func() {
-		db.CheckExpiredSubscriptions(memDB, dbMutex, cfg)
-	}()
+	cfg.Logger.Debug("Updating subscription date", "user", userIdentifier, "subEnd", subEnd)
+	err = db.AdjustDateOffset(manager, cfg, userIdentifier, subEnd, baseDate)
+	if err != nil {
+		cfg.Logger.Error("Failed to update subscription date", "user", userIdentifier, "error", err)
+		return fmt.Errorf("failed to update subscription date: %v", err)
+	}
 
+	err = db.CheckExpiredSubscriptions(manager, cfg)
+	if err != nil {
+		cfg.Logger.Error("Failed to check expired subscriptions", "error", err)
+		return fmt.Errorf("failed to check expired subscriptions: %v", err)
+	}
+
+	cfg.Logger.Info("Subscription date updated successfully", "user", userIdentifier)
 	return nil
 }
 
-func AdjustDateOffsetHandler(memDB *sql.DB, dbMutex *sync.Mutex, cfg *config.Config) http.HandlerFunc {
+// AdjustDateOffsetHandler handles requests to update the subscription date.
+func AdjustDateOffsetHandler(manager *manager.DatabaseManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg.Logger.Debug("Starting AdjustDateOffsetHandler request processing")
+
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+
 		if r.Method != http.MethodPatch {
+			cfg.Logger.Warn("Invalid HTTP method", "method", r.Method)
 			http.Error(w, "Invalid method. Use PATCH", http.StatusMethodNotAllowed)
 			return
 		}
-		if memDB == nil {
-			http.Error(w, "Database not initialized", http.StatusInternalServerError)
-			return
-		}
+
+		cfg.Logger.Debug("Parsing form data")
 		if err := r.ParseForm(); err != nil {
+			cfg.Logger.Error("Failed to parse form data", "error", err)
 			http.Error(w, "Error parsing form data", http.StatusBadRequest)
 			return
 		}
+
 		userIdentifier := r.FormValue("user")
 		subEnd := r.FormValue("sub_end")
+		cfg.Logger.Trace("Received form parameters", "user", userIdentifier, "sub_end", subEnd)
+
 		if userIdentifier == "" || subEnd == "" {
+			cfg.Logger.Warn("Missing or empty user or sub_end parameters")
 			http.Error(w, "user and sub_end are required", http.StatusBadRequest)
 			return
 		}
 
-		err := updateSubscriptionDate(memDB, dbMutex, cfg, userIdentifier, subEnd)
+		err := updateSubscriptionDate(manager, cfg, userIdentifier, subEnd)
 		if err != nil {
-			log.Printf("Error updating subscription for user %s: %v", userIdentifier, err)
+			cfg.Logger.Error("Failed to update subscription for user", "user", userIdentifier, "error", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
+		cfg.Logger.Debug("Writing response", "user", userIdentifier, "sub_end", subEnd)
 		w.WriteHeader(http.StatusOK)
 		_, err = fmt.Fprintf(w, "Subscription date for %s updated with sub_end %s\n", userIdentifier, subEnd)
 		if err != nil {
-			log.Printf("Error writing response for user %s: %v", userIdentifier, err)
+			cfg.Logger.Error("Failed to write response for user", "user", userIdentifier, "error", err)
 			http.Error(w, "Error sending response", http.StatusInternalServerError)
 			return
 		}
+
+		cfg.Logger.Info("Subscription date update completed successfully", "user", userIdentifier)
 	}
 }
 
+// Answer handles basic server information requests.
 func Answer() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		serverHeader := fmt.Sprintf("MuxCloud/%s (WebServer)", constant.Version)

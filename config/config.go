@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"regexp"
 	"slices"
@@ -10,11 +9,14 @@ import (
 	"strings"
 	"time"
 
+	"v2ray-stat/logger"
+
 	"gopkg.in/yaml.v3"
 )
 
 // Config holds the configuration settings for the application.
 type Config struct {
+	Log              LogConfig              `yaml:"log"`
 	V2rayStat        V2rayStatConfig        `yaml:"v2ray-stat"`
 	Core             CoreConfig             `yaml:"core"`
 	API              APIConfig              `yaml:"api"`
@@ -26,6 +28,12 @@ type Config struct {
 	Paths            PathsConfig            `yaml:"paths"`
 	IpTtl            time.Duration          `yaml:"-"`
 	StatsColumns     StatsColumns           `yaml:"stats_columns"`
+	Logger           *logger.Logger
+}
+
+type LogConfig struct {
+	LogLevel string `yaml:"loglevel"`
+	LogMode  string `yaml:"logmode"`
 }
 
 // V2rayStatConfig holds v2ray-stat specific settings.
@@ -101,19 +109,24 @@ type StatsSection struct {
 }
 
 var defaultConfig = Config{
-	Core: CoreConfig{
-		Dir:            "/usr/local/etc/xray/",
-		Config:         "/usr/local/etc/xray/config.json",
-		AccessLog:      "/usr/local/etc/xray/access.log",
-		AccessLogRegex: `from tcp:([0-9\.]+).*?tcp:([\w\.\-]+):\d+.*?email: (\S+)`,
+	Log: LogConfig{
+		LogLevel: "none",
+		LogMode:  "inclusive",
 	},
 	V2rayStat: V2rayStatConfig{
-		Type: "xray",
-		Port: "9952",
+		Type:    "xray",
+		Address: "127.0.0.1",
+		Port:    "9952",
 		Monitor: MonitorConfig{
 			TickerInterval:      10,
 			OnlineRateThreshold: 0,
 		},
+	},
+	Core: CoreConfig{
+		Dir:            "/usr/local/etc/xray/",
+		Config:         "/usr/local/etc/xray/config.json",
+		AccessLog:      "/usr/local/etc/xray/access.log",
+		AccessLogRegex: `from (?:tcp|udp):([\d\.]+):\d+ accepted (?:tcp|udp):([\w\.\-]+):\d+ \[[^\]]+\] email: (\S+)`,
 	},
 	API: APIConfig{
 		APIToken: "",
@@ -136,7 +149,7 @@ var defaultConfig = Config{
 	},
 	Paths: PathsConfig{
 		Database:     "/usr/local/etc/v2ray-stat/data.db",
-		F2BLog:       "/var/log/v2ray-stat.log ",
+		F2BLog:       "/var/log/v2ray-stat.log",
 		F2BBannedLog: "/var/log/v2ray-stat-banned.log",
 		AuthLua:      "/etc/haproxy/.auth.lua",
 	},
@@ -154,7 +167,8 @@ func LoadConfig(configFile string) (Config, error) {
 	data, err := os.ReadFile(configFile)
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.Printf("Configuration file %s not found, using default values", configFile)
+			cfg.Logger, _ = logger.NewLoggerWithValidation("warn", "inclusive", cfg.Timezone, os.Stderr)
+			cfg.Logger.Warn("Configuration file not found, using default values", "file", configFile)
 			return cfg, nil
 		}
 		return cfg, fmt.Errorf("error reading configuration file: %v", err)
@@ -165,54 +179,61 @@ func LoadConfig(configFile string) (Config, error) {
 		return cfg, fmt.Errorf("error parsing YAML configuration: %v", err)
 	}
 
+	// Инициализация логгера
+	cfg.Logger, err = logger.NewLoggerWithValidation(cfg.Log.LogLevel, cfg.Log.LogMode, cfg.Timezone, os.Stderr)
+	if err != nil {
+		return cfg, fmt.Errorf("failed to initialize logger: %v", err)
+	}
+
 	// Validate and adjust configuration
 	if cfg.V2rayStat.Type != "xray" && cfg.V2rayStat.Type != "singbox" {
-		log.Printf("Invalid v2ray-stat.type '%s', using default: %s", cfg.V2rayStat.Type, defaultConfig.V2rayStat.Type)
+		cfg.Logger.Warn("Invalid v2ray-stat.type, using default", "type", cfg.V2rayStat.Type, "default", defaultConfig.V2rayStat.Type)
 		cfg.V2rayStat.Type = defaultConfig.V2rayStat.Type
 	}
 
 	if cfg.V2rayStat.Port != "" {
 		portNum, err := strconv.Atoi(cfg.V2rayStat.Port)
 		if err != nil || portNum < 1 || portNum > 65535 {
-			return cfg, fmt.Errorf("invalid v2ray-stat.port: %s", cfg.V2rayStat.Port)
+			cfg.Logger.Warn("Invalid v2ray-stat.port, using default", "port", cfg.V2rayStat.Port, "default", defaultConfig.V2rayStat.Port)
+			cfg.V2rayStat.Port = defaultConfig.V2rayStat.Port
 		}
 	}
 
 	if cfg.Core.AccessLogRegex != "" {
 		if _, err := regexp.Compile(cfg.Core.AccessLogRegex); err != nil {
-			log.Printf("Invalid core.access_log_regex '%s', using default: %s", cfg.Core.AccessLogRegex, defaultConfig.Core.AccessLogRegex)
+			cfg.Logger.Warn("Invalid core.access_log_regex, using default", "regex", cfg.Core.AccessLogRegex, "default", defaultConfig.Core.AccessLogRegex)
 			cfg.Core.AccessLogRegex = defaultConfig.Core.AccessLogRegex
 		}
 	}
 
 	if cfg.SystemMonitoring.AverageInterval < 10 {
-		log.Printf("Invalid system_monitoring.average_interval value %d, using default: %d", cfg.SystemMonitoring.AverageInterval, defaultConfig.SystemMonitoring.AverageInterval)
+		cfg.Logger.Warn("Invalid system_monitoring.average_interval, using default", "value", cfg.SystemMonitoring.AverageInterval, "default", defaultConfig.SystemMonitoring.AverageInterval)
 		cfg.SystemMonitoring.AverageInterval = defaultConfig.SystemMonitoring.AverageInterval
 	}
 
 	if cfg.SystemMonitoring.Memory.Threshold < 0 || cfg.SystemMonitoring.Memory.Threshold > 100 {
-		log.Printf("Invalid system_monitoring.memory.threshold value %d, using default: %d", cfg.SystemMonitoring.Memory.Threshold, defaultConfig.SystemMonitoring.Memory.Threshold)
+		cfg.Logger.Warn("Invalid system_monitoring.memory.threshold, using default", "value", cfg.SystemMonitoring.Memory.Threshold, "default", defaultConfig.SystemMonitoring.Memory.Threshold)
 		cfg.SystemMonitoring.Memory.Threshold = defaultConfig.SystemMonitoring.Memory.Threshold
 	}
 
 	if cfg.SystemMonitoring.Disk.Threshold < 0 || cfg.SystemMonitoring.Disk.Threshold > 100 {
-		log.Printf("Invalid system_monitoring.disk.threshold value %d, using default: %d", cfg.SystemMonitoring.Disk.Threshold, defaultConfig.SystemMonitoring.Disk.Threshold)
+		cfg.Logger.Warn("Invalid system_monitoring.disk.threshold, using default", "value", cfg.SystemMonitoring.Disk.Threshold, "default", defaultConfig.SystemMonitoring.Disk.Threshold)
 		cfg.SystemMonitoring.Disk.Threshold = defaultConfig.SystemMonitoring.Disk.Threshold
 	}
 
 	if cfg.V2rayStat.Monitor.TickerInterval < 1 {
-		log.Printf("Invalid v2ray-stat.monitor.ticker_interval value %d, using default: %d", cfg.V2rayStat.Monitor.TickerInterval, defaultConfig.V2rayStat.Monitor.TickerInterval)
+		cfg.Logger.Warn("Invalid v2ray-stat.monitor.ticker_interval, using default", "value", cfg.V2rayStat.Monitor.TickerInterval, "default", defaultConfig.V2rayStat.Monitor.TickerInterval)
 		cfg.V2rayStat.Monitor.TickerInterval = defaultConfig.V2rayStat.Monitor.TickerInterval
 	}
 
 	if cfg.V2rayStat.Monitor.OnlineRateThreshold < 0 {
-		log.Printf("Invalid v2ray-stat.monitor.online_rate_threshold value %d, using default: %d", cfg.V2rayStat.Monitor.OnlineRateThreshold, defaultConfig.V2rayStat.Monitor.OnlineRateThreshold)
+		cfg.Logger.Warn("Invalid v2ray-stat.monitor.online_rate_threshold, using default", "value", cfg.V2rayStat.Monitor.OnlineRateThreshold, "default", defaultConfig.V2rayStat.Monitor.OnlineRateThreshold)
 		cfg.V2rayStat.Monitor.OnlineRateThreshold = defaultConfig.V2rayStat.Monitor.OnlineRateThreshold
 	}
 
 	if cfg.Timezone != "" {
 		if _, err := time.LoadLocation(cfg.Timezone); err != nil {
-			log.Printf("Invalid timezone value '%s', using default (empty)", cfg.Timezone)
+			cfg.Logger.Warn("Invalid timezone value, using default", "timezone", cfg.Timezone)
 			cfg.Timezone = defaultConfig.Timezone
 		}
 	}
@@ -238,7 +259,7 @@ func LoadConfig(configFile string) (Config, error) {
 		if contains(validServerColumns, col) {
 			filteredServer = append(filteredServer, col)
 		} else {
-			log.Printf("Invalid custom server column `%s`, ignoring", col)
+			cfg.Logger.Warn("Invalid custom server column, ignoring", "column", col)
 		}
 	}
 	cfg.StatsColumns.Server.Columns = filteredServer
@@ -248,7 +269,7 @@ func LoadConfig(configFile string) (Config, error) {
 		if contains(validClientColumns, col) {
 			filteredClient = append(filteredClient, col)
 		} else {
-			log.Printf("Invalid custom client column `%s`, ignoring", col)
+			cfg.Logger.Warn("Invalid custom client column, ignoring", "column", col)
 		}
 	}
 	cfg.StatsColumns.Client.Columns = filteredClient
@@ -263,7 +284,7 @@ func LoadConfig(configFile string) (Config, error) {
 		}
 		parts := strings.Fields(sortStr)
 		if len(parts) != 2 {
-			log.Printf("Invalid sort format for %s: '%s', using default", section, sortStr)
+			cfg.Logger.Warn("Invalid sort format, using default", "section", section, "sort", sortStr)
 			if section == "Server" {
 				return "source", "ASC"
 			}
@@ -271,14 +292,14 @@ func LoadConfig(configFile string) (Config, error) {
 		}
 		column, order := parts[0], strings.ToUpper(parts[1])
 		if !contains(validColumns, column) {
-			log.Printf("Invalid sort column for %s: '%s', using default", section, column)
+			cfg.Logger.Warn("Invalid sort column, using default", "section", section, "column", column)
 			if section == "Server" {
 				return "source", "ASC"
 			}
 			return "user", "ASC"
 		}
 		if order != "ASC" && order != "DESC" {
-			log.Printf("Invalid sort order for %s: '%s', using ASC", section, order)
+			cfg.Logger.Warn("Invalid sort order, using ASC", "section", section, "order", order)
 			order = "ASC"
 		}
 		return column, order

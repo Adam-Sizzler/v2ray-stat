@@ -1,67 +1,85 @@
 package api
 
 import (
-	"log"
 	"net"
 	"net/http"
 	"strings"
+
 	"v2ray-stat/config"
 )
 
-func getClientIP(r *http.Request) string {
-	// Сначала пробуем X-Forwarded-For (могут быть IP через запятую)
+// getClientIP retrieves the client IP address from an HTTP request.
+func getClientIP(r *http.Request, cfg *config.Config) string {
+	cfg.Logger.Debug("Retrieving client IP address", "remote_addr", r.RemoteAddr)
+
+	// Check X-Forwarded-For header first (may contain multiple IPs)
 	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		// Берём первый IP (он от клиента)
 		ips := strings.Split(fwd, ",")
-		return strings.TrimSpace(ips[0])
+		ip := strings.TrimSpace(ips[0])
+		cfg.Logger.Trace("Using X-Forwarded-For header", "ip", ip)
+		return ip
 	}
 
-	// Затем X-Real-IP
+	// Check X-Real-IP header
 	if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+		cfg.Logger.Trace("Using X-Real-IP header", "ip", realIP)
 		return realIP
 	}
 
-	// Фоллбэк — то, что Go получил напрямую (будет 127.0.0.1 через прокси)
-	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	// Fallback to RemoteAddr
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		cfg.Logger.Error("Failed to parse RemoteAddr", "remote_addr", r.RemoteAddr, "error", err)
+		return r.RemoteAddr // Return as-is on error
+	}
+	cfg.Logger.Trace("Using RemoteAddr", "ip", ip)
 	return ip
 }
 
-// TokenAuthMiddleware проверяет токен в заголовке Authorization.
+// TokenAuthMiddleware verifies the token in the Authorization header.
 func TokenAuthMiddleware(cfg *config.Config, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		clientIP := getClientIP(r)
+		clientIP := getClientIP(r, cfg)
+		cfg.Logger.Debug("Verifying token for request", "client_ip", clientIP)
 
-		// Если токен не задан в конфигурации, разрешаем доступ
+		// Allow access if no API token is set
 		if cfg.API.APIToken == "" {
-			// log.Printf("Warning: API_TOKEN not set, allowing request from %s", clientIP)
+			cfg.Logger.Warn("API_TOKEN not set, request allowed", "client_ip", clientIP)
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Проверяем заголовок Authorization
+		// Check Authorization header
 		authHeader := r.Header.Get("Authorization")
+		cfg.Logger.Trace("Read Authorization header", "header", authHeader)
 		if authHeader == "" {
-			log.Printf("Missing Authorization header for request from %s", clientIP)
+			cfg.Logger.Warn("Missing Authorization header", "client_ip", clientIP)
 			http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
 			return
 		}
 
-		// Ожидаем формат "Bearer <token>"
+		// Expect format "Bearer <token>"
 		parts := strings.SplitN(authHeader, " ", 2)
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			log.Printf("Invalid Authorization header format from %s", clientIP)
+			cfg.Logger.Warn("Invalid Authorization header format", "client_ip", clientIP, "header", authHeader)
 			http.Error(w, "Invalid Authorization header format", http.StatusUnauthorized)
 			return
 		}
 
-		// Проверяем токен
-		if parts[1] != cfg.API.APIToken {
-			log.Printf("Invalid token from %s", clientIP)
+		// Verify token
+		token := strings.TrimSpace(parts[1])
+		if token == "" {
+			cfg.Logger.Warn("Empty token in Authorization header", "client_ip", clientIP)
+			http.Error(w, "Empty token", http.StatusUnauthorized)
+			return
+		}
+		if token != cfg.API.APIToken {
+			cfg.Logger.Warn("Invalid token", "client_ip", clientIP)
 			http.Error(w, "Invalid token", http.StatusUnauthorized)
 			return
 		}
 
-		// Токен верный, продолжаем обработку
+		cfg.Logger.Info("Token verified successfully", "client_ip", clientIP)
 		next.ServeHTTP(w, r)
 	}
 }

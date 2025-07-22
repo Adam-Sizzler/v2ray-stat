@@ -2,48 +2,43 @@ package stats
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
-	"log"
-	"strings"
 	"sync"
 	"time"
 
 	"v2ray-stat/config"
 	"v2ray-stat/constant"
+	"v2ray-stat/db/manager"
 	"v2ray-stat/telegram"
 )
 
 // SendDailyReport sends a daily Telegram notification with system and network stats.
-func SendDailyReport(memDB *sql.DB, cfg *config.Config) {
+func SendDailyReport(manager *manager.DatabaseManager, cfg *config.Config) {
 	if cfg.Telegram.BotToken == "" || cfg.Telegram.ChatID == "" {
-		log.Println("Error: cannot send daily report: TelegramBotToken or TelegramChatID is missing")
+		cfg.Logger.Error("Failed to send daily report: missing TelegramBotToken or TelegramChatID")
 		return
 	}
 
-	coreVersion := getCoreVersion(cfg)
-	ipv4, ipv6 := getIPAddresses()
-	uptime := GetUptime()
-	loadAverage := GetLoadAverage()
-	memoryUsage := GetMemoryUsage()
-	tcpCount, udpCount := getConnectionCounts()
+	cfg.Logger.Debug("Starting daily report generation")
 
-	var uplink, downlink uint64
-	err := memDB.QueryRow("SELECT uplink, downlink FROM traffic_stats WHERE source = 'direct'").Scan(&uplink, &downlink)
+	coreVersion := getCoreVersion(cfg)
+	ipv4, ipv6 := getIPAddresses(cfg)
+	uptime := GetUptime(cfg)
+	loadAverage := GetLoadAverage(cfg)
+	memoryUsage := GetMemoryUsage(cfg)
+	tcpCount, udpCount := getConnectionCounts(cfg)
+	totalTraffic, uplinkTraffic, downlinkTraffic, err := LoadTrafficStats(manager, cfg)
 	if err != nil {
-		if err != sql.ErrNoRows {
-			log.Printf("Error querying traffic stats: %v", err)
-		}
-		uplink, downlink = 0, 0
+		cfg.Logger.Error("Failed to load traffic stats", "error", err)
+		totalTraffic, uplinkTraffic, downlinkTraffic = "0 bytes", "0 bytes", "0 bytes"
 	}
 
-	totalTraffic := formatBytes(uplink + downlink)
-	uplinkTraffic := formatBytes(uplink)
-	downlinkTraffic := formatBytes(downlink)
-
-	serviceStatus := GetStatus(cfg.Services)
+	serviceStatus := GetStatus(cfg)
 	if serviceStatus == "" {
+		cfg.Logger.Warn("No services configured")
 		serviceStatus = "no services configured"
+	} else {
+		cfg.Logger.Info("Service status retrieved", "status", serviceStatus)
 	}
 
 	message := fmt.Sprintf(
@@ -58,49 +53,32 @@ func SendDailyReport(memDB *sql.DB, cfg *config.Config) {
 			"🔸 UDP: %d\n"+
 			"🚦 Traffic: %s (↑%s,↓%s)\n"+
 			"ℹ️ Status: %s",
-		constant.Version, strings.Title(cfg.V2rayStat.Type), coreVersion, ipv4, ipv6, uptime, loadAverage, memoryUsage, tcpCount, udpCount, totalTraffic, uplinkTraffic, downlinkTraffic, serviceStatus,
+		constant.Version, cfg.V2rayStat.Type, coreVersion, ipv4, ipv6, uptime, loadAverage, memoryUsage, tcpCount, udpCount, totalTraffic, uplinkTraffic, downlinkTraffic, serviceStatus,
 	)
 
-	if err := telegram.SendNotification(cfg.Telegram.BotToken, cfg.Telegram.ChatID, message); err != nil {
-		log.Printf("Error sending daily report to Telegram: %v", err)
+	if err := telegram.SendNotification(cfg, message); err != nil {
+		cfg.Logger.Error("Failed to send daily report to Telegram", "error", err)
 	} else {
-		log.Println("Daily report sent successfully to Telegram")
+		cfg.Logger.Info("Daily report sent successfully to Telegram")
 	}
-}
-
-// formatBytes converts bytes to a human-readable format.
-func formatBytes(bytes uint64) string {
-	const (
-		KB = 1024
-		MB = 1024 * KB
-		GB = 1024 * MB
-		TB = 1024 * GB
-	)
-	if bytes >= TB {
-		return fmt.Sprintf("%.2f TB", float64(bytes)/TB)
-	} else if bytes >= GB {
-		return fmt.Sprintf("%.2f GB", float64(bytes)/GB)
-	} else if bytes >= MB {
-		return fmt.Sprintf("%.2f MB", float64(bytes)/MB)
-	} else if bytes >= KB {
-		return fmt.Sprintf("%.2f KB", float64(bytes)/KB)
-	}
-	return fmt.Sprintf("%d B", bytes)
 }
 
 // MonitorDailyReport schedules the daily report to run every 24 hours.
-func MonitorDailyReport(ctx context.Context, memDB *sql.DB, cfg *config.Config, wg *sync.WaitGroup) {
+func MonitorDailyReport(ctx context.Context, manager *manager.DatabaseManager, cfg *config.Config, wg *sync.WaitGroup) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		SendDailyReport(memDB, cfg)
+		cfg.Logger.Debug("Starting daily report monitoring")
+		SendDailyReport(manager, cfg)
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				SendDailyReport(memDB, cfg)
+				cfg.Logger.Debug("Running daily report")
+				SendDailyReport(manager, cfg)
 			case <-ctx.Done():
+				cfg.Logger.Debug("Stopped daily report monitoring")
 				return
 			}
 		}

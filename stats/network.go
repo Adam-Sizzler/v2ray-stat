@@ -3,21 +3,21 @@ package stats
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"sync"
 	"time"
+
 	"v2ray-stat/config"
 )
 
-// NetworkStats holds network interface statistics
+// NetworkStats holds network interface statistics.
 type NetworkStats struct {
 	RxBytes, TxBytes     uint64
 	RxPackets, TxPackets uint64
 }
 
-// TrafficMonitor monitors network traffic for a specified interface
+// TrafficMonitor monitors network traffic for a specified interface.
 type TrafficMonitor struct {
 	Iface           string
 	mu              sync.RWMutex
@@ -34,28 +34,32 @@ type TrafficMonitor struct {
 	isFirstUpdate   bool
 }
 
-// NewTrafficMonitor creates a new TrafficMonitor and stores initial statistics
-func NewTrafficMonitor(iface string) (*TrafficMonitor, error) {
-	initialStats, err := readNetworkStats(iface)
+// NewTrafficMonitor creates a new TrafficMonitor with initial statistics.
+func NewTrafficMonitor(cfg *config.Config, iface string) (*TrafficMonitor, error) {
+	cfg.Logger.Debug("Initializing traffic monitor", "interface", iface)
+	initialStats, err := readNetworkStats(iface, cfg)
 	if err != nil {
-		log.Printf("Error initializing traffic monitor: %v", err)
+		cfg.Logger.Error("Failed to initialize traffic monitor", "error", err)
 		return nil, fmt.Errorf("failed to initialize traffic monitor: %v", err)
 	}
 
-	return &TrafficMonitor{
+	monitor := &TrafficMonitor{
 		Iface:          iface,
 		initialRxBytes: initialStats.RxBytes,
 		initialTxBytes: initialStats.TxBytes,
 		lastStats:      initialStats,
 		isFirstUpdate:  true,
-	}, nil
+	}
+	cfg.Logger.Debug("Traffic monitor initialized", "interface", iface)
+	return monitor, nil
 }
 
-// UpdateStats updates network traffic statistics for one iteration
-func (tm *TrafficMonitor) UpdateStats() error {
-	stats, err := readNetworkStats(tm.Iface)
+// UpdateStats updates network traffic statistics for one iteration.
+func (tm *TrafficMonitor) UpdateStats(cfg *config.Config) error {
+	cfg.Logger.Debug("Updating network stats", "interface", tm.Iface)
+	stats, err := readNetworkStats(tm.Iface, cfg)
 	if err != nil {
-		log.Printf("Error updating network stats: %v", err)
+		cfg.Logger.Error("Failed to update network stats", "error", err)
 		return fmt.Errorf("failed to update network stats: %v", err)
 	}
 
@@ -72,23 +76,27 @@ func (tm *TrafficMonitor) UpdateStats() error {
 			tm.txPacketsPerSec = float64(stats.TxPackets-tm.lastStats.TxPackets) / deltaTime
 			tm.totalRxBytes = stats.RxBytes - tm.initialRxBytes
 			tm.totalTxBytes = stats.TxBytes - tm.initialTxBytes
+			cfg.Logger.Debug("Network stats updated", "interface", tm.Iface, "rx_speed", tm.rxSpeed, "tx_speed", tm.txSpeed)
 		}
 	} else {
 		tm.totalRxBytes = 0
 		tm.totalTxBytes = 0
 		tm.isFirstUpdate = false
+		cfg.Logger.Debug("Initial network stats set", "interface", tm.Iface)
 	}
 
 	tm.lastStats = stats
 	tm.lastUpdate = currentTime
+	cfg.Logger.Info("Network stats update completed", "interface", tm.Iface)
 	return nil
 }
 
-// ResetTraffic resets accumulated traffic by updating initial values
-func (tm *TrafficMonitor) ResetTraffic() error {
-	stats, err := readNetworkStats(tm.Iface)
+// ResetTraffic resets accumulated traffic by updating initial values.
+func (tm *TrafficMonitor) ResetTraffic(cfg *config.Config) error {
+	cfg.Logger.Debug("Resetting traffic stats", "interface", tm.Iface)
+	stats, err := readNetworkStats(tm.Iface, cfg)
 	if err != nil {
-		log.Printf("Error resetting traffic: %v", err)
+		cfg.Logger.Error("Failed to reset traffic", "error", err)
 		return fmt.Errorf("failed to reset traffic: %v", err)
 	}
 
@@ -99,20 +107,23 @@ func (tm *TrafficMonitor) ResetTraffic() error {
 	tm.totalTxBytes = 0
 	tm.mu.Unlock()
 
+	cfg.Logger.Info("Traffic stats reset", "interface", tm.Iface)
 	return nil
 }
 
-// GetStats returns current network statistics
+// GetStats returns current network statistics.
 func (tm *TrafficMonitor) GetStats() (rxSpeed, txSpeed, rxPacketsPerSec, txPacketsPerSec float64, totalRxBytes, totalTxBytes uint64) {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 	return tm.rxSpeed, tm.txSpeed, tm.rxPacketsPerSec, tm.txPacketsPerSec, tm.totalRxBytes, tm.totalTxBytes
 }
 
-func readNetworkStats(iface string) (NetworkStats, error) {
+// readNetworkStats reads network statistics from /proc/net/dev for the specified interface.
+func readNetworkStats(iface string, cfg *config.Config) (NetworkStats, error) {
+	cfg.Logger.Debug("Reading network stats from /proc/net/dev", "interface", iface)
 	data, err := os.ReadFile("/proc/net/dev")
 	if err != nil {
-		log.Printf("Error reading /proc/net/dev: %v", err)
+		cfg.Logger.Error("Failed to read /proc/net/dev", "error", err)
 		return NetworkStats{}, fmt.Errorf("failed to read /proc/net/dev: %v", err)
 	}
 
@@ -122,63 +133,45 @@ func readNetworkStats(iface string) (NetworkStats, error) {
 		if strings.HasPrefix(line, iface+":") {
 			fields := strings.Fields(line)
 			if len(fields) < 10 {
-				log.Printf("Invalid data format for interface %s", iface)
+				cfg.Logger.Error("Invalid data format for interface", "interface", iface)
 				return NetworkStats{}, fmt.Errorf("invalid data format for interface %s", iface)
 			}
 
 			var stats NetworkStats
 			_, err := fmt.Sscanf(fields[1], "%d", &stats.RxBytes)
 			if err != nil {
-				log.Printf("Error parsing rx bytes for interface %s: %v", iface, err)
+				cfg.Logger.Error("Failed to parse rx bytes", "interface", iface, "error", err)
 				return NetworkStats{}, fmt.Errorf("failed to parse rx bytes: %v", err)
 			}
 			_, err = fmt.Sscanf(fields[2], "%d", &stats.RxPackets)
 			if err != nil {
-				log.Printf("Error parsing rx packets for interface %s: %v", iface, err)
+				cfg.Logger.Error("Failed to parse rx packets", "interface", iface, "error", err)
 				return NetworkStats{}, fmt.Errorf("failed to parse rx packets: %v", err)
 			}
 			_, err = fmt.Sscanf(fields[9], "%d", &stats.TxBytes)
 			if err != nil {
-				log.Printf("Error parsing tx bytes for interface %s: %v", iface, err)
+				cfg.Logger.Error("Failed to parse tx bytes", "interface", iface, "error", err)
 				return NetworkStats{}, fmt.Errorf("failed to parse tx bytes: %v", err)
 			}
 			_, err = fmt.Sscanf(fields[10], "%d", &stats.TxPackets)
 			if err != nil {
-				log.Printf("Error parsing tx packets for interface %s: %v", iface, err)
+				cfg.Logger.Error("Failed to parse tx packets", "interface", iface, "error", err)
 				return NetworkStats{}, fmt.Errorf("failed to parse tx packets: %v", err)
 			}
+			cfg.Logger.Debug("Network stats read successfully", "interface", iface)
 			return stats, nil
 		}
 	}
-	log.Printf("Interface %s not found in /proc/net/dev", iface)
+	cfg.Logger.Error("Interface not found in /proc/net/dev", "interface", iface)
 	return NetworkStats{}, fmt.Errorf("interface %s not found", iface)
 }
 
-// FormatTraffic formats traffic volume in human-readable units
-func FormatTraffic(value uint64) string {
-	// Константы для объемов трафика (байты)
-	const (
-		gib = 1_073_741_824 // Гигабайт (1024^3)
-		mib = 1_048_576     // Мегабайт (1024^2)
-		kib = 1_024         // Килобайт (1024)
-	)
-	switch {
-	case value >= gib:
-		return fmt.Sprintf("%.2f GB", float64(value)/gib)
-	case value >= mib:
-		return fmt.Sprintf("%.2f MB", float64(value)/mib)
-	case value >= kib:
-		return fmt.Sprintf("%.2f KB", float64(value)/kib)
-	default:
-		return fmt.Sprintf("%d B", value)
-	}
-}
-
-// Запуск мониторинга сети
+// MonitorNetwork runs periodic network traffic monitoring.
 func MonitorNetwork(ctx context.Context, cfg *config.Config, wg *sync.WaitGroup) {
+	cfg.Logger.Debug("Starting network monitoring")
 	trafficMonitor := GetTrafficMonitor()
 	if trafficMonitor == nil {
-		log.Println("Network monitoring not initialized, skipping routine")
+		cfg.Logger.Warn("Network monitoring not initialized, skipping routine")
 		return
 	}
 
@@ -190,10 +183,14 @@ func MonitorNetwork(ctx context.Context, cfg *config.Config, wg *sync.WaitGroup)
 		for {
 			select {
 			case <-ticker.C:
-				if err := trafficMonitor.UpdateStats(); err != nil {
-					log.Printf("Error updating network stats for interface %s: %v", trafficMonitor.Iface, err)
+				cfg.Logger.Debug("Running network stats update", "interface", trafficMonitor.Iface)
+				if err := trafficMonitor.UpdateStats(cfg); err != nil {
+					cfg.Logger.Error("Failed to update network stats", "interface", trafficMonitor.Iface, "error", err)
+				} else {
+					cfg.Logger.Info("Network stats updated successfully", "interface", trafficMonitor.Iface)
 				}
 			case <-ctx.Done():
+				cfg.Logger.Debug("Stopped network monitoring")
 				return
 			}
 		}
