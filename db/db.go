@@ -358,7 +358,6 @@ func UpsertDNSRecordsBatch(manager *manager.DatabaseManager, dnsStats map[string
 
 		for user, domains := range dnsStats {
 			for domain, count := range domains {
-				cfg.Logger.Trace("Processing DNS record", "user", user, "domain", domain, "count", count)
 				_, err := tx.Exec(`
 					INSERT INTO dns_stats (user, domain, count) 
 					VALUES (?, ?, ?)
@@ -1377,7 +1376,7 @@ func InitDatabase(cfg *config.Config) (memDB, fileDB *sql.DB, err error) {
 		err = fileDB.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='clients_stats'").Scan(&tableCount)
 		if err == nil && tableCount > 0 {
 			cfg.Logger.Debug("Synchronizing file to memory database")
-			tempManager, err := manager.NewDatabaseManager(fileDB, context.Background(), 1, 50, 100, cfg)
+			tempManager, err := manager.NewDatabaseManager(fileDB, context.Background(), 1, 300, 500, cfg)
 			if err != nil {
 				cfg.Logger.Error("Failed to create temporary DatabaseManager", "error", err)
 				memDB.Close()

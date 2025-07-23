@@ -237,7 +237,7 @@ func isServiceRunning(svc string, cfg *config.Config) bool {
 
 	for _, entry := range entries {
 		if _, err := strconv.Atoi(entry); err != nil {
-			cfg.Logger.Trace("Skipping non-numeric entry", "entry", entry)
+			// cfg.Logger.Trace("Skipping non-numeric entry", "entry", entry)
 			continue
 		}
 		commPath := filepath.Join("/proc", entry, "comm")
@@ -387,7 +387,7 @@ func GetDiskUsage(cfg *config.Config) string {
 		return "unknown"
 	}
 
-	cfg.Logger.Info("Disk usage retrieved", "used_gb", float64(used)/(1024*1024*1024), "total_gb", float64(total)/(1024*1024*1024))
+	cfg.Logger.Trace("Disk usage retrieved", "used_gb", float64(used)/(1024*1024*1024), "total_gb", float64(total)/(1024*1024*1024))
 	return fmt.Sprintf("%.2f GB used / %.2f GB total", float64(used)/(1024*1024*1024), float64(total)/(1024*1024*1024))
 }
 

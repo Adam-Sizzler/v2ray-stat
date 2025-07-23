@@ -95,7 +95,7 @@ func UsersHandler(manager *manager.DatabaseManager, cfg *config.Config) http.Han
 			return
 		}
 
-		cfg.Logger.Info("UsersHandler completed successfully", "users_count", len(users))
+		cfg.Logger.Info("API users: completed successfully", "users_count", len(users))
 	}
 }
 
@@ -413,7 +413,7 @@ func StatsCustomHandler(manager *manager.DatabaseManager, cfg *config.Config) ht
 
 		cfg.Logger.Debug("Writing response", "response_length", len(statsBuilder.String()))
 		fmt.Fprintln(w, statsBuilder.String())
-		cfg.Logger.Debug("StatsCustomHandler completed successfully")
+		cfg.Logger.Info("API stats: completed successfully", "sort_by", sortBy, "sort_order", sortOrder)
 	}
 }
 
@@ -589,14 +589,20 @@ func StatsHandler(manager *manager.DatabaseManager, cfg *config.Config) http.Han
 
 		sortBy := r.URL.Query().Get("sort_by")
 		validSortColumns := []string{"user", "uuid", "last_seen", "rate", "sess_uplink", "sess_downlink", "uplink", "downlink", "enabled", "sub_end", "renew", "lim_ip", "ips", "created"}
-		if sortBy != "" && !contains(validSortColumns, sortBy) {
+		if sortBy == "" {
+			sortBy = "user" // Default sort column
+			cfg.Logger.Debug("Setting default sort_by", "sort_by", sortBy)
+		} else if !contains(validSortColumns, sortBy) {
 			cfg.Logger.Warn("Invalid sort_by parameter", "sort_by", sortBy)
 			http.Error(w, fmt.Sprintf("Invalid sort_by parameter: %s, must be one of %v", sortBy, validSortColumns), http.StatusBadRequest)
 			return
 		}
 
 		sortOrder := r.URL.Query().Get("sort_order")
-		if sortOrder != "" && sortOrder != "ASC" && sortOrder != "DESC" {
+		if sortOrder == "" {
+			sortOrder = "ASC" // Default sort order
+			cfg.Logger.Debug("Setting default sort_order", "sort_order", sortOrder)
+		} else if sortOrder != "ASC" && sortOrder != "DESC" {
 			cfg.Logger.Warn("Invalid sort_order parameter", "sort_order", sortOrder)
 			http.Error(w, fmt.Sprintf("Invalid sort_order parameter: %s, must be ASC or DESC", sortOrder), http.StatusBadRequest)
 			return
@@ -621,7 +627,7 @@ func StatsHandler(manager *manager.DatabaseManager, cfg *config.Config) http.Han
 
 		cfg.Logger.Debug("Writing response", "response_length", len(statsBuilder.String()))
 		fmt.Fprintln(w, statsBuilder.String())
-		cfg.Logger.Info("StatsHandler completed successfully")
+		cfg.Logger.Info("API stats/base: completed successfully", "mode", mode, "sort_by", sortBy, "sort_order", sortOrder)
 	}
 }
 
@@ -781,7 +787,7 @@ func DnsStatsHandler(manager *manager.DatabaseManager, cfg *config.Config) http.
 
 		cfg.Logger.Debug("Writing response", "user", user, "response_length", len(response))
 		fmt.Fprintln(w, response)
-		cfg.Logger.Info("DnsStatsHandler completed successfully", "user", user)
+		cfg.Logger.Info("API dns_stats: completed successfully", "user", user, "count", count)
 	}
 }
 
@@ -1174,7 +1180,6 @@ func UpdateRenewHandler(manager *manager.DatabaseManager, cfg *config.Config) ht
 // AddUserToConfig adds a user to the configuration file.
 func AddUserToConfig(user, credential, inboundTag string, cfg *config.Config) error {
 	cfg.Logger.Debug("Starting user addition to configuration", "user", user, "inboundTag", inboundTag)
-	start := time.Now()
 	configPath := cfg.Core.Config
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -1278,7 +1283,7 @@ func AddUserToConfig(user, credential, inboundTag string, cfg *config.Config) er
 		return fmt.Errorf("failed to write config.json: %v", err)
 	}
 
-	cfg.Logger.Info("User added to configuration", "user", user, "inboundTag", inboundTag, "duration", time.Since(start))
+	cfg.Logger.Info("User added to configuration", "user", user, "inboundTag", inboundTag)
 
 	if cfg.Features["auth_lua"] {
 		cfg.Logger.Debug("Adding user to auth.lua", "user", user)
@@ -1294,7 +1299,7 @@ func AddUserToConfig(user, credential, inboundTag string, cfg *config.Config) er
 		if err := lua.AddUserToAuthLua(cfg, user, credentialToAdd); err != nil {
 			cfg.Logger.Error("Failed to add user to auth.lua", "user", user, "error", err)
 		} else {
-			cfg.Logger.Info("User added to auth.lua", "user", user, "duration", time.Since(start))
+			cfg.Logger.Info("User added to auth.lua", "user", user)
 		}
 	}
 
@@ -1351,7 +1356,7 @@ func AddUserHandler(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		cfg.Logger.Info("User added successfully", "user", userIdentifier)
+		cfg.Logger.Info("API add_user: user added successfully", "user", userIdentifier)
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "User added successfully")
 	}
@@ -1463,7 +1468,7 @@ func DeleteUserFromConfig(userIdentifier, inboundTag string, cfg *config.Config)
 					cfg.Logger.Error("Failed to remove empty .disabled_users", "error", err)
 					return fmt.Errorf("failed to remove empty .disabled_users: %v", err)
 				}
-				cfg.Logger.Info("User removed from .disabled_users", "user", userIdentifier, "inboundTag", inboundTag, "duration", time.Since(start))
+				cfg.Logger.Info("User removed from .disabled_users", "user", userIdentifier, "inboundTag", inboundTag)
 			}
 			userRemoved = true
 		}
@@ -1538,7 +1543,7 @@ func DeleteUserFromConfig(userIdentifier, inboundTag string, cfg *config.Config)
 					cfg.Logger.Error("Failed to remove empty .disabled_users", "error", err)
 					return fmt.Errorf("failed to remove empty .disabled_users: %v", err)
 				}
-				cfg.Logger.Info("User removed from .disabled_users", "user", userIdentifier, "inboundTag", inboundTag, "duration", time.Since(start))
+				cfg.Logger.Info("User removed from .disabled_users", "user", userIdentifier, "inboundTag", inboundTag)
 			}
 			userRemoved = true
 		}
@@ -1550,7 +1555,7 @@ func DeleteUserFromConfig(userIdentifier, inboundTag string, cfg *config.Config)
 		if err := lua.DeleteUserFromAuthLua(cfg, userIdentifier); err != nil {
 			cfg.Logger.Error("Failed to delete user from auth.lua", "user", userIdentifier, "error", err)
 		} else {
-			cfg.Logger.Info("User removed from auth.lua", "user", userIdentifier, "duration", time.Since(start))
+			cfg.Logger.Info("User removed from auth.lua", "user", userIdentifier)
 		}
 	}
 
@@ -1560,7 +1565,7 @@ func DeleteUserFromConfig(userIdentifier, inboundTag string, cfg *config.Config)
 		return fmt.Errorf("user %s not found in inbound %s in either config.json or .disabled_users", userIdentifier, inboundTag)
 	}
 
-	cfg.Logger.Info("User deleted successfully", "user", userIdentifier, "inboundTag", inboundTag, "duration", time.Since(start))
+	cfg.Logger.Info("User deleted successfully", "user", userIdentifier, "inboundTag", inboundTag)
 	return nil
 }
 
@@ -1603,7 +1608,7 @@ func DeleteUserHandler(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		cfg.Logger.Info("User deleted successfully", "user", userIdentifier, "inboundTag", inboundTag)
+		cfg.Logger.Info("API delete_user: user deleted successfully", "user", userIdentifier, "inboundTag", inboundTag)
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "User deleted successfully")
 	}

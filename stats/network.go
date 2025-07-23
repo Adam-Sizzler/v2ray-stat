@@ -87,7 +87,7 @@ func (tm *TrafficMonitor) UpdateStats(cfg *config.Config) error {
 
 	tm.lastStats = stats
 	tm.lastUpdate = currentTime
-	cfg.Logger.Info("Network stats update completed", "interface", tm.Iface)
+	cfg.Logger.Trace("Network stats update completed", "interface", tm.Iface)
 	return nil
 }
 
@@ -107,7 +107,7 @@ func (tm *TrafficMonitor) ResetTraffic(cfg *config.Config) error {
 	tm.totalTxBytes = 0
 	tm.mu.Unlock()
 
-	cfg.Logger.Info("Traffic stats reset", "interface", tm.Iface)
+	cfg.Logger.Debug("Traffic stats reset", "interface", tm.Iface)
 	return nil
 }
 
@@ -187,7 +187,7 @@ func MonitorNetwork(ctx context.Context, cfg *config.Config, wg *sync.WaitGroup)
 				if err := trafficMonitor.UpdateStats(cfg); err != nil {
 					cfg.Logger.Error("Failed to update network stats", "interface", trafficMonitor.Iface, "error", err)
 				} else {
-					cfg.Logger.Info("Network stats updated successfully", "interface", trafficMonitor.Iface)
+					cfg.Logger.Debug("Network stats updated successfully", "interface", trafficMonitor.Iface)
 				}
 			case <-ctx.Done():
 				cfg.Logger.Debug("Stopped network monitoring")

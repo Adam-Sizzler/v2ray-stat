@@ -460,10 +460,10 @@ func readNewLines(manager *manager.DatabaseManager, file *os.File, offset *int64
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		cfg.Logger.Trace("Processing log line", "line", line)
+		cfg.Logger.Debug("Processing log line", "line", line)
 		user, validIPs, ok := processLogLine(line, dnsStats, cfg)
 		if ok {
-			cfg.Logger.Debug("Retrieved data for user", "user", user, "valid_ips_count", len(validIPs))
+			cfg.Logger.Trace("Retrieved data for user", "user", user, "valid_ips_count", len(validIPs))
 			ipUpdates[user] = validIPs
 		} else {
 			cfg.Logger.Debug("Invalid regex for line", "line", line)
@@ -487,7 +487,7 @@ func readNewLines(manager *manager.DatabaseManager, file *os.File, offset *int64
 
 	if len(dnsStats) > 0 {
 		for user, domains := range dnsStats {
-			cfg.Logger.Info("Updating DNS records for user", "user", user, "domains", domains)
+			cfg.Logger.Trace("Updating DNS records for user", "user", user, "domains", domains)
 		}
 		if err := db.UpsertDNSRecordsBatch(manager, dnsStats, cfg); err != nil {
 			cfg.Logger.Error("Failed to update dns_stats", "error", err)
@@ -652,7 +652,7 @@ func main() {
 	defer memDB.Close()
 	defer fileDB.Close()
 
-	manager, err := manager.NewDatabaseManager(memDB, ctx, 2, 50, 100, &cfg)
+	manager, err := manager.NewDatabaseManager(memDB, ctx, 1, 300, 500, &cfg)
 	if err != nil {
 		cfg.Logger.Fatal("Failed to create DatabaseManager", "error", err)
 	}

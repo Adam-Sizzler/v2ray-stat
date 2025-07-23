@@ -14,98 +14,108 @@ import (
 	"github.com/mattn/go-sqlite3"
 )
 
-// DatabaseManager управляет последовательным доступом к базе данных через каналы запросов с приоритизацией.
+// DatabaseManager manages sequential database access through prioritized request channels.
 type DatabaseManager struct {
-	db                *sql.DB                  // Приватное поле
-	cfg               *config.Config           // Конфигурация для логирования
-	highPriority      chan func(*sql.DB) error // Канал для высокоприоритетных запросов
-	lowPriority       chan func(*sql.DB) error // Канал для низкоприоритетных запросов
-	ctx               context.Context          // Контекст
-	workerPool        chan struct{}            // Пул рабочих горутин
-	isClosed          bool                     // Флаг закрытия
-	closedMu          sync.Mutex               // Мьютекс для isClosed
-	highPriorityCount uint64                   // Счётчик высокоприоритетных запросов
-	lowPriorityCount  uint64                   // Счётчик низкоприоритетных запросов
+	db                *sql.DB                  // Private field for database connection
+	cfg               *config.Config           // Configuration for logging
+	highPriority      chan func(*sql.DB) error // Channel for high-priority requests
+	lowPriority       chan func(*sql.DB) error // Channel for low-priority requests
+	ctx               context.Context          // Context for cancellation
+	cancel            context.CancelFunc       // Cancel function for context
+	workerPool        chan struct{}            // Worker pool for concurrent request processing
+	isClosed          bool                     // Flag indicating if the manager is closed
+	closedMu          sync.Mutex               // Mutex for isClosed
+	highPriorityCount uint64                   // Counter for high-priority requests
+	lowPriorityCount  uint64                   // Counter for low-priority requests
 }
 
-// NewDatabaseManager создаёт новый DatabaseManager и запускает обработку запросов.
+// NewDatabaseManager creates a new DatabaseManager and starts processing requests.
 func NewDatabaseManager(db *sql.DB, ctx context.Context, workerCount, highPriorityBuffer, lowPriorityBuffer int, cfg *config.Config) (*DatabaseManager, error) {
 	if workerCount < 1 || highPriorityBuffer < 0 || lowPriorityBuffer < 0 {
-		cfg.Logger.Fatal("Некорректные параметры", "workerCount", workerCount, "highPriorityBuffer", highPriorityBuffer, "lowPriorityBuffer", lowPriorityBuffer)
-		return nil, fmt.Errorf("некорректные параметры: workerCount=%d, highPriorityBuffer=%d, lowPriorityBuffer=%d", workerCount, highPriorityBuffer, lowPriorityBuffer)
+		cfg.Logger.Fatal("Invalid parameters", "workerCount", workerCount, "highPriorityBuffer", highPriorityBuffer, "lowPriorityBuffer", lowPriorityBuffer)
+		return nil, fmt.Errorf("invalid parameters: workerCount=%d, highPriorityBuffer=%d, lowPriorityBuffer=%d", workerCount, highPriorityBuffer, lowPriorityBuffer)
 	}
 
-	// Настройка пула соединений
-	db.SetMaxOpenConns(1) // Только одно соединение для SQLite
-	db.SetMaxIdleConns(1) // Одно простаивающее соединение
+	// Configure connection pool
+	db.SetMaxOpenConns(1) // Single connection for SQLite
+	db.SetMaxIdleConns(1) // One idle connection
 
+	mCtx, cancel := context.WithCancel(ctx)
 	manager := &DatabaseManager{
 		db:           db,
 		cfg:          cfg,
 		highPriority: make(chan func(*sql.DB) error, highPriorityBuffer),
 		lowPriority:  make(chan func(*sql.DB) error, lowPriorityBuffer),
-		ctx:          ctx,
+		ctx:          mCtx,
+		cancel:       cancel,
 		workerPool:   make(chan struct{}, workerCount),
 	}
 
-	// Запуск рабочих горутин
+	// Start worker goroutines
 	for i := range workerCount {
 		go manager.processRequests(i)
 	}
-	cfg.Logger.Debug("DatabaseManager создан", "workerCount", workerCount, "highPriorityBuffer", highPriorityBuffer, "lowPriorityBuffer", lowPriorityBuffer)
+	cfg.Logger.Debug("DatabaseManager created", "workerCount", workerCount, "highPriorityBuffer", highPriorityBuffer, "lowPriorityBuffer", lowPriorityBuffer)
 	return manager, nil
 }
 
-// processRequests обрабатывает запросы из каналов с приоритетом.
+// processRequests handles requests from prioritized channels with strict prioritization.
 func (m *DatabaseManager) processRequests(workerID int) {
 	for {
 		select {
 		case <-m.ctx.Done():
-			m.cfg.Logger.Debug("Воркер остановлен", "workerID", workerID)
+			m.cfg.Logger.Debug("Worker stopped", "workerID", workerID)
 			return
 		case req, ok := <-m.highPriority:
 			if !ok {
-				m.cfg.Logger.Debug("Канал высокоприоритетных запросов закрыт", "workerID", workerID)
+				m.cfg.Logger.Debug("High-priority channel closed", "workerID", workerID)
 				return
 			}
 			atomic.AddUint64(&m.highPriorityCount, 1)
 			m.processRequest(req, workerID, "highPriority")
-		case req, ok := <-m.lowPriority:
-			if !ok {
-				m.cfg.Logger.Debug("Канал низкоприоритетных запросов закрыт", "workerID", workerID)
+		default:
+			select {
+			case req, ok := <-m.lowPriority:
+				if !ok {
+					m.cfg.Logger.Debug("Low-priority channel closed", "workerID", workerID)
+					return
+				}
+				atomic.AddUint64(&m.lowPriorityCount, 1)
+				m.processRequest(req, workerID, "lowPriority")
+			case <-m.ctx.Done():
+				m.cfg.Logger.Debug("Worker stopped", "workerID", workerID)
 				return
+			default:
+				time.Sleep(10 * time.Millisecond) // Avoid busy-waiting
 			}
-			atomic.AddUint64(&m.lowPriorityCount, 1)
-			m.processRequest(req, workerID, "lowPriority")
 		}
 	}
 }
 
+// processRequest executes a single database request.
 func (m *DatabaseManager) processRequest(req func(*sql.DB) error, workerID int, priority string) {
 	m.workerPool <- struct{}{}
-	m.cfg.Logger.Trace("Обработка запроса", "workerID", workerID, "priority", priority)
+	m.cfg.Logger.Trace("Processing request", "workerID", workerID, "priority", priority)
 	if err := req(m.db); err != nil {
-		m.cfg.Logger.Error("Ошибка выполнения запроса", "workerID", workerID, "priority", priority, "error", err)
+		m.cfg.Logger.Error("Failed to execute request", "workerID", workerID, "priority", priority, "error", err)
 	}
 	<-m.workerPool
-	m.cfg.Logger.Trace("Запрос обработан", "workerID", workerID, "priority", priority)
-	// Логируем текущее количество выполненных запросов для отладки
-	m.cfg.Logger.Debug("Выполненные запросы воркеров",
-		"высокоприоритетные", atomic.LoadUint64(&m.highPriorityCount),
-		"низкоприоритетные", atomic.LoadUint64(&m.lowPriorityCount))
+	// Log current request counts for debugging
+	m.cfg.Logger.Debug("Processed request counts", "highPriority", atomic.LoadUint64(&m.highPriorityCount), "lowPriority", atomic.LoadUint64(&m.lowPriorityCount))
 }
 
+// executeOnce executes a database request once with timeout handling.
 func (m *DatabaseManager) executeOnce(fn func(*sql.DB) error, priority bool, sendTimeout, waitTimeout time.Duration) error {
 	errChan := make(chan error, 1)
 	m.closedMu.Lock()
 	if m.isClosed {
 		m.closedMu.Unlock()
-		m.cfg.Logger.Error("DatabaseManager закрыт")
-		return fmt.Errorf("DatabaseManager закрыт")
+		m.cfg.Logger.Error("DatabaseManager is closed")
+		return fmt.Errorf("DatabaseManager is closed")
 	}
 	m.closedMu.Unlock()
 
-	// Выбор канала в зависимости от приоритета
+	// Select channel based on priority
 	requestChan := m.lowPriority
 	priorityStr := "lowPriority"
 	if priority {
@@ -113,7 +123,7 @@ func (m *DatabaseManager) executeOnce(fn func(*sql.DB) error, priority bool, sen
 		priorityStr = "highPriority"
 	}
 
-	// Отправка запроса в канал
+	// Send request to channel
 	select {
 	case requestChan <- func(db *sql.DB) error {
 		err := fn(db)
@@ -124,29 +134,30 @@ func (m *DatabaseManager) executeOnce(fn func(*sql.DB) error, priority bool, sen
 		errChan <- err
 		return err
 	}:
-		m.cfg.Logger.Debug("Запрос отправлен в канал", "priority", priorityStr)
+		m.cfg.Logger.Debug("Request sent to channel", "priority", priorityStr)
 	case <-m.ctx.Done():
-		m.cfg.Logger.Warn("Контекст отменён при отправке запроса", "priority", priorityStr)
+		m.cfg.Logger.Warn("Context canceled while sending request", "priority", priorityStr)
 		return m.ctx.Err()
 	case <-time.After(sendTimeout):
-		m.cfg.Logger.Error("Таймаут отправки запроса", "priority", priorityStr, "timeout", sendTimeout)
-		return fmt.Errorf("таймаут отправки запроса (%s, %v)", priorityStr, sendTimeout)
+		m.cfg.Logger.Error("Request send timeout", "priority", priorityStr, "timeout", sendTimeout)
+		return fmt.Errorf("request send timeout (%s, %v)", priorityStr, sendTimeout)
 	}
 
-	// Ожидание выполнения запроса
+	// Wait for request execution
 	select {
 	case err := <-errChan:
+		m.cfg.Logger.Trace("Received response from request", "priority", priorityStr, "error", err)
 		return err
 	case <-m.ctx.Done():
-		m.cfg.Logger.Warn("Контекст отменён при ожидании ответа", "priority", priorityStr)
+		m.cfg.Logger.Warn("Context canceled while waiting for response", "priority", priorityStr)
 		return m.ctx.Err()
 	case <-time.After(waitTimeout):
-		m.cfg.Logger.Error("Таймаут ожидания ответа", "timeout", waitTimeout)
-		return fmt.Errorf("таймаут ожидания ответа (%v)", waitTimeout)
+		m.cfg.Logger.Error("Response wait timeout", "priority", priorityStr, "timeout", waitTimeout)
+		return fmt.Errorf("response wait timeout (%v)", waitTimeout)
 	}
 }
 
-// isRetryableError проверяет, является ли ошибка временной и требует ли повторной попытки.
+// isRetryableError checks if an error is retryable.
 func isRetryableError(err error) bool {
 	if err == nil {
 		return false
@@ -156,94 +167,97 @@ func isRetryableError(err error) bool {
 		strings.Contains(err.Error(), "connection refused")
 }
 
+// ExecuteWithTimeout executes a database request with retries and timeout handling.
 func (m *DatabaseManager) ExecuteWithTimeout(fn func(*sql.DB) error, priority bool, sendTimeout, waitTimeout time.Duration) error {
 	const maxRetries = 3
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		err := m.executeOnce(fn, priority, sendTimeout, waitTimeout)
 		if err == nil {
-			m.cfg.Logger.Debug("Запрос успешно выполнен", "attempt", attempt, "priority", priority)
+			m.cfg.Logger.Debug("Request executed successfully", "attempt", attempt, "priority", priority)
 			return nil
 		}
 		if isRetryableError(err) {
-			m.cfg.Logger.Warn("Временная ошибка, повторная попытка", "attempt", attempt, "maxRetries", maxRetries, "error", err)
+			m.cfg.Logger.Warn("Retryable error, attempting retry", "attempt", attempt, "maxRetries", maxRetries, "error", err)
 			time.Sleep(time.Duration(attempt*100) * time.Millisecond)
 			continue
 		}
-		m.cfg.Logger.Error("Неудачная попытка выполнения запроса", "attempt", attempt, "error", err)
+		m.cfg.Logger.Error("Failed to execute request", "attempt", attempt, "error", err)
 		return err
 	}
-	m.cfg.Logger.Error("Не удалось выполнить запрос после всех попыток", "maxRetries", maxRetries)
-	return fmt.Errorf("не удалось выполнить запрос после %d попыток", maxRetries)
+	m.cfg.Logger.Error("Failed to execute request after all retries", "maxRetries", maxRetries)
+	return fmt.Errorf("failed to execute request after %d retries", maxRetries)
 }
 
+// ExecuteHighPriority executes a high-priority database request.
 func (m *DatabaseManager) ExecuteHighPriority(fn func(*sql.DB) error) error {
 	return m.ExecuteWithTimeout(fn, true, 1*time.Second, 3*time.Second)
 }
 
+// ExecuteLowPriority executes a low-priority database request.
 func (m *DatabaseManager) ExecuteLowPriority(fn func(*sql.DB) error) error {
 	return m.ExecuteWithTimeout(fn, false, 2*time.Second, 5*time.Second)
 }
 
-// SyncDBWithContext синхронизирует базу данных менеджера с целевой базой данных с использованием переданного контекста.
+// SyncDBWithContext synchronizes the manager's database with the target database using the provided context.
 func (m *DatabaseManager) SyncDBWithContext(ctx context.Context, destDB *sql.DB, direction string) error {
-	// Сразу проверяем, не завершён ли входящий контекст
+	// Check if the context is already canceled
 	if err := ctx.Err(); err != nil {
-		m.cfg.Logger.Error("Контекст отменён перед синхронизацией", "error", err)
+		m.cfg.Logger.Error("Context canceled before synchronization", "error", err)
 		return err
 	}
 
-	m.cfg.Logger.Debug("Начало синхронизации базы данных", "direction", direction)
+	m.cfg.Logger.Debug("Starting database synchronization", "direction", direction)
 
-	// Получаем прямое соединение с исходной in-memory БД
+	// Obtain connection to the in-memory source database
 	srcConn, err := m.db.Conn(ctx)
 	if err != nil {
-		m.cfg.Logger.Error("Не удалось получить соединение с исходной базой", "error", err)
-		return fmt.Errorf("не удалось получить соединение с исходной базой: %v", err)
+		m.cfg.Logger.Error("Failed to obtain connection to source database", "error", err)
+		return fmt.Errorf("failed to obtain connection to source database: %v", err)
 	}
 	defer srcConn.Close()
 
-	// Получаем соединение с файловой БД
+	// Obtain connection to the target file-based database
 	destConn, err := destDB.Conn(ctx)
 	if err != nil {
-		m.cfg.Logger.Error("Не удалось получить соединение с целевой базой", "error", err)
-		return fmt.Errorf("не удалось получить соединение с целевой базой: %v", err)
+		m.cfg.Logger.Error("Failed to obtain connection to target database", "error", err)
+		return fmt.Errorf("failed to obtain connection to target database: %v", err)
 	}
 	defer destConn.Close()
 
-	// Выполняем бэкап
+	// Perform backup
 	err = srcConn.Raw(func(srcDriverConn any) error {
 		return destConn.Raw(func(destDriverConn any) error {
 			srcSQLiteConn, ok := srcDriverConn.(*sqlite3.SQLiteConn)
 			if !ok {
-				m.cfg.Logger.Error("Не удалось привести исходное соединение к *sqlite3.SQLiteConn")
-				return fmt.Errorf("не удалось привести исходное соединение к *sqlite3.SQLiteConn")
+				m.cfg.Logger.Error("Failed to cast source connection to *sqlite3.SQLiteConn")
+				return fmt.Errorf("failed to cast source connection to *sqlite3.SQLiteConn")
 			}
 			destSQLiteConn, ok := destDriverConn.(*sqlite3.SQLiteConn)
 			if !ok {
-				m.cfg.Logger.Error("Не удалось привести целевое соединение к *sqlite3.SQLiteConn")
-				return fmt.Errorf("не удалось привести целевое соединение к *sqlite3.SQLiteConn")
+				m.cfg.Logger.Error("Failed to cast target connection to *sqlite3.SQLiteConn")
+				return fmt.Errorf("failed to cast target connection to *sqlite3.SQLiteConn")
 			}
 
 			backup, err := destSQLiteConn.Backup("main", srcSQLiteConn, "main")
 			if err != nil {
-				m.cfg.Logger.Error("Не удалось инициализировать резервное копирование", "error", err)
-				return fmt.Errorf("не удалось инициализировать резервное копирование: %v", err)
+				m.cfg.Logger.Error("Failed to initialize backup", "error", err)
+				return fmt.Errorf("failed to initialize backup: %v", err)
 			}
 			defer backup.Finish()
 
 			for {
 				finished, err := backup.Step(500)
 				if err != nil {
-					m.cfg.Logger.Error("Ошибка шага резервного копирования", "error", err)
-					return fmt.Errorf("ошибка шага резервного копирования: %v", err)
+					m.cfg.Logger.Error("Failed during backup step", "error", err)
+					return fmt.Errorf("failed during backup step: %v", err)
 				}
-				m.cfg.Logger.Trace("Выполнен шаг резервного копирования", "finished", finished)
+				m.cfg.Logger.Trace("Performed backup step", "finished", finished)
 				if finished {
 					break
 				}
-				// проверяем отмену контекста между шагами
+				// Check for context cancellation between steps
 				if ctx.Err() != nil {
-					m.cfg.Logger.Warn("Контекст отменён во время резервного копирования", "error", ctx.Err())
+					m.cfg.Logger.Warn("Context canceled during backup", "error", ctx.Err())
 					return ctx.Err()
 				}
 			}
@@ -251,52 +265,55 @@ func (m *DatabaseManager) SyncDBWithContext(ctx context.Context, destDB *sql.DB,
 		})
 	})
 	if err != nil {
-		m.cfg.Logger.Error("Ошибка синхронизации базы данных", "direction", direction, "error", err)
-		return fmt.Errorf("ошибка синхронизации базы данных (%s): %v", direction, err)
+		m.cfg.Logger.Error("Failed to synchronize database", "direction", direction, "error", err)
+		return fmt.Errorf("failed to synchronize database (%s): %v", direction, err)
 	}
 
-	m.cfg.Logger.Debug("Синхронизация базы данных завершена", "direction", direction)
+	m.cfg.Logger.Debug("Database synchronization completed", "direction", direction)
 	return nil
 }
 
-// Close закрывает DatabaseManager и завершает обработку запросов.
+// Close shuts down the DatabaseManager and completes request processing.
 func (m *DatabaseManager) Close() {
 	m.closedMu.Lock()
 	if m.isClosed {
 		m.closedMu.Unlock()
-		m.cfg.Logger.Warn("DatabaseManager уже закрыт")
+		m.cfg.Logger.Warn("DatabaseManager already closed")
 		return
 	}
-	m.closedMu.Unlock()
 	m.isClosed = true
+	m.closedMu.Unlock()
 
-	m.cfg.Logger.Debug("Закрытие DatabaseManager")
+	m.cfg.Logger.Debug("Shutting down DatabaseManager")
+	m.cancel() // Stop accepting new requests
 
+	timeout := time.After(10 * time.Second)
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	timeout := time.After(5 * time.Second)
 
 	for {
 		select {
 		case <-timeout:
-			m.cfg.Logger.Warn("Таймаут закрытия DatabaseManager, принудительное закрытие каналов")
+			m.cfg.Logger.Warn("Timeout during shutdown, forcing channel closure")
 			close(m.highPriority)
 			close(m.lowPriority)
 			return
 		case <-ticker.C:
-			if len(m.highPriority) == 0 && len(m.lowPriority) == 0 {
-				m.cfg.Logger.Debug("Все запросы обработаны, каналы закрыты")
+			highPending := len(m.highPriority)
+			lowPending := len(m.lowPriority)
+			if highPending == 0 && lowPending == 0 {
+				m.cfg.Logger.Debug("All requests processed, closing channels")
 				close(m.highPriority)
 				close(m.lowPriority)
 				return
 			}
-			m.cfg.Logger.Debug("Ожидание обработки запросов", "highPriorityCount", len(m.highPriority), "lowPriorityCount", len(m.lowPriority))
+			m.cfg.Logger.Debug("Waiting for requests", "highPriority", highPending, "lowPriority", lowPending)
 		}
 	}
 }
 
-// DB возвращает указатель на sql.DB (используйте только для инициализации или тестирования, предпочтительно ExecuteLowPriority/ExecuteHighPriority для операций с базой данных).
+// DB returns the sql.DB pointer (use only for initialization or testing; prefer ExecuteLowPriority/ExecuteHighPriority for database operations).
 func (m *DatabaseManager) DB() *sql.DB {
-	m.cfg.Logger.Warn("Прямой доступ к DB() следует избегать; используйте Execute или ExecuteHighPriority")
+	m.cfg.Logger.Warn("Direct access to DB() should be avoided; use ExecuteLowPriority or ExecuteHighPriority")
 	return m.db
 }
