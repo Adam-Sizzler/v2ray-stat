@@ -171,7 +171,7 @@ func AddUsersFromFile(file io.Reader, cfg *config.Config) error {
 		}
 
 		successCount++
-		cfg.Logger.Info("User added successfully", "line_number", lineNumber, "user", user)
+		cfg.Logger.Trace("User added successfully", "line_number", lineNumber, "user", user)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -211,7 +211,7 @@ func BulkAddUsersHandler(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		cfg.Logger.Info("Users added successfully")
+		cfg.Logger.Info("API bulk_add_users: users added successfully")
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "Users added successfully")
 	}

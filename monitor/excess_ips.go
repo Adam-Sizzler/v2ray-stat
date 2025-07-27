@@ -54,7 +54,7 @@ func logExcessIPs(manager *manager.DatabaseManager, logFile *os.File, cfg *confi
 
 			// Skip if no IP addresses are available
 			if !ipAddresses.Valid || ipAddresses.String == "" {
-				cfg.Logger.Warn("No IP addresses found for user", "user", user)
+				cfg.Logger.Trace("No IP addresses found for user", "user", user)
 				continue
 			}
 

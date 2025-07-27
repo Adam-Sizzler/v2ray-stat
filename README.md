@@ -224,10 +224,10 @@ curl -X PATCH http://127.0.0.1:9952/api/v1/update_lim_ip -d "user=newuser&lim_ip
 **PATCH** `/api/v1/adjust_date`
 - **Параметры**:
   - `user`: Имя пользователя.
-  - `sub_end`: Смещение срока окончания подписки в формате `+дни:часы`, `-дни`
+  - `sub_end`: Смещение срока окончания подписки в формате `+6d:0d`, `-3d`, `3h`
 
 ```bash
-curl -X PATCH http://127.0.0.1:9952/api/v1/adjust_date -d "user=newuser&sub_end=+30:0"
+curl -X PATCH http://127.0.0.1:9952/api/v1/adjust_date -d "user=newuser&sub_end=+30d13h"
 ```
 
 ### Настройка автопродления подписки

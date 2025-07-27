@@ -662,7 +662,7 @@ func ResetTrafficHandler(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		cfg.Logger.Info("Traffic reset successfully")
+		cfg.Logger.Info("API reset_traffic: network traffic reset successfully")
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "Traffic reset successfully")
 	}
@@ -883,7 +883,7 @@ func UpdateIPLimitHandler(manager *manager.DatabaseManager, cfg *config.Config) 
 				return fmt.Errorf("failed to commit transaction: %v", err)
 			}
 
-			cfg.Logger.Info("IP limit updated successfully", "user", userIdentifier, "lim_ip", ipLimitInt)
+			cfg.Logger.Debug("IP limit updated successfully", "user", userIdentifier, "lim_ip", ipLimitInt)
 			return nil
 		})
 
@@ -893,7 +893,7 @@ func UpdateIPLimitHandler(manager *manager.DatabaseManager, cfg *config.Config) 
 			return
 		}
 
-		cfg.Logger.Debug("IP limit update request completed successfully", "user", userIdentifier, "lim_ip", ipLimitInt)
+		cfg.Logger.Info("API update_lim_ip: IP limit update request completed successfully", "user", userIdentifier, "lim_ip", ipLimitInt)
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "IP limit updated successfully")
 	}
@@ -950,7 +950,7 @@ func DeleteDNSStatsHandler(manager *manager.DatabaseManager, cfg *config.Config)
 			return
 		}
 
-		cfg.Logger.Info("DNS stats deletion request completed successfully", "remote_addr", r.RemoteAddr)
+		cfg.Logger.Info("API delete_dns_stats: DNS stats deletion request completed successfully", "remote_addr", r.RemoteAddr)
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "DNS stats records deleted successfully")
 	}
@@ -1007,7 +1007,7 @@ func ResetTrafficStatsHandler(manager *manager.DatabaseManager, cfg *config.Conf
 			return
 		}
 
-		cfg.Logger.Info("Traffic stats reset request completed successfully", "remote_addr", r.RemoteAddr)
+		cfg.Logger.Info("API reset_traffic_stats: traffic stats reset request completed successfully", "remote_addr", r.RemoteAddr)
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "Traffic stats reset successfully")
 	}
@@ -1056,7 +1056,7 @@ func ResetClientsStatsHandler(manager *manager.DatabaseManager, cfg *config.Conf
 				return fmt.Errorf("failed to commit transaction: %v", err)
 			}
 
-			cfg.Logger.Info("Client traffic stats reset successfully", "rows_affected", rowsAffected)
+			cfg.Logger.Debug("Client traffic stats reset successfully", "rows_affected", rowsAffected)
 			return nil
 		})
 		if err != nil {
@@ -1065,7 +1065,7 @@ func ResetClientsStatsHandler(manager *manager.DatabaseManager, cfg *config.Conf
 			return
 		}
 
-		cfg.Logger.Info("Client traffic stats reset request completed successfully", "remote_addr", r.RemoteAddr)
+		cfg.Logger.Info("API reset_clients_stats: client traffic stats reset request completed successfully", "remote_addr", r.RemoteAddr)
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "Client traffic stats reset successfully")
 	}
@@ -1171,7 +1171,7 @@ func UpdateRenewHandler(manager *manager.DatabaseManager, cfg *config.Config) ht
 			return
 		}
 
-		cfg.Logger.Info("Renew update request completed successfully", "user", userIdentifier, "renew", renew)
+		cfg.Logger.Info("API update_renew: renew update request completed successfully", "user", userIdentifier, "renew", renew)
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "Renew value updated successfully")
 	}
@@ -1283,7 +1283,7 @@ func AddUserToConfig(user, credential, inboundTag string, cfg *config.Config) er
 		return fmt.Errorf("failed to write config.json: %v", err)
 	}
 
-	cfg.Logger.Info("User added to configuration", "user", user, "inboundTag", inboundTag)
+	cfg.Logger.Debug("User added to configuration", "user", user, "inboundTag", inboundTag)
 
 	if cfg.Features["auth_lua"] {
 		cfg.Logger.Debug("Adding user to auth.lua", "user", user)
@@ -1299,7 +1299,7 @@ func AddUserToConfig(user, credential, inboundTag string, cfg *config.Config) er
 		if err := lua.AddUserToAuthLua(cfg, user, credentialToAdd); err != nil {
 			cfg.Logger.Error("Failed to add user to auth.lua", "user", user, "error", err)
 		} else {
-			cfg.Logger.Info("User added to auth.lua", "user", user)
+			cfg.Logger.Debug("User added to auth.lua", "user", user)
 		}
 	}
 
@@ -1363,7 +1363,7 @@ func AddUserHandler(cfg *config.Config) http.HandlerFunc {
 }
 
 // saveConfig saves configuration data to a file.
-func saveConfig(w http.ResponseWriter, configPath string, configData any, cfg *config.Config, logMessage string) error {
+func saveConfig(w http.ResponseWriter, configPath string, configData any, cfg *config.Config) error {
 	cfg.Logger.Debug("Marshaling JSON for configuration", "path", configPath)
 	updateData, err := json.MarshalIndent(configData, "", "  ")
 	if err != nil {
@@ -1383,14 +1383,12 @@ func saveConfig(w http.ResponseWriter, configPath string, configData any, cfg *c
 		return err
 	}
 
-	cfg.Logger.Info(logMessage)
 	return nil
 }
 
 // DeleteUserFromConfig removes a user from the configuration files.
 func DeleteUserFromConfig(userIdentifier, inboundTag string, cfg *config.Config) error {
 	cfg.Logger.Debug("Starting user deletion from configuration", "user", userIdentifier, "inboundTag", inboundTag)
-	start := time.Now()
 	configPath := cfg.Core.Config
 	disabledUsersPath := filepath.Join(cfg.Core.Dir, ".disabled_users")
 	proxyType := cfg.V2rayStat.Type
@@ -1446,8 +1444,7 @@ func DeleteUserFromConfig(userIdentifier, inboundTag string, cfg *config.Config)
 		mainUpdated, removedFromMain := removeXrayUser(mainConfig.Inbounds)
 		if removedFromMain {
 			mainConfig.Inbounds = mainUpdated
-			logMessage := fmt.Sprintf("User %s successfully removed from config.json, inbound %s [%v]", userIdentifier, inboundTag, time.Since(start))
-			if err := saveConfig(nil, configPath, mainConfig, cfg, logMessage); err != nil {
+			if err := saveConfig(nil, configPath, mainConfig, cfg); err != nil {
 				return err
 			}
 			userRemoved = true
@@ -1458,8 +1455,7 @@ func DeleteUserFromConfig(userIdentifier, inboundTag string, cfg *config.Config)
 		if removedFromDisabled {
 			disabledConfig.Inbounds = disabledUpdated
 			if len(disabledConfig.Inbounds) > 0 {
-				logMessage := fmt.Sprintf("User %s successfully removed from .disabled_users, inbound %s [%v]", userIdentifier, inboundTag, time.Since(start))
-				if err := saveConfig(nil, disabledUsersPath, disabledConfig, cfg, logMessage); err != nil {
+				if err := saveConfig(nil, disabledUsersPath, disabledConfig, cfg); err != nil {
 					return err
 				}
 			} else {
@@ -1468,7 +1464,7 @@ func DeleteUserFromConfig(userIdentifier, inboundTag string, cfg *config.Config)
 					cfg.Logger.Error("Failed to remove empty .disabled_users", "error", err)
 					return fmt.Errorf("failed to remove empty .disabled_users: %v", err)
 				}
-				cfg.Logger.Info("User removed from .disabled_users", "user", userIdentifier, "inboundTag", inboundTag)
+				cfg.Logger.Debug("User removed from .disabled_users", "user", userIdentifier, "inboundTag", inboundTag)
 			}
 			userRemoved = true
 		}
@@ -1521,8 +1517,7 @@ func DeleteUserFromConfig(userIdentifier, inboundTag string, cfg *config.Config)
 		mainUpdated, removedFromMain := removeSingboxUser(mainConfig.Inbounds)
 		if removedFromMain {
 			mainConfig.Inbounds = mainUpdated
-			logMessage := fmt.Sprintf("User %s successfully removed from config.json, inbound %s [%v]", userIdentifier, inboundTag, time.Since(start))
-			if err := saveConfig(nil, configPath, mainConfig, cfg, logMessage); err != nil {
+			if err := saveConfig(nil, configPath, mainConfig, cfg); err != nil {
 				return err
 			}
 			userRemoved = true
@@ -1533,8 +1528,7 @@ func DeleteUserFromConfig(userIdentifier, inboundTag string, cfg *config.Config)
 		if removedFromDisabled {
 			disabledConfig.Inbounds = disabledUpdated
 			if len(disabledConfig.Inbounds) > 0 {
-				logMessage := fmt.Sprintf("User %s successfully removed from .disabled_users, inbound %s [%v]", userIdentifier, inboundTag, time.Since(start))
-				if err := saveConfig(nil, disabledUsersPath, disabledConfig, cfg, logMessage); err != nil {
+				if err := saveConfig(nil, disabledUsersPath, disabledConfig, cfg); err != nil {
 					return err
 				}
 			} else {
@@ -1543,7 +1537,7 @@ func DeleteUserFromConfig(userIdentifier, inboundTag string, cfg *config.Config)
 					cfg.Logger.Error("Failed to remove empty .disabled_users", "error", err)
 					return fmt.Errorf("failed to remove empty .disabled_users: %v", err)
 				}
-				cfg.Logger.Info("User removed from .disabled_users", "user", userIdentifier, "inboundTag", inboundTag)
+				cfg.Logger.Debug("User removed from .disabled_users", "user", userIdentifier, "inboundTag", inboundTag)
 			}
 			userRemoved = true
 		}
@@ -1555,7 +1549,7 @@ func DeleteUserFromConfig(userIdentifier, inboundTag string, cfg *config.Config)
 		if err := lua.DeleteUserFromAuthLua(cfg, userIdentifier); err != nil {
 			cfg.Logger.Error("Failed to delete user from auth.lua", "user", userIdentifier, "error", err)
 		} else {
-			cfg.Logger.Info("User removed from auth.lua", "user", userIdentifier)
+			cfg.Logger.Debug("User removed from auth.lua", "user", userIdentifier)
 		}
 	}
 
@@ -1565,7 +1559,7 @@ func DeleteUserFromConfig(userIdentifier, inboundTag string, cfg *config.Config)
 		return fmt.Errorf("user %s not found in inbound %s in either config.json or .disabled_users", userIdentifier, inboundTag)
 	}
 
-	cfg.Logger.Info("User deleted successfully", "user", userIdentifier, "inboundTag", inboundTag)
+	cfg.Logger.Debug("User deleted successfully", "user", userIdentifier, "inboundTag", inboundTag)
 	return nil
 }
 
@@ -1716,17 +1710,17 @@ func SetEnabledHandler(manager *manager.DatabaseManager, cfg *config.Config) htt
 			return
 		}
 
-		cfg.Logger.Info("User status updated successfully", "user", userIdentifier, "enabled", enabled)
+		cfg.Logger.Info("API set_enabled: user status updated successfully", "user", userIdentifier, "enabled", enabled)
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "User status updated successfully")
 	}
 }
 
-// updateSubscriptionDate updates the subscription date for a user.
+// updateSubscriptionDate обновляет дату подписки для пользователя.
 func updateSubscriptionDate(manager *manager.DatabaseManager, cfg *config.Config, userIdentifier, subEnd string) error {
 	cfg.Logger.Debug("Starting subscription date update", "user", userIdentifier)
 
-	// Validate input parameters
+	// Валидация входных параметров
 	if userIdentifier == "" {
 		cfg.Logger.Warn("Empty user identifier")
 		return fmt.Errorf("user identifier is empty")
@@ -1738,15 +1732,6 @@ func updateSubscriptionDate(manager *manager.DatabaseManager, cfg *config.Config
 	if subEnd != "" && len(subEnd) > 40 {
 		cfg.Logger.Warn("Subscription date too long", "length", len(subEnd))
 		return fmt.Errorf("subscription date too long (max 40 characters)")
-	}
-
-	// Validate subEnd format if provided
-	if subEnd != "" {
-		_, err := time.Parse("2006-01-02-15", subEnd)
-		if err != nil {
-			cfg.Logger.Warn("Invalid subscription date format", "subEnd", subEnd, "error", err)
-			return fmt.Errorf("invalid subscription date format: %v", err)
-		}
 	}
 
 	cfg.Logger.Debug("Querying current subscription date from database", "user", userIdentifier)
@@ -1774,6 +1759,11 @@ func updateSubscriptionDate(manager *manager.DatabaseManager, cfg *config.Config
 		cfg.Logger.Trace("Parsed current subscription date", "baseDate", baseDate)
 	}
 
+	// Если subEnd пустой, устанавливаем значение по умолчанию
+	if subEnd == "" {
+		subEnd = "0" // Сбрасываем подписку
+	}
+
 	cfg.Logger.Debug("Updating subscription date", "user", userIdentifier, "subEnd", subEnd)
 	err = db.AdjustDateOffset(manager, cfg, userIdentifier, subEnd, baseDate)
 	if err != nil {
@@ -1787,7 +1777,7 @@ func updateSubscriptionDate(manager *manager.DatabaseManager, cfg *config.Config
 		return fmt.Errorf("failed to check expired subscriptions: %v", err)
 	}
 
-	cfg.Logger.Info("Subscription date updated successfully", "user", userIdentifier)
+	cfg.Logger.Debug("Subscription date updated successfully", "user", userIdentifier)
 	return nil
 }
 
@@ -1837,7 +1827,7 @@ func AdjustDateOffsetHandler(manager *manager.DatabaseManager, cfg *config.Confi
 			return
 		}
 
-		cfg.Logger.Info("Subscription date update completed successfully", "user", userIdentifier)
+		cfg.Logger.Info("API adjust_date: subscription date update completed successfully", "user", userIdentifier)
 	}
 }
 

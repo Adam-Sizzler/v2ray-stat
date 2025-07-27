@@ -24,9 +24,8 @@ var (
 	renewNotifiedUsers = make(map[string]bool)
 )
 
-var (
-	dateOffsetRegex = regexp.MustCompile(`^([+-]?)(\d+)(?::(\d+))?$`)
-)
+// dateOffsetRegex matches formats like +2d1h, -3d, +1h, etc.
+var dateOffsetRegex = regexp.MustCompile(`^([+-]?)(\d*)d?(\d*)h?$|^0$`)
 
 // extractUsersXrayServer retrieves Xray users from config files.
 func extractUsersXrayServer(cfg *config.Config) []config.XrayClient {
@@ -167,7 +166,7 @@ func AddUserToDB(manager *manager.DatabaseManager, cfg *config.Config) error {
 				return fmt.Errorf("failed to get RowsAffected for client %s: %v", client.Email, err)
 			}
 			if rowsAffected > 0 {
-				cfg.Logger.Info("User added successfully", "user", client.Email)
+				cfg.Logger.Debug("User added successfully", "user", client.Email)
 				addedUsers = append(addedUsers, client.Email)
 			} else {
 				cfg.Logger.Trace("User already exists in database", "user", client.Email)
@@ -187,7 +186,7 @@ func AddUserToDB(manager *manager.DatabaseManager, cfg *config.Config) error {
 	}
 
 	if len(addedUsers) > 0 {
-		cfg.Logger.Info("Users added to database", "users", strings.Join(addedUsers, ", "), "count", len(addedUsers))
+		cfg.Logger.Debug("Users added to database", "users", strings.Join(addedUsers, ", "), "count", len(addedUsers))
 	} else {
 		cfg.Logger.Debug("No new users added, all already exist")
 	}
@@ -295,7 +294,7 @@ func DelUserFromDB(manager *manager.DatabaseManager, cfg *config.Config) error {
 		return err
 	}
 
-	cfg.Logger.Info("Users deleted from database", "users", strings.Join(deletedUsers, ", "), "count", len(deletedUsers))
+	cfg.Logger.Debug("Users deleted from database", "users", strings.Join(deletedUsers, ", "), "count", len(deletedUsers))
 	return nil
 }
 
@@ -336,7 +335,7 @@ func UpdateIPInDB(manager *manager.DatabaseManager, user string, ipList []string
 		return err
 	}
 
-	cfg.Logger.Info("IPs updated successfully for user", "user", user, "ips", ipStr)
+	cfg.Logger.Debug("IPs updated successfully for user", "user", user, "ips", ipStr)
 	return nil
 }
 
@@ -461,6 +460,12 @@ func formatDate(subEnd string, cfg *config.Config) string {
 // parseAndAdjustDate adjusts a date based on the provided offset.
 func parseAndAdjustDate(offset string, baseDate time.Time, cfg *config.Config) (time.Time, error) {
 	cfg.Logger.Debug("Parsing and adjusting date", "offset", offset, "baseDate", baseDate.Format("2006-01-02-15"))
+
+	if offset == "0" {
+		cfg.Logger.Debug("Offset is zero, resetting subscription")
+		return time.Time{}, nil
+	}
+
 	matches := dateOffsetRegex.FindStringSubmatch(offset)
 	if matches == nil {
 		cfg.Logger.Error("Invalid date offset format", "offset", offset)
@@ -471,10 +476,25 @@ func parseAndAdjustDate(offset string, baseDate time.Time, cfg *config.Config) (
 	daysStr := matches[2]
 	hoursStr := matches[3]
 
-	days, _ := strconv.Atoi(daysStr)
+	days := 0
 	hours := 0
+
+	if daysStr != "" {
+		var err error
+		days, err = strconv.Atoi(daysStr)
+		if err != nil {
+			cfg.Logger.Error("Failed to parse days", "daysStr", daysStr, "error", err)
+			return time.Time{}, fmt.Errorf("failed to parse days: %v", err)
+		}
+	}
+
 	if hoursStr != "" {
-		hours, _ = strconv.Atoi(hoursStr)
+		var err error
+		hours, err = strconv.Atoi(hoursStr)
+		if err != nil {
+			cfg.Logger.Error("Failed to parse hours", "hoursStr", hoursStr, "error", err)
+			return time.Time{}, fmt.Errorf("failed to parse hours: %v", err)
+		}
 	}
 
 	if sign == "-" {
@@ -482,6 +502,7 @@ func parseAndAdjustDate(offset string, baseDate time.Time, cfg *config.Config) (
 		hours = -hours
 	}
 
+	// Вычисляем новую дату
 	newDate := baseDate.AddDate(0, 0, days).Add(time.Duration(hours) * time.Hour)
 	cfg.Logger.Trace("Adjusted date", "newDate", newDate.Format("2006-01-02-15"))
 	return newDate, nil
@@ -498,48 +519,6 @@ func AdjustDateOffset(manager *manager.DatabaseManager, cfg *config.Config, user
 		return fmt.Errorf("empty offset value")
 	}
 
-	if offset == "0" {
-		err := manager.ExecuteHighPriority(func(db *sql.DB) error {
-			tx, err := db.Begin()
-			if err != nil {
-				cfg.Logger.Error("Failed to start transaction", "user", user, "error", err)
-				return fmt.Errorf("failed to start transaction: %v", err)
-			}
-			defer tx.Rollback()
-
-			cfg.Logger.Debug("Executing reset sub_end query", "user", user)
-			result, err := tx.Exec("UPDATE clients_stats SET sub_end = '' WHERE user = ?", user)
-			if err != nil {
-				cfg.Logger.Error("Failed to update database", "user", user, "error", err)
-				return fmt.Errorf("failed to update database: %v", err)
-			}
-
-			rowsAffected, err := result.RowsAffected()
-			if err != nil {
-				cfg.Logger.Error("Failed to check affected rows", "user", user, "error", err)
-				return fmt.Errorf("failed to check affected rows: %v", err)
-			}
-			if rowsAffected == 0 {
-				cfg.Logger.Warn("User not found", "user", user)
-				return fmt.Errorf("user %s not found", user)
-			}
-
-			cfg.Logger.Debug("Committing transaction")
-			if err := tx.Commit(); err != nil {
-				cfg.Logger.Error("Failed to commit transaction", "error", err)
-				return fmt.Errorf("failed to commit transaction: %v", err)
-			}
-			return nil
-		})
-		if err != nil {
-			cfg.Logger.Error("Error in AdjustDateOffset while resetting subscription", "user", user, "error", err)
-			return err
-		}
-
-		cfg.Logger.Info("Set unlimited subscription time for user", "user", user)
-		return nil
-	}
-
 	newDate, err := parseAndAdjustDate(offset, baseDate, cfg)
 	if err != nil {
 		cfg.Logger.Error("Failed to parse date offset", "user", user, "offset", offset, "error", err)
@@ -554,8 +533,13 @@ func AdjustDateOffset(manager *manager.DatabaseManager, cfg *config.Config, user
 		}
 		defer tx.Rollback()
 
-		cfg.Logger.Debug("Executing update sub_end query", "user", user, "new_date", newDate.Format("2006-01-02-15"))
-		result, err := tx.Exec("UPDATE clients_stats SET sub_end = ? WHERE user = ?", newDate.Format("2006-01-02-15"), user)
+		subEndValue := ""
+		if !newDate.IsZero() {
+			subEndValue = newDate.Format("2006-01-02-15")
+		}
+
+		cfg.Logger.Debug("Executing update sub_end query", "user", user, "new_date", subEndValue)
+		result, err := tx.Exec("UPDATE clients_stats SET sub_end = ? WHERE user = ?", subEndValue, user)
 		if err != nil {
 			cfg.Logger.Error("Failed to update database", "user", user, "error", err)
 			return fmt.Errorf("failed to update database: %v", err)
@@ -583,7 +567,7 @@ func AdjustDateOffset(manager *manager.DatabaseManager, cfg *config.Config, user
 		return err
 	}
 
-	cfg.Logger.Info("Subscription date updated", "user", user, "base_date", baseDate.Format("2006-01-02-15"), "new_date", newDate.Format("2006-01-02-15"), "offset", offset)
+	cfg.Logger.Debug("Subscription date updated", "user", user, "base_date", baseDate.Format("2006-01-02-15"), "new_date", newDate.Format("2006-01-02-15"), "offset", offset)
 	return nil
 }
 
@@ -633,7 +617,7 @@ func CheckExpiredSubscriptions(manager *manager.DatabaseManager, cfg *config.Con
 		return err
 	}
 
-	cfg.Logger.Info("Read subscriptions", "count", len(subscriptions))
+	cfg.Logger.Trace("Read subscriptions", "count", len(subscriptions))
 	canSendNotifications := cfg.Telegram.BotToken != "" && cfg.Telegram.ChatID != ""
 	if !canSendNotifications {
 		cfg.Logger.Warn("Telegram notifications not configured")
@@ -685,6 +669,7 @@ func CheckExpiredSubscriptions(manager *manager.DatabaseManager, cfg *config.Con
 								"Client:   *%s*\n"+
 								"Renewed for:   *%d days*",
 							s.User, s.Renew)
+						cfg.Logger.Warn("Sending renewal notification", "user", s.User, "message", message)
 						if err := telegram.SendNotification(cfg, message); err == nil {
 							renewNotifiedUsers[s.User] = true
 							cfg.Logger.Info("Renewal notification sent", "user", s.User)
@@ -700,7 +685,7 @@ func CheckExpiredSubscriptions(manager *manager.DatabaseManager, cfg *config.Con
 					notifiedMutex.Unlock()
 
 					if s.Enabled == "false" {
-						cfg.Logger.Debug("Enabling user", "user", s.User)
+						cfg.Logger.Warn("Enabling user", "user", s.User)
 						err = ToggleUserEnabled(manager, cfg, s.User, true)
 						if err != nil {
 							cfg.Logger.Error("Failed to enable user", "user", s.User, "error", err)
@@ -711,23 +696,27 @@ func CheckExpiredSubscriptions(manager *manager.DatabaseManager, cfg *config.Con
 							cfg.Logger.Error("Failed to update enabled status", "user", s.User, "error", err)
 							continue
 						}
-						cfg.Logger.Info("User enabled after renewal", "user", s.User)
+						cfg.Logger.Warn("User enabled after renewal", "user", s.User)
 					}
-				} else if s.Enabled == "true" {
-					cfg.Logger.Debug("Disabling user", "user", s.User)
-					err = ToggleUserEnabled(manager, cfg, s.User, false)
-					if err != nil {
-						cfg.Logger.Error("Failed to disable user", "user", s.User, "error", err)
-						continue
+				} else {
+					cfg.Logger.Warn("No auto-renewal for user, renew value is not set or zero", "user", s.User, "renew", s.Renew)
+					if s.Enabled == "true" {
+						cfg.Logger.Warn("Disabling user", "user", s.User)
+						err = ToggleUserEnabled(manager, cfg, s.User, false)
+						if err != nil {
+							cfg.Logger.Error("Failed to disable user", "user", s.User, "error", err)
+							continue
+						}
+						err = UpdateEnabledInDB(manager, cfg, s.User, false)
+						if err != nil {
+							cfg.Logger.Error("Failed to update enabled status", "user", s.User, "error", err)
+							continue
+						}
+						cfg.Logger.Info("User disabled", "user", s.User)
 					}
-					err = UpdateEnabledInDB(manager, cfg, s.User, false)
-					if err != nil {
-						cfg.Logger.Error("Failed to update enabled status", "user", s.User, "error", err)
-						continue
-					}
-					cfg.Logger.Info("User disabled", "user", s.User)
 				}
 			} else {
+				cfg.Logger.Debug("Subscription is active", "user", s.User, "sub_end", s.SubEnd, "renew", s.Renew)
 				if s.Enabled == "false" {
 					cfg.Logger.Debug("Enabling user with active subscription", "user", s.User)
 					err = ToggleUserEnabled(manager, cfg, s.User, true)
@@ -787,7 +776,7 @@ func CleanInvalidTrafficTags(manager *manager.DatabaseManager, cfg *config.Confi
 		return err
 	}
 
-	cfg.Logger.Info("Read tags from database", "count", len(trafficSources))
+	cfg.Logger.Debug("Read tags from database", "count", len(trafficSources))
 	data, err := os.ReadFile(cfg.Core.Config)
 	if err != nil {
 		cfg.Logger.Error("Failed to read config.json", "path", cfg.Core.Config, "error", err)
@@ -836,7 +825,7 @@ func CleanInvalidTrafficTags(manager *manager.DatabaseManager, cfg *config.Confi
 		}
 	}
 
-	cfg.Logger.Info("Found valid tags", "count", len(validTags))
+	cfg.Logger.Debug("Found valid tags", "count", len(validTags))
 	var invalidTags []string
 	for _, source := range trafficSources {
 		if !validTags[source] {
@@ -998,7 +987,7 @@ func ToggleUserEnabled(manager *manager.DatabaseManager, cfg *config.Config, use
 					}
 					if !clientMap[userIdentifier] {
 						newClients = append(newClients, client)
-						cfg.Logger.Info("User set to status in inbound", "user", userIdentifier, "status", status, "tag", inbound.Tag)
+						cfg.Logger.Debug("User set to status in inbound", "user", userIdentifier, "status", status, "tag", inbound.Tag)
 					}
 					targetInbounds[i].Settings.Clients = newClients
 				}
@@ -1143,7 +1132,7 @@ func ToggleUserEnabled(manager *manager.DatabaseManager, cfg *config.Config, use
 					}
 					if !userNameMap[userIdentifier] {
 						newUsers = append(newUsers, user)
-						cfg.Logger.Info("User set to status in inbound", "user", userIdentifier, "status", status, "tag", inbound.Tag)
+						cfg.Logger.Debug("User set to status in inbound", "user", userIdentifier, "status", status, "tag", inbound.Tag)
 					}
 					targetInbounds[i].Users = newUsers
 				}
@@ -1196,7 +1185,7 @@ func ToggleUserEnabled(manager *manager.DatabaseManager, cfg *config.Config, use
 		}
 	}
 
-	cfg.Logger.Info("User enabled status toggled", "user", userIdentifier, "enabled", enabled)
+	cfg.Logger.Debug("User enabled status toggled", "user", userIdentifier, "enabled", enabled)
 	return nil
 }
 
@@ -1255,20 +1244,31 @@ func LoadIsInactiveFromLastSeen(manager *manager.DatabaseManager, cfg *config.Co
 	return isInactive, nil
 }
 
-// InitDB initializes the database table structure.
-func InitDB(db *sql.DB, dbType string, cfg *config.Config) error {
-	cfg.Logger.Debug("Starting database initialization", "dbType", dbType)
+// openAndInitDB opens and initializes a SQLite database (in-memory or file-based).
+func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, error) {
+	cfg.Logger.Debug("Opening database", "dbType", dbType, "path", dbPath)
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		cfg.Logger.Error("Failed to open database", "dbType", dbType, "path", dbPath, "error", err)
+		return nil, fmt.Errorf("failed to open %s database: %v", dbType, err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
+	// Check if tables exist
 	var tableCount int
-	err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='clients_stats'").Scan(&tableCount)
+	err = db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='clients_stats'").Scan(&tableCount)
 	if err != nil {
 		cfg.Logger.Error("Failed to check table existence", "dbType", dbType, "error", err)
-		return fmt.Errorf("failed to check table existence for database %s: %v", dbType, err)
+		db.Close()
+		return nil, fmt.Errorf("failed to check table existence for %s database: %v", dbType, err)
 	}
 	if tableCount > 0 {
-		cfg.Logger.Debug("Tables already exist, initialization not required", "dbType", dbType)
-		return nil
+		cfg.Logger.Debug("Tables already exist", "dbType", dbType)
+		return db, nil
 	}
 
+	// Initialize tables and indexes
 	sqlStmt := `
         PRAGMA cache_size = 2000;
         PRAGMA journal_mode = WAL;
@@ -1325,52 +1325,49 @@ func InitDB(db *sql.DB, dbType string, cfg *config.Config) error {
 	cfg.Logger.Debug("Executing SQL script to create tables and indexes", "dbType", dbType)
 	if _, err = db.Exec(sqlStmt); err != nil {
 		cfg.Logger.Error("Failed to execute SQL script", "dbType", dbType, "error", err)
-		return fmt.Errorf("failed to execute SQL script for database %s: %v", dbType, err)
+		db.Close()
+		return nil, fmt.Errorf("failed to execute SQL script for %s database: %v", dbType, err)
 	}
 
-	cfg.Logger.Debug("Successfully created PRAGMA settings, tables, and indexes", "dbType", dbType)
-	return nil
+	cfg.Logger.Info("Database initialized", "dbType", dbType)
+	return db, nil
 }
 
 // InitDatabase initializes in-memory and file databases.
 func InitDatabase(cfg *config.Config) (memDB, fileDB *sql.DB, err error) {
-	cfg.Logger.Debug("Creating in-memory database")
-	memDB, err = sql.Open("sqlite3", ":memory:")
+	// Initialize in-memory database
+	memDB, err = OpenAndInitDB(":memory:", "in-memory", cfg)
 	if err != nil {
-		cfg.Logger.Error("Failed to create in-memory database", "error", err)
-		return nil, nil, fmt.Errorf("failed to create in-memory database: %v", err)
+		return nil, nil, err
 	}
-	memDB.SetMaxOpenConns(1)
-	memDB.SetMaxIdleConns(1)
+	defer func() {
+		if err != nil {
+			memDB.Close()
+		}
+	}()
 
-	cfg.Logger.Debug("Initializing in-memory database")
-	if err = InitDB(memDB, "in-memory", cfg); err != nil {
-		cfg.Logger.Error("Failed to initialize in-memory database", "error", err)
-		memDB.Close()
-		return nil, nil, fmt.Errorf("failed to initialize in-memory database: %v", err)
-	}
-
-	cfg.Logger.Debug("Opening file database", "path", cfg.Paths.Database)
-	fileDB, err = sql.Open("sqlite3", cfg.Paths.Database)
-	if err != nil {
-		cfg.Logger.Error("Failed to open file database", "path", cfg.Paths.Database, "error", err)
-		memDB.Close()
-		return nil, nil, fmt.Errorf("failed to open file database: %v", err)
-	}
-	fileDB.SetMaxOpenConns(1)
-	fileDB.SetMaxIdleConns(1)
-
+	// Check if file database exists
 	fileExists := true
 	if _, err := os.Stat(cfg.Paths.Database); os.IsNotExist(err) {
-		cfg.Logger.Warn("File database does not exist, will create new file database", "path", cfg.Paths.Database)
+		cfg.Logger.Warn("File database does not exist, will create new", "path", cfg.Paths.Database)
 		fileExists = false
 	} else if err != nil {
 		cfg.Logger.Error("Failed to check file database", "path", cfg.Paths.Database, "error", err)
-		memDB.Close()
-		fileDB.Close()
 		return nil, nil, fmt.Errorf("error checking file database: %v", err)
 	}
 
+	// Initialize file database
+	fileDB, err = OpenAndInitDB(cfg.Paths.Database, "file", cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() {
+		if err != nil {
+			fileDB.Close()
+		}
+	}()
+
+	// Synchronize file to memory if file database exists and has tables
 	if fileExists {
 		var tableCount int
 		err = fileDB.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='clients_stats'").Scan(&tableCount)
@@ -1379,27 +1376,17 @@ func InitDatabase(cfg *config.Config) (memDB, fileDB *sql.DB, err error) {
 			tempManager, err := manager.NewDatabaseManager(fileDB, context.Background(), 1, 300, 500, cfg)
 			if err != nil {
 				cfg.Logger.Error("Failed to create temporary DatabaseManager", "error", err)
-				memDB.Close()
-				fileDB.Close()
 				return nil, nil, fmt.Errorf("failed to create temporary DatabaseManager: %v", err)
 			}
 			syncCtx, syncCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer syncCancel()
 			if err = tempManager.SyncDBWithContext(syncCtx, memDB, "file to memory"); err != nil {
 				cfg.Logger.Error("Failed to synchronize database (file to memory)", "error", err)
 			} else {
 				cfg.Logger.Info("Database synchronized successfully (file to memory)")
 			}
-			syncCancel()
 			tempManager.Close()
 		}
-	}
-
-	cfg.Logger.Debug("Initializing file database")
-	if err = InitDB(fileDB, "file", cfg); err != nil {
-		cfg.Logger.Error("Failed to initialize file database", "error", err)
-		memDB.Close()
-		fileDB.Close()
-		return nil, nil, fmt.Errorf("failed to initialize file database: %v", err)
 	}
 
 	cfg.Logger.Info("Database initialization completed", "in-memory", true, "file", true)
@@ -1426,12 +1413,25 @@ func MonitorSubscriptionsAndSync(ctx context.Context, manager *manager.DatabaseM
 					cfg.Logger.Error("Failed to check subscriptions", "error", err)
 				}
 				syncCtx, syncCancel := context.WithTimeout(context.Background(), 5*time.Second)
-				if err := manager.SyncDBWithContext(syncCtx, fileDB, "memory to file"); err != nil {
+				defer syncCancel()
+				// Ensure file database exists before synchronization
+				var err error
+				if _, err = os.Stat(cfg.Paths.Database); os.IsNotExist(err) {
+					cfg.Logger.Warn("File database does not exist, recreating", "path", cfg.Paths.Database)
+					fileDB, err = OpenAndInitDB(cfg.Paths.Database, "file", cfg)
+					if err != nil {
+						cfg.Logger.Error("Failed to recreate file database", "path", cfg.Paths.Database, "error", err)
+						continue
+					}
+				} else if err != nil {
+					cfg.Logger.Error("Failed to check file database", "path", cfg.Paths.Database, "error", err)
+					continue
+				}
+				if err = manager.SyncDBWithContext(syncCtx, fileDB, "memory to file"); err != nil {
 					cfg.Logger.Error("Failed to synchronize database (memory to file)", "error", err)
 				} else {
 					cfg.Logger.Info("Database synchronized successfully (memory to file)")
 				}
-				syncCancel()
 			case <-ctx.Done():
 				cfg.Logger.Debug("Stopped subscription and sync monitoring")
 				return

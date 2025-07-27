@@ -43,7 +43,7 @@ EOF
   cat << EOF > /etc/fail2ban/filter.d/v2ray-stat.conf
 [Definition]
 datepattern = ^%%Y/%%m/%%d %%H:%%M:%%S
-failregex   = \[LIMIT_IP\]\s*Email\s*=\s*<F-USER>.+</F-USER>\s*\|\|\s*SRC\s*=\s*<ADDR>
+failregex   = \[LIMIT_IP\]\s*User\s*=\s*<F-USER>.+</F-USER>\s*\|\|\s*SRC\s*=\s*<ADDR>
 ignoreregex =
 EOF
 
@@ -63,10 +63,10 @@ actionstop = <iptables> -D <chain> -p <protocol> -j f2b-<name>
 actioncheck = <iptables> -n -L <chain> | grep -q 'f2b-<name>[ \t]'
 
 actionban = <iptables> -I f2b-<name> 1 -s <ip> -j <blocktype>
-            echo "\$(date +"%%Y/%%m/%%d %%H:%%M:%%S")   BAN   [Email] = <F-USER> [IP] = <ip> banned for <bantime> seconds." >> ${iplimit_banned_log_path}
+            echo "\$(date +"%%Y/%%m/%%d %%H:%%M:%%S")   BAN   [User] = <F-USER> [IP] = <ip> banned for <bantime> seconds." >> ${iplimit_banned_log_path}
 
 actionunban = <iptables> -D f2b-<name> -s <ip> -j <blocktype>
-              echo "\$(date +"%%Y/%%m/%%d %%H:%%M:%%S")   UNBAN   [Email] = <F-USER> [IP] = <ip> unbanned." >> ${iplimit_banned_log_path}
+              echo "\$(date +"%%Y/%%m/%%d %%H:%%M:%%S")   UNBAN   [User] = <F-USER> [IP] = <ip> unbanned." >> ${iplimit_banned_log_path}
 
 [Init]
 name = default

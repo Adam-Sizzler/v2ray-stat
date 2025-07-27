@@ -95,12 +95,11 @@ func (m *DatabaseManager) processRequests(workerID int) {
 // processRequest executes a single database request.
 func (m *DatabaseManager) processRequest(req func(*sql.DB) error, workerID int, priority string) {
 	m.workerPool <- struct{}{}
+	defer func() { <-m.workerPool }()
 	m.cfg.Logger.Trace("Processing request", "workerID", workerID, "priority", priority)
 	if err := req(m.db); err != nil {
 		m.cfg.Logger.Error("Failed to execute request", "workerID", workerID, "priority", priority, "error", err)
 	}
-	<-m.workerPool
-	// Log current request counts for debugging
 	m.cfg.Logger.Debug("Processed request counts", "highPriority", atomic.LoadUint64(&m.highPriorityCount), "lowPriority", atomic.LoadUint64(&m.lowPriorityCount))
 }
 
@@ -116,11 +115,9 @@ func (m *DatabaseManager) executeOnce(fn func(*sql.DB) error, priority bool, sen
 	m.closedMu.Unlock()
 
 	// Select channel based on priority
-	requestChan := m.lowPriority
-	priorityStr := "lowPriority"
+	requestChan, priorityStr := m.lowPriority, "lowPriority"
 	if priority {
-		requestChan = m.highPriority
-		priorityStr = "highPriority"
+		requestChan, priorityStr = m.highPriority, "highPriority"
 	}
 
 	// Send request to channel
@@ -153,7 +150,7 @@ func (m *DatabaseManager) executeOnce(fn func(*sql.DB) error, priority bool, sen
 		return m.ctx.Err()
 	case <-time.After(waitTimeout):
 		m.cfg.Logger.Error("Response wait timeout", "priority", priorityStr, "timeout", waitTimeout)
-		return fmt.Errorf("response wait timeout (%v)", waitTimeout)
+		return fmt.Errorf("response wait timeout (%s, %v)", priorityStr, waitTimeout)
 	}
 }
 
@@ -164,28 +161,29 @@ func isRetryableError(err error) bool {
 	}
 	return strings.Contains(err.Error(), "database is locked") ||
 		strings.Contains(err.Error(), "i/o timeout") ||
-		strings.Contains(err.Error(), "connection refused")
+		strings.Contains(err.Error(), "connection refused") ||
+		strings.Contains(err.Error(), "no such file or directory")
 }
 
 // ExecuteWithTimeout executes a database request with retries and timeout handling.
 func (m *DatabaseManager) ExecuteWithTimeout(fn func(*sql.DB) error, priority bool, sendTimeout, waitTimeout time.Duration) error {
 	const maxRetries = 3
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		err := m.executeOnce(fn, priority, sendTimeout, waitTimeout)
-		if err == nil {
+		if err := m.executeOnce(fn, priority, sendTimeout, waitTimeout); err == nil {
 			m.cfg.Logger.Debug("Request executed successfully", "attempt", attempt, "priority", priority)
 			return nil
-		}
-		if isRetryableError(err) {
+		} else if isRetryableError(err) {
 			m.cfg.Logger.Warn("Retryable error, attempting retry", "attempt", attempt, "maxRetries", maxRetries, "error", err)
 			time.Sleep(time.Duration(attempt*100) * time.Millisecond)
 			continue
+		} else {
+			m.cfg.Logger.Error("Failed to execute request", "attempt", attempt, "error", err)
+			return err
 		}
-		m.cfg.Logger.Error("Failed to execute request", "attempt", attempt, "error", err)
-		return err
 	}
+	err := fmt.Errorf("failed to execute request after %d retries", maxRetries)
 	m.cfg.Logger.Error("Failed to execute request after all retries", "maxRetries", maxRetries)
-	return fmt.Errorf("failed to execute request after %d retries", maxRetries)
+	return err
 }
 
 // ExecuteHighPriority executes a high-priority database request.
@@ -198,7 +196,7 @@ func (m *DatabaseManager) ExecuteLowPriority(fn func(*sql.DB) error) error {
 	return m.ExecuteWithTimeout(fn, false, 2*time.Second, 5*time.Second)
 }
 
-// SyncDBWithContext synchronizes the manager's database with the target database using the provided context.
+// SyncDBWithContext synchronizes the manager's database with the target database.
 func (m *DatabaseManager) SyncDBWithContext(ctx context.Context, destDB *sql.DB, direction string) error {
 	// Check if the context is already canceled
 	if err := ctx.Err(); err != nil {
@@ -207,6 +205,10 @@ func (m *DatabaseManager) SyncDBWithContext(ctx context.Context, destDB *sql.DB,
 	}
 
 	m.cfg.Logger.Debug("Starting database synchronization", "direction", direction)
+	if err := destDB.PingContext(ctx); err != nil {
+		m.cfg.Logger.Error("Destination database is not accessible", "direction", direction, "error", err)
+		return fmt.Errorf("destination database is not accessible: %v", err)
+	}
 
 	// Obtain connection to the in-memory source database
 	srcConn, err := m.db.Conn(ctx)
@@ -269,7 +271,7 @@ func (m *DatabaseManager) SyncDBWithContext(ctx context.Context, destDB *sql.DB,
 		return fmt.Errorf("failed to synchronize database (%s): %v", direction, err)
 	}
 
-	m.cfg.Logger.Debug("Database synchronization completed", "direction", direction)
+	m.cfg.Logger.Debug("Database synchronized successfully", "direction", direction)
 	return nil
 }
 
@@ -299,15 +301,13 @@ func (m *DatabaseManager) Close() {
 			close(m.lowPriority)
 			return
 		case <-ticker.C:
-			highPending := len(m.highPriority)
-			lowPending := len(m.lowPriority)
-			if highPending == 0 && lowPending == 0 {
+			if len(m.highPriority) == 0 && len(m.lowPriority) == 0 {
 				m.cfg.Logger.Debug("All requests processed, closing channels")
 				close(m.highPriority)
 				close(m.lowPriority)
 				return
 			}
-			m.cfg.Logger.Debug("Waiting for requests", "highPriority", highPending, "lowPriority", lowPending)
+			m.cfg.Logger.Debug("Waiting for requests", "highPriority", len(m.highPriority), "lowPriority", len(m.lowPriority))
 		}
 	}
 }

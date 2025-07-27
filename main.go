@@ -181,7 +181,7 @@ func updateProxyStats(manager *manager.DatabaseManager, apiData *api.ApiResponse
 			downlinkOnline := max(sessDownlink-previousDownlink, 0)
 			rate := (uplinkOnline + downlinkOnline) * 8 / cfg.V2rayStat.Monitor.TickerInterval
 
-			cfg.Logger.Info("Updating proxy stats", "source", source, "rate", rate, "uplink", uplink, "downlink", downlink)
+			cfg.Logger.Debug("Updating proxy stats", "source", source, "rate", rate, "uplink", uplink, "downlink", downlink)
 
 			_, err := tx.Exec(`
 				INSERT INTO traffic_stats (source, rate, uplink, downlink, sess_uplink, sess_downlink)
@@ -332,7 +332,7 @@ func updateClientStats(manager *manager.DatabaseManager, apiData *api.ApiRespons
 			downlinkOnline := max(sessDownlink-previousDownlink, 0)
 			rate := (uplinkOnline + downlinkOnline) * 8 / cfg.V2rayStat.Monitor.TickerInterval
 
-			cfg.Logger.Info("Updating stats for client", "user", user, "rate", rate, "uplink", uplink, "downlink", downlink)
+			cfg.Logger.Debug("Updating stats for client", "user", user, "rate", rate, "uplink", uplink, "downlink", downlink)
 
 			var lastSeen string
 			if rate > cfg.V2rayStat.Monitor.OnlineRateThreshold*1000 {
@@ -478,7 +478,7 @@ func readNewLines(manager *manager.DatabaseManager, file *os.File, offset *int64
 	cfg.Logger.Debug("Processed log lines", "ip_updates_count", len(ipUpdates), "dns_stats_count", len(dnsStats))
 
 	for user, validIPs := range ipUpdates {
-		cfg.Logger.Info("Updating IPs for user", "user", user, "ips", validIPs)
+		cfg.Logger.Debug("Updating IPs for user", "user", user, "ips", validIPs)
 		if err := db.UpdateIPInDB(manager, user, validIPs, cfg); err != nil {
 			cfg.Logger.Error("Failed to update IPs in database", "user", user, "error", err)
 			return
@@ -694,14 +694,28 @@ func main() {
 	cancel()
 	wg.Wait()
 
-	// Use a new context for final synchronization with increased timeout
+	// Ensure file database exists before final synchronization
 	syncCtx, syncCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer syncCancel()
+	if _, err := os.Stat(cfg.Paths.Database); os.IsNotExist(err) {
+		cfg.Logger.Warn("File database does not exist, recreating", "path", cfg.Paths.Database)
+		if fileDB, err = db.OpenAndInitDB(cfg.Paths.Database, "file", &cfg); err != nil {
+			cfg.Logger.Error("Failed to recreate file database", "path", cfg.Paths.Database, "error", err)
+		} else {
+			defer fileDB.Close()
+		}
+	} else if err != nil {
+		cfg.Logger.Error("Failed to check file database existence", "path", cfg.Paths.Database, "error", err)
+	}
+
+	// Use a new context for final synchronization with increased timeout
 	if err := manager.SyncDBWithContext(syncCtx, fileDB, "memory to file"); err != nil {
 		cfg.Logger.Error("Failed to perform final database synchronization", "error", err)
+	} else {
+		cfg.Logger.Info("Database synchronized successfully (memory to file)")
 	}
 
 	// Close manager
 	manager.Close()
-	cfg.Logger.Info("Program terminated")
+	log.Printf("[STOP] Program terminated")
 }
