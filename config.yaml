@@ -2,8 +2,8 @@
 # This file specifies paths and settings for the v2ray-stat monitoring application.
 
 log:
-  loglevel: warn                         # Logging level: none, error, warn, info, debug. NONE disables logging; each level includes messages from lower levels.
-  logmode: exclusive                     # Log mode: inclusive = this and lower levels; exclusive = only this level  
+  loglevel: info                         # Logging level: none, error, warn, info, debug. NONE disables logging; each level includes messages from lower levels.
+  logmode: inclusive                     # Log mode: inclusive = this and lower levels; exclusive = only this level  
 
 # v2ray-stat Settings
 v2ray-stat:
@@ -27,14 +27,14 @@ api:
   api_token: ""                          # Token required to access the API endpoints. If empty, access is allowed without authorization. Format: Bearer <token>.
 
 # Timezone Settings
-timezone: Asia/Krasnoyarsk               # IANA timezone name (e.g., Europe/Amsterdam, Asia/Singapore). If empty, uses TZ environment variable or UTC.
+timezone:                # IANA timezone name (e.g., Europe/Amsterdam, Asia/Singapore). If empty, uses TZ environment variable or UTC.
 
 # Features & Monitoring Options
 features:
-  telegram: true                         # Enables Telegram notifications for periodic user reports and daily statistics.
-  network: true                          # Enables real-time network usage monitoring.
-  system_monitoring: true                # Enables system-level monitoring (memory and disk usage).
-  auth_lua: true                         # Enables dynamic updates to HAProxy's auth.lua file for credential management.
+  telegram: false                        # Enables Telegram notifications for periodic user reports and daily statistics.
+  network: false                         # Enables real-time network usage monitoring.
+  system_monitoring: false               # Enables system-level monitoring (memory and disk usage).
+  auth_lua: false                        # Enables dynamic updates to HAProxy's auth.lua file for credential management.
 
 # List of system services to monitor and notify on failure. Any valid system service can be specified here (e.g., xray, haproxy, nginx, or custom services).
 services:
@@ -45,8 +45,8 @@ services:
 
 # Telegram Notifications
 telegram:
-  chat_id: "306100972"                                         # Chat or group ID for Telegram bot notifications. Leave empty to disable.
-  bot_token: "7998362423:AAGI95NWGvwuFYXox_95PeHp-j0z9tgN50c"  # API token for the Telegram bot. Leave empty to disable.
+  chat_id: ""                            # Chat or group ID for Telegram bot notifications. Leave empty to disable.
+  bot_token: ""                          # API token for the Telegram bot. Leave empty to disable.
 
 # System Monitoring
 system_monitoring:
