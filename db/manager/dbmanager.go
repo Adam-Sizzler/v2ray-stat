@@ -120,6 +120,12 @@ func (m *DatabaseManager) executeOnce(fn func(*sql.DB) error, priority bool, sen
 		requestChan, priorityStr = m.highPriority, "highPriority"
 	}
 
+	// Log channel status before sending request
+	m.cfg.Logger.Debug("Channel status before sending request",
+		"priority", priorityStr,
+		"tasks", len(requestChan),
+		"capacity", cap(requestChan))
+
 	// Send request to channel
 	select {
 	case requestChan <- func(db *sql.DB) error {
