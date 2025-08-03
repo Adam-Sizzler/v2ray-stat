@@ -13,22 +13,6 @@ import (
 	"v2ray-stat/node/proto"
 )
 
-// Константы для SQL-запросов
-const (
-	queryInsertUserStats = `
-		INSERT OR IGNORE INTO user_stats(node_name, user, rate, enabled, created)
-		VALUES (?, ?, ?, ?, ?)`
-	queryInsertUserUUIDs = `
-		INSERT OR IGNORE INTO user_uuids(node_name, user, uuid, inbound_tag)
-		VALUES (?, ?, ?, ?)`
-	querySelectDBUsers = `
-		SELECT user FROM user_stats WHERE node_name = ?`
-	queryDeleteUserStats = `
-		DELETE FROM user_stats WHERE node_name = ? AND user = ?`
-	queryDeleteUserUUIDs = `
-		DELETE FROM user_uuids WHERE node_name = ? AND user = ?`
-)
-
 // SyncUsersWithNode synchronizes users from a node with the database, adding new users and removing absent ones.
 func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, nodeClients []*db.NodeClient, cfg *config.Config) error {
 	var errs []error
@@ -54,9 +38,9 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 		// Получаем текущих пользователей из базы данных (низкоприоритетная задача)
 		var dbUsers []string
 		err = manager.ExecuteLowPriority(func(db *sql.DB) error {
-			rows, err := db.Query(querySelectDBUsers, nc.Name)
+			rows, err := db.Query("SELECT user FROM users_stats WHERE node_name = ?", nc.Name)
 			if err != nil {
-				return fmt.Errorf("query users from user_stats: %w", err)
+				return fmt.Errorf("query users from users_stats: %w", err)
 			}
 			defer rows.Close()
 			for rows.Next() {
@@ -85,15 +69,19 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 
 			// Добавляем новых пользователей и их UUIDs
 			for _, user := range resp.Users {
-				_, err := tx.Exec(queryInsertUserStats,
+				_, err := tx.Exec(`
+					INSERT OR IGNORE INTO users_stats(node_name, user, rate, enabled, created)
+					VALUES (?, ?, ?, ?, ?)`,
 					nc.Name, user.Username, 0, "true", time.Now().Format("2006-01-02-15"))
 				if err != nil {
-					return fmt.Errorf("insert user %s into user_stats: %w", user.Username, err)
+					return fmt.Errorf("insert user %s into users_stats: %w", user.Username, err)
 				}
 				addedUsers++
 
 				for _, ui := range user.UuidInbounds {
-					_, err := tx.Exec(queryInsertUserUUIDs,
+					_, err := tx.Exec(`
+						INSERT OR IGNORE INTO user_uuids(node_name, user, uuid, inbound_tag)
+						VALUES (?, ?, ?, ?)`,
 						nc.Name, user.Username, ui.Uuid, ui.InboundTag)
 					if err != nil {
 						return fmt.Errorf("insert uuid %s for user %s into user_uuids: %w", ui.Uuid, user.Username, err)
@@ -105,11 +93,11 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 			// Удаляем пользователей, отсутствующих в gRPC-ответе
 			for _, user := range dbUsers {
 				if !nodeUsers[user] {
-					_, err := tx.Exec(queryDeleteUserStats, nc.Name, user)
+					_, err := tx.Exec("DELETE FROM users_stats WHERE node_name = ? AND user = ?", nc.Name, user)
 					if err != nil {
-						return fmt.Errorf("delete user %s from user_stats: %w", user, err)
+						return fmt.Errorf("delete user %s from users_stats: %w", user, err)
 					}
-					_, err = tx.Exec(queryDeleteUserUUIDs, nc.Name, user)
+					_, err = tx.Exec("DELETE FROM user_uuids WHERE node_name = ? AND user = ?", nc.Name, user)
 					if err != nil {
 						return fmt.Errorf("delete user %s from user_uuids: %w", user, err)
 					}
