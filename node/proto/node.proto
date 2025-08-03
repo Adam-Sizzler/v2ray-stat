@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package node;
+
+option go_package = "./proto";
+
+service NodeService {
+  rpc GetUsers(GetUsersRequest) returns (GetUsersResponse) {}
+}
+
+message GetUsersRequest {}
+
+message UUIDInbound {
+  string uuid = 1;
+  string inbound_tag = 2;
+}
+
+message User {
+  string username = 1;
+  repeated UUIDInbound uuid_inbounds = 2;
+}
+
+message GetUsersResponse {
+  repeated User users = 1;
+}

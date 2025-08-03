@@ -1,0 +1,45 @@
+log:
+  loglevel: trace
+  logmode: inclusive
+
+v2ray-stat:
+  address: 0.0.0.0
+  port: 9951
+  monitor:
+    ticker_interval: 10
+    online_rate_threshold: 0
+  nodes:
+    - name: LocalNode
+      url: "127.0.0.1:10000"
+    - name: RemoteNode
+      url: "194.164.34.44:10000"
+      mtls:
+        cert: /root/v2ray-stat/certs/node.crt
+        key: /root/v2ray-stat/certs/node.key
+        ca_cert: /root/v2ray-stat/certs/node.crt
+
+api:
+  api_token: ""
+
+timezone: "Europe/Moscow"
+
+paths:
+  database: /root/v2ray-stat/data.db
+
+stats_columns:
+  server:
+    sort: rate DESC
+    columns:
+      - source
+      - rate
+      - uplink
+      - downlink
+  client:
+    sort: last_seen DESC
+    columns:
+      - user
+      - last_seen
+      - rate
+      - uplink
+      - downlink
+      - ips
