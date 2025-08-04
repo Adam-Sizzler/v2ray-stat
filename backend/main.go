@@ -106,7 +106,7 @@ func main() {
 	users.MonitorTrafficStats(ctx, manager, nodeClients, &cfg, &wg)
 	users.MonitorLogData(ctx, manager, nodeClients, &cfg, &wg)
 
-	log.Printf("[START] v2ray-stat application started")
+	log.Printf("[START] v2ray-stat-backend application %s", constant.Version)
 	<-sigChan
 	cfg.Logger.Info("Received termination signal, saving data")
 	cancel()

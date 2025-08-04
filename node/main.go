@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 
 	"v2ray-stat/common"
+	"v2ray-stat/constant"
 	"v2ray-stat/node/config"
 	"v2ray-stat/node/grpcserver"
 	"v2ray-stat/node/server"
@@ -18,6 +20,8 @@ func main() {
 	}
 
 	common.InitTimezone(cfg.Timezone, cfg.Logger)
+
+	log.Printf("[START] v2ray-stat-backend application %s", constant.Version)
 
 	nodeServer, err := server.NewNodeServer(&cfg)
 	if err != nil {
