@@ -4,10 +4,10 @@ log:
 
 v2ray-stat:
   address: 0.0.0.0
-  port: 9951
+  port: 9952
   monitor:
     ticker_interval: 10
-    online_rate_threshold: 0
+    online_rate_threshold: 15
   nodes:
     - name: LocalNode
       url: "127.0.0.1:10000"
@@ -21,25 +21,36 @@ v2ray-stat:
 api:
   api_token: ""
 
-timezone: "Europe/Moscow"
+timezone: "Asia/Krasnoyarsk"
 
 paths:
   database: /root/v2ray-stat/data.db
 
 stats_columns:
   server:
-    sort: rate DESC
+    sort: source ASC
     columns:
+      - node_name
       - source
       - rate
       - uplink
       - downlink
+      - sess_uplink
+      - sess_downlink
   client:
-    sort: last_seen DESC
+    sort: user ASC
     columns:
+      - node_name
       - user
       - last_seen
       - rate
       - uplink
       - downlink
+      - sess_uplink
+      - sess_downlink
+      - created
       - ips
+      - enabled
+      - sub_end
+      - renew
+      - lim_ip

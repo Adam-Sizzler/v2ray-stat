@@ -86,7 +86,7 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 	db.SetMaxIdleConns(1)
 
 	var tableCount int
-	err = db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='clients_stats'").Scan(&tableCount)
+	err = db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='nodes'").Scan(&tableCount)
 	if err != nil {
 		cfg.Logger.Error("Failed to check table existence", "dbType", dbType, "error", err)
 		db.Close()
@@ -105,69 +105,108 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
         PRAGMA temp_store = MEMORY;
         PRAGMA busy_timeout = 5000;
 
-        CREATE TABLE IF NOT EXISTS nodes (
-            name TEXT PRIMARY KEY,
-            address TEXT NOT NULL UNIQUE
-        );
-        CREATE TABLE IF NOT EXISTS traffic_stats (
-            node_name TEXT,
-            source TEXT,
-            rate INTEGER DEFAULT 0,
-            uplink INTEGER DEFAULT 0,
-            downlink INTEGER DEFAULT 0,
-            sess_uplink INTEGER DEFAULT 0,
-            sess_downlink INTEGER DEFAULT 0,
-            PRIMARY KEY (node_name, source),
-            FOREIGN KEY (node_name) REFERENCES nodes(name) ON DELETE CASCADE
-        );
-        CREATE TABLE IF NOT EXISTS user_stats (
-            node_name TEXT,
-            user TEXT,
-            last_seen TEXT DEFAULT '',
-            rate INTEGER DEFAULT 0,
-            enabled TEXT DEFAULT 'true',
-            sub_end TEXT DEFAULT '',
-            renew INTEGER DEFAULT 0,
-            lim_ip INTEGER DEFAULT 0,
-            ips TEXT DEFAULT '',
-            uplink INTEGER DEFAULT 0,
-            downlink INTEGER DEFAULT 0,
-            sess_uplink INTEGER DEFAULT 0,
-            sess_downlink INTEGER DEFAULT 0,
-            created TEXT,
-            PRIMARY KEY (node_name, user),
-            FOREIGN KEY (node_name) REFERENCES nodes(name) ON DELETE CASCADE
-        );
-        CREATE TABLE IF NOT EXISTS user_uuids (
-            node_name TEXT,
-            user TEXT,
-            uuid TEXT,
-            inbound_tag TEXT,
-            PRIMARY KEY (node_name, user, uuid, inbound_tag),
-            FOREIGN KEY (node_name, user) REFERENCES user_stats(node_name, user) ON DELETE CASCADE,
-            FOREIGN KEY (node_name) REFERENCES nodes(name) ON DELETE CASCADE
-        );
-        CREATE TABLE IF NOT EXISTS dns_stats (
-            node_name TEXT,
-            user TEXT,
-            count INTEGER DEFAULT 1,
-            domain TEXT,
-            PRIMARY KEY (node_name, user, domain),
-            FOREIGN KEY (node_name) REFERENCES nodes(name) ON DELETE CASCADE
-        );
+		-- Таблица для нод
+		CREATE TABLE IF NOT EXISTS nodes (
+			name TEXT PRIMARY KEY,
+			address TEXT NOT NULL UNIQUE
+		);
 
-        CREATE INDEX IF NOT EXISTS idx_clients_stats_user ON user_stats(node_name, user);
-        CREATE INDEX IF NOT EXISTS idx_clients_stats_rate ON user_stats(rate);
-        CREATE INDEX IF NOT EXISTS idx_clients_stats_enabled ON user_stats(enabled);
-        CREATE INDEX IF NOT EXISTS idx_clients_stats_sub_end ON user_stats(sub_end);
-        CREATE INDEX IF NOT EXISTS idx_clients_stats_renew ON user_stats(renew);
-        CREATE INDEX IF NOT EXISTS idx_clients_stats_sess_uplink ON user_stats(sess_uplink);
-        CREATE INDEX IF NOT EXISTS idx_clients_stats_sess_downlink ON user_stats(sess_downlink);
-        CREATE INDEX IF NOT EXISTS idx_clients_stats_uplink ON user_stats(uplink);
-        CREATE INDEX IF NOT EXISTS idx_clients_stats_downlink ON user_stats(downlink);
-        CREATE INDEX IF NOT EXISTS idx_clients_stats_lim_ip ON user_stats(lim_ip);
-        CREATE INDEX IF NOT EXISTS idx_clients_stats_ips ON user_stats(ips);
-        CREATE INDEX IF NOT EXISTS idx_clients_stats_last_seen ON user_stats(last_seen);
+		-- Таблица для статистики трафика по нодам
+		CREATE TABLE IF NOT EXISTS bound_traffic (
+			node_name TEXT,
+			source TEXT,
+			rate INTEGER DEFAULT 0,
+			uplink INTEGER DEFAULT 0,
+			downlink INTEGER DEFAULT 0,
+			sess_uplink INTEGER DEFAULT 0,
+			sess_downlink INTEGER DEFAULT 0,
+			PRIMARY KEY (node_name, source),
+			FOREIGN KEY (node_name) REFERENCES nodes(name) ON DELETE CASCADE
+		);
+
+		-- Таблица для данных пользователей
+		CREATE TABLE IF NOT EXISTS user_data (
+			user TEXT PRIMARY KEY,
+			enabled TEXT DEFAULT 'true',
+			sub_end TEXT DEFAULT '',
+			renew INTEGER DEFAULT 0,
+			lim_ip INTEGER DEFAULT 0,
+			ips TEXT DEFAULT ''
+		);
+
+		-- Таблица для статистики пользователей по нодам
+		CREATE TABLE IF NOT EXISTS user_traffic (
+			node_name TEXT,
+			user TEXT,
+			last_seen TEXT DEFAULT '',
+			rate INTEGER DEFAULT 0,
+			uplink INTEGER DEFAULT 0,
+			downlink INTEGER DEFAULT 0,
+			sess_uplink INTEGER DEFAULT 0,
+			sess_downlink INTEGER DEFAULT 0,
+			created TEXT,
+			PRIMARY KEY (node_name, user),
+			FOREIGN KEY (node_name) REFERENCES nodes(name) ON DELETE CASCADE,
+			FOREIGN KEY (user) REFERENCES user_data(user) ON DELETE CASCADE
+		);
+
+		-- Таблица для UUID пользователей
+		CREATE TABLE IF NOT EXISTS user_uuids (
+			node_name TEXT,
+			user TEXT,
+			uuid TEXT,
+			inbound_tag TEXT,
+			PRIMARY KEY (node_name, user, uuid, inbound_tag),
+			FOREIGN KEY (node_name, user) REFERENCES user_traffic(node_name, user) ON DELETE CASCADE,
+			FOREIGN KEY (node_name) REFERENCES nodes(name) ON DELETE CASCADE
+		);
+
+		-- Таблица для DNS-статистики
+		CREATE TABLE IF NOT EXISTS user_dns (
+			node_name TEXT,
+			user TEXT,
+			count INTEGER DEFAULT 1,
+			domain TEXT,
+			PRIMARY KEY (node_name, user, domain),
+			FOREIGN KEY (node_name) REFERENCES nodes(name) ON DELETE CASCADE,
+			FOREIGN KEY (user) REFERENCES user_data(user) ON DELETE CASCADE
+		);
+
+		-- Триггер для добавления пользователя в user_data при вставке в user_traffic
+		CREATE TRIGGER IF NOT EXISTS insert_user_traffic_trigger
+		AFTER INSERT ON user_traffic
+		BEGIN
+			INSERT OR IGNORE INTO user_data (user) VALUES (NEW.user);
+		END;
+
+		-- Триггер для удаления пользователя из user_data, если он больше не существует в user_traffic
+		CREATE TRIGGER IF NOT EXISTS delete_user_traffic_trigger
+		AFTER DELETE ON user_traffic
+		BEGIN
+			DELETE FROM user_data
+			WHERE user = OLD.user
+			AND NOT EXISTS (
+				SELECT 1 FROM user_traffic WHERE user = OLD.user
+			);
+		END;
+
+		-- Индексы для оптимизации запросов
+		CREATE INDEX IF NOT EXISTS idx_user_data_user ON user_data(user);
+		CREATE INDEX IF NOT EXISTS idx_user_data_enabled ON user_data(enabled);
+		CREATE INDEX IF NOT EXISTS idx_user_data_sub_end ON user_data(sub_end);
+		CREATE INDEX IF NOT EXISTS idx_user_data_renew ON user_data(renew);
+		CREATE INDEX IF NOT EXISTS idx_user_data_lim_ip ON user_data(lim_ip);
+		CREATE INDEX IF NOT EXISTS idx_user_traffic_node_name_user ON user_traffic(node_name, user);
+		CREATE INDEX IF NOT EXISTS idx_user_traffic_rate ON user_traffic(rate);
+		CREATE INDEX IF NOT EXISTS idx_user_traffic_last_seen ON user_traffic(last_seen);
+		CREATE INDEX IF NOT EXISTS idx_user_traffic_sess_uplink ON user_traffic(sess_uplink);
+		CREATE INDEX IF NOT EXISTS idx_user_traffic_sess_downlink ON user_traffic(sess_downlink);
+		CREATE INDEX IF NOT EXISTS idx_user_traffic_uplink ON user_traffic(uplink);
+		CREATE INDEX IF NOT EXISTS idx_user_traffic_downlink ON user_traffic(downlink);
+		CREATE INDEX IF NOT EXISTS idx_user_traffic_created ON user_traffic(created);
+		CREATE INDEX IF NOT EXISTS idx_bound_traffic_node_name_source ON bound_traffic(node_name, source);
+		CREATE INDEX IF NOT EXISTS idx_user_dns_node_name_user ON user_dns(node_name, user);
+		CREATE INDEX IF NOT EXISTS idx_user_dns_domain ON user_dns(domain);
     `
 	if _, err = db.Exec(sqlStmt); err != nil {
 		cfg.Logger.Error("Failed to execute SQL script", "dbType", dbType, "error", err)
@@ -219,7 +258,7 @@ func InitDatabase(cfg *config.Config) (memDB, fileDB *sql.DB, err error) {
 
 	if fileExists {
 		var tableCount int
-		err = fileDB.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='user_stats'").Scan(&tableCount)
+		err = fileDB.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='user_traffic'").Scan(&tableCount)
 		if err == nil && tableCount > 0 {
 			tempManager, err := manager.NewDatabaseManager(fileDB, context.Background(), 1, 300, 500, cfg)
 			if err != nil {

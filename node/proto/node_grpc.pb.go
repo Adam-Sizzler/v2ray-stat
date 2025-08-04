@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v3.21.12
-// source: node/proto/node.proto
+// source: proto/node.proto
 
 package proto
 
@@ -19,7 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	NodeService_GetUsers_FullMethodName = "/node.NodeService/GetUsers"
+	NodeService_GetUsers_FullMethodName       = "/node.NodeService/GetUsers"
+	NodeService_GetApiResponse_FullMethodName = "/node.NodeService/GetApiResponse"
+	NodeService_GetLogData_FullMethodName     = "/node.NodeService/GetLogData"
 )
 
 // NodeServiceClient is the client API for NodeService service.
@@ -27,6 +29,8 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type NodeServiceClient interface {
 	GetUsers(ctx context.Context, in *GetUsersRequest, opts ...grpc.CallOption) (*GetUsersResponse, error)
+	GetApiResponse(ctx context.Context, in *GetApiResponseRequest, opts ...grpc.CallOption) (*GetApiResponseResponse, error)
+	GetLogData(ctx context.Context, in *GetLogDataRequest, opts ...grpc.CallOption) (*GetLogDataResponse, error)
 }
 
 type nodeServiceClient struct {
@@ -47,11 +51,33 @@ func (c *nodeServiceClient) GetUsers(ctx context.Context, in *GetUsersRequest, o
 	return out, nil
 }
 
+func (c *nodeServiceClient) GetApiResponse(ctx context.Context, in *GetApiResponseRequest, opts ...grpc.CallOption) (*GetApiResponseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetApiResponseResponse)
+	err := c.cc.Invoke(ctx, NodeService_GetApiResponse_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *nodeServiceClient) GetLogData(ctx context.Context, in *GetLogDataRequest, opts ...grpc.CallOption) (*GetLogDataResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetLogDataResponse)
+	err := c.cc.Invoke(ctx, NodeService_GetLogData_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // NodeServiceServer is the server API for NodeService service.
 // All implementations must embed UnimplementedNodeServiceServer
 // for forward compatibility.
 type NodeServiceServer interface {
 	GetUsers(context.Context, *GetUsersRequest) (*GetUsersResponse, error)
+	GetApiResponse(context.Context, *GetApiResponseRequest) (*GetApiResponseResponse, error)
+	GetLogData(context.Context, *GetLogDataRequest) (*GetLogDataResponse, error)
 	mustEmbedUnimplementedNodeServiceServer()
 }
 
@@ -64,6 +90,12 @@ type UnimplementedNodeServiceServer struct{}
 
 func (UnimplementedNodeServiceServer) GetUsers(context.Context, *GetUsersRequest) (*GetUsersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetUsers not implemented")
+}
+func (UnimplementedNodeServiceServer) GetApiResponse(context.Context, *GetApiResponseRequest) (*GetApiResponseResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetApiResponse not implemented")
+}
+func (UnimplementedNodeServiceServer) GetLogData(context.Context, *GetLogDataRequest) (*GetLogDataResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetLogData not implemented")
 }
 func (UnimplementedNodeServiceServer) mustEmbedUnimplementedNodeServiceServer() {}
 func (UnimplementedNodeServiceServer) testEmbeddedByValue()                     {}
@@ -104,6 +136,42 @@ func _NodeService_GetUsers_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NodeService_GetApiResponse_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetApiResponseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).GetApiResponse(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_GetApiResponse_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).GetApiResponse(ctx, req.(*GetApiResponseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NodeService_GetLogData_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetLogDataRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).GetLogData(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_GetLogData_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).GetLogData(ctx, req.(*GetLogDataRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // NodeService_ServiceDesc is the grpc.ServiceDesc for NodeService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -115,7 +183,15 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "GetUsers",
 			Handler:    _NodeService_GetUsers_Handler,
 		},
+		{
+			MethodName: "GetApiResponse",
+			Handler:    _NodeService_GetApiResponse_Handler,
+		},
+		{
+			MethodName: "GetLogData",
+			Handler:    _NodeService_GetLogData_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "node/proto/node.proto",
+	Metadata: "proto/node.proto",
 }

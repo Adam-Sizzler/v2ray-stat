@@ -3,7 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"v2ray-stat/logger"
@@ -73,8 +75,10 @@ type StatsColumns struct {
 
 // StatsSection holds columns and sort configuration for a section.
 type StatsSection struct {
-	Sort    string   `yaml:"sort"`
-	Columns []string `yaml:"columns"`
+	Sort      string   `yaml:"sort"`
+	SortBy    string   // Parsed column name for sorting
+	SortOrder string   // Parsed sort order (ASC or DESC)
+	Columns   []string `yaml:"columns"`
 }
 
 var defaultConfig = Config{
@@ -176,6 +180,75 @@ func LoadConfig(configFile string) (Config, error) {
 		}
 	}
 
+	if cfg.StatsColumns.Server.Columns == nil {
+		cfg.StatsColumns.Server.Columns = []string{}
+	}
+	if cfg.StatsColumns.Client.Columns == nil {
+		cfg.StatsColumns.Client.Columns = []string{}
+	}
+
+	// Validate columns
+	validServerColumns := []string{"node_name", "source", "rate", "uplink", "downlink", "sess_uplink", "sess_downlink"}
+	validClientColumns := []string{"node_name", "user", "last_seen", "rate", "uplink", "downlink", "sess_uplink", "sess_downlink", "enabled", "sub_end", "renew", "lim_ip", "ips", "created"}
+
+	var filteredServer []string
+	for _, col := range cfg.StatsColumns.Server.Columns {
+		if contains(validServerColumns, col) {
+			filteredServer = append(filteredServer, col)
+		} else {
+			cfg.Logger.Warn("Invalid custom server column, ignoring", "column", col)
+		}
+	}
+	cfg.StatsColumns.Server.Columns = filteredServer
+
+	var filteredClient []string
+	for _, col := range cfg.StatsColumns.Client.Columns {
+		if contains(validClientColumns, col) {
+			filteredClient = append(filteredClient, col)
+		} else {
+			cfg.Logger.Warn("Invalid custom client column, ignoring", "column", col)
+		}
+	}
+	cfg.StatsColumns.Client.Columns = filteredClient
+
+	// Validate sort configuration
+	validateSort := func(section string, sortStr string, validColumns []string) (string, string) {
+		if sortStr == "" {
+			if section == "Server" {
+				return "source", "ASC"
+			}
+			return "user", "ASC"
+		}
+		parts := strings.Fields(sortStr)
+		if len(parts) != 2 {
+			cfg.Logger.Warn("Invalid sort format, using default", "section", section, "sort", sortStr)
+			if section == "Server" {
+				return "source", "ASC"
+			}
+			return "user", "ASC"
+		}
+		column, order := parts[0], strings.ToUpper(parts[1])
+		if !contains(validColumns, column) {
+			cfg.Logger.Warn("Invalid sort column, using default", "section", section, "column", column)
+			if section == "Server" {
+				return "source", "ASC"
+			}
+			return "user", "ASC"
+		}
+		if order != "ASC" && order != "DESC" {
+			cfg.Logger.Warn("Invalid sort order, using ASC", "section", section, "order", order)
+			order = "ASC"
+		}
+		return column, order
+	}
+
+	cfg.StatsColumns.Server.SortBy, cfg.StatsColumns.Server.SortOrder = validateSort("Server", cfg.StatsColumns.Server.Sort, validServerColumns)
+	cfg.StatsColumns.Client.SortBy, cfg.StatsColumns.Client.SortOrder = validateSort("Client", cfg.StatsColumns.Client.Sort, validClientColumns)
+
 	cfg.Logger.Info("Configuration validated", "nodes_count", len(cfg.V2rayStat.Nodes))
 	return cfg, nil
+}
+
+func contains(slice []string, item string) bool {
+	return slices.Contains(slice, item)
 }

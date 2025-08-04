@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -33,7 +34,10 @@ type V2rayStatConfig struct {
 }
 
 type CoreConfig struct {
-	Config string `yaml:"config"`
+	Dir            string `yaml:"dir"`
+	Config         string `yaml:"config"`
+	AccessLog      string `yaml:"access_log"`
+	AccessLogRegex string `yaml:"access_log_regex"`
 }
 
 type MTLSConfig struct {
@@ -54,7 +58,10 @@ var defaultConfig = NodeConfig{
 	},
 	Timezone: "UTC",
 	Core: CoreConfig{
-		Config: "/usr/local/etc/v2ray/config.json",
+		Dir:            "/usr/local/etc/xray/",
+		Config:         "/usr/local/etc/xray/config.json",
+		AccessLog:      "/usr/local/etc/xray/access.log",
+		AccessLogRegex: `from (?:tcp|udp):([\d\.]+):\d+ accepted (?:tcp|udp):([\w\.\-]+):\d+ \[[^\]]+\] email: (\S+)`,
 	},
 }
 
@@ -99,6 +106,13 @@ func LoadNodeConfig(configFile string) (NodeConfig, error) {
 		if err != nil || portNum < 1 || portNum > 65535 {
 			cfg.Logger.Warn("Invalid v2ray-stat.port, using default", "port", cfg.V2rayStat.Port, "default", defaultConfig.V2rayStat.Port)
 			cfg.V2rayStat.Port = defaultConfig.V2rayStat.Port
+		}
+	}
+
+	if cfg.Core.AccessLogRegex != "" {
+		if _, err := regexp.Compile(cfg.Core.AccessLogRegex); err != nil {
+			cfg.Logger.Warn("Invalid core.access_log_regex, using default", "regex", cfg.Core.AccessLogRegex, "default", defaultConfig.Core.AccessLogRegex)
+			cfg.Core.AccessLogRegex = defaultConfig.Core.AccessLogRegex
 		}
 	}
 

@@ -6,6 +6,8 @@ option go_package = "./proto";
 
 service NodeService {
   rpc GetUsers(GetUsersRequest) returns (GetUsersResponse) {}
+  rpc GetApiResponse(GetApiResponseRequest) returns (GetApiResponseResponse) {}
+  rpc GetLogData(GetLogDataRequest) returns (GetLogDataResponse) {} // Новый метод
 }
 
 message GetUsersRequest {}
@@ -22,4 +24,26 @@ message User {
 
 message GetUsersResponse {
   repeated User users = 1;
+}
+
+message GetApiResponseRequest {}
+
+message GetApiResponseResponse {
+  repeated Stat stats = 1;
+}
+
+message Stat {
+  string name = 1;
+  string value = 2;
+}
+
+message GetLogDataRequest {}
+
+message GetLogDataResponse {
+  map<string, UserLogData> user_log_data = 1; // Данные по пользователям
+}
+
+message UserLogData {
+  repeated string valid_ips = 1; // Список актуальных IP-адресов
+  map<string, int32> dns_stats = 2; // Статистика DNS-запросов
 }

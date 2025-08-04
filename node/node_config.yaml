@@ -10,4 +10,8 @@ v2ray-stat:
 timezone: Europe/Moscow
 
 core:
-  config: /usr/local/etc/xray/config.json
+  dir: /usr/local/etc/xray/                                                           # Directory path where the proxy (Xray or Singbox) config files are stored. Must end with a slash (/).
+  config: /usr/local/etc/xray/config.json                                             # Path to the main configuration file for the proxy core (e.g., Xray or Singbox config).
+  access_log: /usr/local/etc/xray/access.log                                          # Path to the proxy core's access log file for tracking user sessions and IPs.
+  access_log_regex: 'from (?:tcp|udp):([\d\.]+):\d+ accepted (?:tcp|udp):([\w\.\-]+):\d+ \[[^\]]+\] email: (\S+)' # Regular expression to parse access log. Should extract source IP, destination host, and user email/remark.
+  # access_log_regex: 'login: (\S+); ip: ([0-9\.]+)'                                  # Alternative regex (e.g., for custom login formats):

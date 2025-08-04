@@ -97,9 +97,11 @@ func (m *DatabaseManager) processRequest(req func(*sql.DB) error, workerID int, 
 	m.workerPool <- struct{}{}
 	defer func() { <-m.workerPool }()
 	m.cfg.Logger.Trace("Processing request", "workerID", workerID, "priority", priority)
+	start := time.Now()
 	if err := req(m.db); err != nil {
 		m.cfg.Logger.Error("Failed to execute request", "workerID", workerID, "priority", priority, "error", err)
 	}
+	m.cfg.Logger.Debug("Processed request", "workerID", workerID, "priority", priority, "duration", time.Since(start))
 	m.cfg.Logger.Debug("Processed request counts", "highPriority", atomic.LoadUint64(&m.highPriorityCount), "lowPriority", atomic.LoadUint64(&m.lowPriorityCount))
 }
 

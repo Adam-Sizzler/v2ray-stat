@@ -13,15 +13,13 @@ import (
 	"v2ray-stat/node/proto"
 )
 
-// SyncUsersWithNode synchronizes users from a node with the database, adding new users and removing absent ones.
+// SyncUsersWithNode синхронизирует пользователей с ноды с базой данных, добавляя новых и удаляя отсутствующих.
 func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, nodeClients []*db.NodeClient, cfg *config.Config) error {
 	var errs []error
 	for _, nc := range nodeClients {
-		// Создаём контекст с таймаутом для gRPC-запроса
 		grpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 
-		// Выполняем один gRPC-запрос для получения пользователей
 		resp, err := nc.Client.GetUsers(grpcCtx, &proto.GetUsersRequest{})
 		if err != nil {
 			cfg.Logger.Error("Failed to get users from node", "node", nc.Name, "error", err)
@@ -29,18 +27,16 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 			continue
 		}
 
-		// Создаём карту пользователей из gRPC-ответа
 		nodeUsers := make(map[string]bool)
 		for _, user := range resp.Users {
 			nodeUsers[user.Username] = true
 		}
 
-		// Получаем текущих пользователей из базы данных (низкоприоритетная задача)
 		var dbUsers []string
-		err = manager.ExecuteLowPriority(func(db *sql.DB) error {
-			rows, err := db.Query("SELECT user FROM users_stats WHERE node_name = ?", nc.Name)
+		err = manager.ExecuteHighPriority(func(db *sql.DB) error {
+			rows, err := db.Query("SELECT user FROM user_traffic WHERE node_name = ?", nc.Name)
 			if err != nil {
-				return fmt.Errorf("query users from users_stats: %w", err)
+				return fmt.Errorf("query users from user_traffic: %w", err)
 			}
 			defer rows.Close()
 			for rows.Next() {
@@ -58,7 +54,6 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 			continue
 		}
 
-		// Выполняем все операции для ноды в одной транзакции (высокоприоритетная задача)
 		addedUsers, addedUUIDs, deletedUsers := 0, 0, 0
 		err = manager.ExecuteHighPriority(func(db *sql.DB) error {
 			tx, err := db.BeginTx(ctx, nil)
@@ -67,20 +62,20 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 			}
 			defer tx.Rollback()
 
-			// Добавляем новых пользователей и их UUIDs
 			for _, user := range resp.Users {
-				_, err := tx.Exec(`
-					INSERT OR IGNORE INTO users_stats(node_name, user, rate, enabled, created)
-					VALUES (?, ?, ?, ?, ?)`,
-					nc.Name, user.Username, 0, "true", time.Now().Format("2006-01-02-15"))
+				// Добавляем пользователя в user_traffic с колонкой created
+				_, err = tx.Exec(`
+					INSERT OR IGNORE INTO user_traffic (node_name, user, rate, created)
+					VALUES (?, ?, 0, ?)`,
+					nc.Name, user.Username, time.Now().Format("2006-01-02-15"))
 				if err != nil {
-					return fmt.Errorf("insert user %s into users_stats: %w", user.Username, err)
+					return fmt.Errorf("insert user %s into user_traffic: %w", user.Username, err)
 				}
 				addedUsers++
 
 				for _, ui := range user.UuidInbounds {
 					_, err := tx.Exec(`
-						INSERT OR IGNORE INTO user_uuids(node_name, user, uuid, inbound_tag)
+						INSERT OR IGNORE INTO user_uuids (node_name, user, uuid, inbound_tag)
 						VALUES (?, ?, ?, ?)`,
 						nc.Name, user.Username, ui.Uuid, ui.InboundTag)
 					if err != nil {
@@ -90,12 +85,11 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 				}
 			}
 
-			// Удаляем пользователей, отсутствующих в gRPC-ответе
 			for _, user := range dbUsers {
 				if !nodeUsers[user] {
-					_, err := tx.Exec("DELETE FROM users_stats WHERE node_name = ? AND user = ?", nc.Name, user)
+					_, err := tx.Exec("DELETE FROM user_traffic WHERE node_name = ? AND user = ?", nc.Name, user)
 					if err != nil {
-						return fmt.Errorf("delete user %s from users_stats: %w", user, err)
+						return fmt.Errorf("delete user %s from user_traffic: %w", user, err)
 					}
 					_, err = tx.Exec("DELETE FROM user_uuids WHERE node_name = ? AND user = ?", nc.Name, user)
 					if err != nil {
