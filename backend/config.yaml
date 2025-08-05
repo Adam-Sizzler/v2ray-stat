@@ -1,5 +1,5 @@
 log:
-  loglevel: trace
+  loglevel: info
   logmode: inclusive
 
 v2ray-stat:
@@ -9,10 +9,16 @@ v2ray-stat:
     ticker_interval: 10
     online_rate_threshold: 15
   nodes:
-    - name: LocalNode
+    - name: local
       url: "127.0.0.1:10000"
-    - name: RemoteNode
+    - name: swe
       url: "194.164.34.44:10000"
+      mtls:
+        cert: /root/v2ray-stat/certs/node.crt
+        key: /root/v2ray-stat/certs/node.key
+        ca_cert: /root/v2ray-stat/certs/node.crt
+    - name: ru
+      url: "46.8.158.174:10000"
       mtls:
         cert: /root/v2ray-stat/certs/node.crt
         key: /root/v2ray-stat/certs/node.key
@@ -28,7 +34,7 @@ paths:
 
 stats_columns:
   server:
-    sort: source ASC
+    sort: rate DESC
     columns:
       - node_name
       - source

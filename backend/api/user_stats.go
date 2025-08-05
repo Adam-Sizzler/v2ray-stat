@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
-	"slices"
 	"strings"
 
 	"v2ray-stat/backend/config"
@@ -12,99 +11,6 @@ import (
 	"v2ray-stat/constant"
 	"v2ray-stat/util"
 )
-
-// contains checks if an item exists in a slice.
-func contains(slice []string, item string) bool {
-	return slices.Contains(slice, item)
-}
-
-// appendStats appends content to a strings.Builder.
-func appendStats(builder *strings.Builder, content string) {
-	builder.WriteString(content)
-}
-
-// formatTable formats SQL query results into a table.
-func formatTable(rows *sql.Rows, trafficColumns []string, cfg *config.Config) (string, error) {
-	columns, err := rows.Columns()
-	if err != nil {
-		cfg.Logger.Error("Failed to get column names", "error", err)
-		return "", fmt.Errorf("failed to get column names: %v", err)
-	}
-
-	maxWidths := make([]int, len(columns))
-	for i, col := range columns {
-		maxWidths[i] = len(col)
-	}
-
-	var data [][]string
-	for rows.Next() {
-		values := make([]any, len(columns))
-		valuePtrs := make([]any, len(columns))
-		for i := range columns {
-			valuePtrs[i] = &values[i]
-		}
-
-		if err := rows.Scan(valuePtrs...); err != nil {
-			cfg.Logger.Error("Failed to scan row", "error", err)
-			return "", fmt.Errorf("failed to scan row: %v", err)
-		}
-
-		row := make([]string, len(columns))
-		for i, val := range values {
-			strVal := fmt.Sprintf("%v", val)
-			if len(strVal) > 255 {
-				cfg.Logger.Warn("Value too long in column", "column", columns[i], "length", len(strVal))
-				strVal = strVal[:255]
-			}
-			if contains(trafficColumns, columns[i]) {
-				if numVal, ok := val.(int64); ok {
-					unit := "byte"
-					if columns[i] == "Rate" {
-						unit = "bps"
-					}
-					strVal = util.FormatData(float64(numVal), unit)
-				}
-			}
-			row[i] = strVal
-			if len(strVal) > maxWidths[i] {
-				maxWidths[i] = len(strVal)
-			}
-		}
-		data = append(data, row)
-	}
-
-	if len(data) == 0 {
-		cfg.Logger.Warn("SQL query result is empty")
-	}
-
-	var header strings.Builder
-	for i, col := range columns {
-		header.WriteString(fmt.Sprintf("%-*s", maxWidths[i]+2, col))
-	}
-	header.WriteString("\n")
-
-	var separator strings.Builder
-	for _, width := range maxWidths {
-		separator.WriteString(strings.Repeat("-", width) + "  ")
-	}
-	separator.WriteString("\n")
-
-	var table strings.Builder
-	table.WriteString(header.String())
-	table.WriteString(separator.String())
-	for _, row := range data {
-		for i, val := range row {
-			if contains(trafficColumns, columns[i]) {
-				table.WriteString(fmt.Sprintf("%*s  ", maxWidths[i], val))
-			} else {
-				table.WriteString(fmt.Sprintf("%-*s", maxWidths[i]+2, val))
-			}
-		}
-		table.WriteString("\n")
-	}
-
-	return table.String(), nil
-}
 
 // buildServerCustomStats collects custom server statistics.
 func buildServerCustomStats(builder *strings.Builder, manager *manager.DatabaseManager, cfg *config.Config) error {
@@ -151,18 +57,18 @@ func buildServerCustomStats(builder *strings.Builder, manager *manager.DatabaseM
 			}
 			defer rows.Close()
 
-			appendStats(builder, "➤  Server Statistics:\n")
-			serverTable, err := formatTable(rows, trafficAliases, cfg)
+			util.AppendStats(builder, "➤  Server Statistics:\n")
+			serverTable, err := util.FormatTable(rows, trafficAliases, cfg)
 			if err != nil {
 				cfg.Logger.Error("Failed to format server stats table", "error", err)
 				return fmt.Errorf("failed to format server stats table: %v", err)
 			}
 			if serverTable == "" {
 				cfg.Logger.Warn("No data returned for server stats query")
-				appendStats(builder, "No server statistics available.\n")
+				util.AppendStats(builder, "No server statistics available.\n")
 			} else {
-				appendStats(builder, serverTable)
-				appendStats(builder, "\n")
+				util.AppendStats(builder, serverTable)
+				util.AppendStats(builder, "\n")
 			}
 			return nil
 		})
@@ -173,7 +79,7 @@ func buildServerCustomStats(builder *strings.Builder, manager *manager.DatabaseM
 		}
 	} else {
 		cfg.Logger.Warn("No columns specified for server stats in configuration")
-		appendStats(builder, "No columns specified for server stats.\n")
+		util.AppendStats(builder, "No columns specified for server stats.\n")
 	}
 	return nil
 }
@@ -247,13 +153,13 @@ func buildClientCustomStats(builder *strings.Builder, manager *manager.DatabaseM
 			}
 			defer rows.Close()
 
-			appendStats(builder, "➤  Client Statistics:\n")
-			clientTable, err := formatTable(rows, clientAliases, cfg)
+			util.AppendStats(builder, "➤  Client Statistics:\n")
+			clientTable, err := util.FormatTable(rows, clientAliases, cfg)
 			if err != nil {
 				cfg.Logger.Error("Failed to format client stats table", "error", err)
 				return fmt.Errorf("failed to format client stats table: %v", err)
 			}
-			appendStats(builder, clientTable)
+			util.AppendStats(builder, clientTable)
 			return nil
 		})
 
@@ -307,14 +213,14 @@ func buildNodeStats(builder *strings.Builder, manager *manager.DatabaseManager, 
 		}
 		defer rows.Close()
 
-		appendStats(builder, fmt.Sprintf("➤  Server Statistics for Node %s:\n", nodeName))
-		serverTable, err := formatTable(rows, trafficAliases, cfg)
+		util.AppendStats(builder, fmt.Sprintf("➤  Server Statistics for Node %s:\n", nodeName))
+		serverTable, err := util.FormatTable(rows, trafficAliases, cfg)
 		if err != nil {
 			cfg.Logger.Error("Failed to format node server stats table", "node_name", nodeName, "error", err)
 			return fmt.Errorf("failed to format node server stats table: %v", err)
 		}
-		appendStats(builder, serverTable)
-		appendStats(builder, "\n")
+		util.AppendStats(builder, serverTable)
+		util.AppendStats(builder, "\n")
 		return nil
 	})
 
@@ -377,13 +283,13 @@ func buildNodeStats(builder *strings.Builder, manager *manager.DatabaseManager, 
 		}
 		defer rows.Close()
 
-		appendStats(builder, fmt.Sprintf("➤  Client Statistics for Node %s:\n", nodeName))
-		clientTable, err := formatTable(rows, clientAliases, cfg)
+		util.AppendStats(builder, fmt.Sprintf("➤  Client Statistics for Node %s:\n", nodeName))
+		clientTable, err := util.FormatTable(rows, clientAliases, cfg)
 		if err != nil {
 			cfg.Logger.Error("Failed to format node client stats table", "node_name", nodeName, "error", err)
 			return fmt.Errorf("failed to format node client stats table: %v", err)
 		}
-		appendStats(builder, clientTable)
+		util.AppendStats(builder, clientTable)
 		return nil
 	})
 
@@ -465,7 +371,7 @@ func StatsCustomHandler(manager *manager.DatabaseManager, cfg *config.Config) ht
 		validSortColumns := []string{
 			"node_name", "user", "last_seen", "rate", "uplink", "downlink", "sess_uplink", "sess_downlink", "created",
 		}
-		if sortBy != "" && !contains(validSortColumns, sortBy) {
+		if sortBy != "" && !util.Contains(validSortColumns, sortBy) {
 			cfg.Logger.Warn("Invalid sort_by parameter", "sort_by", sortBy)
 			http.Error(w, fmt.Sprintf("Invalid sort_by parameter: %s, must be one of %v", sortBy, validSortColumns), http.StatusBadRequest)
 			return
@@ -552,7 +458,7 @@ func buildAggregateServerStats(builder *strings.Builder, manager *manager.Databa
 		}
 		if len(serverCols) == 0 {
 			cfg.Logger.Warn("No valid columns specified for aggregate server stats")
-			appendStats(builder, "No valid columns specified for aggregate server stats.\n")
+			util.AppendStats(builder, "No valid columns specified for aggregate server stats.\n")
 			return nil
 		}
 		serverQuery := fmt.Sprintf("SELECT %s FROM bound_traffic GROUP BY source ORDER BY SUM(%s) %s;",
@@ -574,18 +480,18 @@ func buildAggregateServerStats(builder *strings.Builder, manager *manager.Databa
 			}
 			cfg.Logger.Debug("Aggregate server stats columns returned", "columns", columns)
 
-			appendStats(builder, "➤  Aggregate Server Statistics:\n")
-			serverTable, err := formatTable(rows, trafficAliases, cfg)
+			util.AppendStats(builder, "➤  Aggregate Server Statistics:\n")
+			serverTable, err := util.FormatTable(rows, trafficAliases, cfg)
 			if err != nil {
 				cfg.Logger.Error("Failed to format aggregate server stats table", "error", err)
 				return fmt.Errorf("failed to format aggregate server stats table: %v", err)
 			}
 			if serverTable == "" {
 				cfg.Logger.Warn("No data returned for aggregate server stats query")
-				appendStats(builder, "No aggregate server statistics available.\n")
+				util.AppendStats(builder, "No aggregate server statistics available.\n")
 			} else {
-				appendStats(builder, serverTable)
-				appendStats(builder, "\n")
+				util.AppendStats(builder, serverTable)
+				util.AppendStats(builder, "\n")
 			}
 			return nil
 		})
@@ -596,7 +502,7 @@ func buildAggregateServerStats(builder *strings.Builder, manager *manager.Databa
 		}
 	} else {
 		cfg.Logger.Warn("No columns specified for aggregate server stats in configuration")
-		appendStats(builder, "No columns specified for aggregate server stats.\n")
+		util.AppendStats(builder, "No columns specified for aggregate server stats.\n")
 	}
 	return nil
 }
@@ -655,7 +561,7 @@ func buildAggregateClientStats(builder *strings.Builder, manager *manager.Databa
 		}
 		if len(clientCols) == 0 {
 			cfg.Logger.Warn("No valid columns specified for aggregate client stats")
-			appendStats(builder, "No valid columns specified for aggregate client stats.\n")
+			util.AppendStats(builder, "No valid columns specified for aggregate client stats.\n")
 			return nil
 		}
 
@@ -693,17 +599,17 @@ func buildAggregateClientStats(builder *strings.Builder, manager *manager.Databa
 			}
 			cfg.Logger.Debug("Aggregate client stats columns returned", "columns", columns)
 
-			appendStats(builder, "➤  Aggregate Client Statistics:\n")
-			clientTable, err := formatTable(rows, clientAliases, cfg)
+			util.AppendStats(builder, "➤  Aggregate Client Statistics:\n")
+			clientTable, err := util.FormatTable(rows, clientAliases, cfg)
 			if err != nil {
 				cfg.Logger.Error("Failed to format aggregate client stats table", "error", err)
 				return fmt.Errorf("failed to format aggregate client stats table: %v", err)
 			}
 			if clientTable == "" {
 				cfg.Logger.Warn("No data returned for aggregate client stats query")
-				appendStats(builder, "No aggregate client statistics available.\n")
+				util.AppendStats(builder, "No aggregate client statistics available.\n")
 			} else {
-				appendStats(builder, clientTable)
+				util.AppendStats(builder, clientTable)
 			}
 			return nil
 		})
@@ -714,7 +620,7 @@ func buildAggregateClientStats(builder *strings.Builder, manager *manager.Databa
 		}
 	} else {
 		cfg.Logger.Warn("No columns specified for aggregate client stats in configuration")
-		appendStats(builder, "No columns specified for aggregate client stats.\n")
+		util.AppendStats(builder, "No columns specified for aggregate client stats.\n")
 	}
 	return nil
 }
@@ -736,7 +642,7 @@ func AggregateStatsHandler(manager *manager.DatabaseManager, cfg *config.Config)
 		validSortColumns := []string{
 			"user", "last_seen", "rate", "uplink", "downlink", "sess_uplink", "sess_downlink", "created",
 		}
-		if sortBy != "" && !contains(validSortColumns, sortBy) {
+		if sortBy != "" && !util.Contains(validSortColumns, sortBy) {
 			cfg.Logger.Warn("Invalid sort_by parameter", "sort_by", sortBy)
 			http.Error(w, fmt.Sprintf("Invalid sort_by parameter: %s, must be one of %v", sortBy, validSortColumns), http.StatusBadRequest)
 			return

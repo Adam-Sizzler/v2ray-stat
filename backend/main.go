@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"v2ray-stat/backend/api"
+	"v2ray-stat/backend/api/reset_stats"
 	"v2ray-stat/backend/config"
 	"v2ray-stat/backend/db"
 	"v2ray-stat/backend/db/manager"
@@ -43,9 +44,13 @@ func startAPIServer(ctx context.Context, manager *manager.DatabaseManager, cfg *
 	http.HandleFunc("/", api.Answer())
 
 	// Read-only endpoints (no token required)
+	http.HandleFunc("/api/v1/users", api.UsersHandler(manager, cfg))
 	http.HandleFunc("/api/v1/stats", api.StatsCustomHandler(manager, cfg))
 	http.HandleFunc("/api/v1/node_stats", api.NodeStatsHandler(manager, cfg))
 	http.HandleFunc("/api/v1/aggregate_stats", api.AggregateStatsHandler(manager, cfg))
+	http.HandleFunc("/api/v1/dns_stats", api.DnsStatsHandler(manager, cfg))
+
+	http.HandleFunc("/api/v1/delete_dns_stats", api.TokenAuthMiddleware(cfg, reset_stats.DeleteDNSStatsHandler(manager, cfg)))
 
 	cfg.Logger.Debug("Starting API server", "address", server.Addr)
 

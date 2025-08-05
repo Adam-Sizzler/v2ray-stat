@@ -287,3 +287,8 @@ curl -X PATCH http://127.0.0.1:9952/api/v1/update_renew -d "user=newuser&renew=3
   ]
 },
 ```
+
+Генерация сертификатов, отправить на ноды.
+
+openssl x509 -in /root/v2ray-stat/certs/node.crt -text -noout
+openssl rsa -in /root/v2ray-stat/certs/node.key -check
