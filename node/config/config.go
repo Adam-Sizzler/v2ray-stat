@@ -17,7 +17,9 @@ type NodeConfig struct {
 	Log        LogConfig       `yaml:"log"`
 	V2rayStat  V2rayStatConfig `yaml:"v2ray-stat"`
 	Timezone   string          `yaml:"timezone"`
+	Features   map[string]bool `yaml:"features"`
 	Core       CoreConfig      `yaml:"core"`
+	Paths      PathsConfig     `yaml:"paths"`
 	MTLSConfig *MTLSConfig     `yaml:"mtls"`
 	Logger     *logger.Logger
 }
@@ -40,6 +42,14 @@ type CoreConfig struct {
 	AccessLogRegex string `yaml:"access_log_regex"`
 }
 
+// PathsConfig holds paths and logging settings.
+type PathsConfig struct {
+	Database     string `yaml:"database"`
+	F2BLog       string `yaml:"f2b_log"`
+	F2BBannedLog string `yaml:"f2b_banned_log"`
+	AuthLua      string `yaml:"auth_lua"`
+}
+
 type MTLSConfig struct {
 	Cert   string `yaml:"cert"`
 	Key    string `yaml:"key"`
@@ -57,11 +67,18 @@ var defaultConfig = NodeConfig{
 		Port:    "10000",
 	},
 	Timezone: "UTC",
+	Features: make(map[string]bool),
 	Core: CoreConfig{
 		Dir:            "/usr/local/etc/xray/",
 		Config:         "/usr/local/etc/xray/config.json",
 		AccessLog:      "/usr/local/etc/xray/access.log",
 		AccessLogRegex: `from (?:tcp|udp):([\d\.]+):\d+ accepted (?:tcp|udp):([\w\.\-]+):\d+ \[[^\]]+\] email: (\S+)`,
+	},
+	Paths: PathsConfig{
+		Database:     "/usr/local/etc/v2ray-stat/data.db",
+		F2BLog:       "/var/log/v2ray-stat.log",
+		F2BBannedLog: "/var/log/v2ray-stat-banned.log",
+		AuthLua:      "/etc/haproxy/.auth.lua",
 	},
 }
 
@@ -144,6 +161,11 @@ func LoadNodeConfig(configFile string) (NodeConfig, error) {
 			cfg.Logger.Warn("Invalid timezone value, using default", "timezone", cfg.Timezone)
 			cfg.Timezone = defaultConfig.Timezone
 		}
+	}
+
+	// Ensure Features map is initialized
+	if cfg.Features == nil {
+		cfg.Features = make(map[string]bool)
 	}
 
 	cfg.Logger.Info("Node configuration validated", "address", cfg.V2rayStat.Address, "port", cfg.V2rayStat.Port, "mtls_enabled", cfg.MTLSConfig != nil)

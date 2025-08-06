@@ -191,12 +191,9 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 		END;
 
 		-- Индексы для оптимизации запросов
-		CREATE INDEX IF NOT EXISTS idx_user_data_user ON user_data(user);
 		CREATE INDEX IF NOT EXISTS idx_user_data_enabled ON user_data(enabled);
 		CREATE INDEX IF NOT EXISTS idx_user_data_sub_end ON user_data(sub_end);
-		CREATE INDEX IF NOT EXISTS idx_user_data_renew ON user_data(renew);
-		CREATE INDEX IF NOT EXISTS idx_user_data_lim_ip ON user_data(lim_ip);
-		CREATE INDEX IF NOT EXISTS idx_user_traffic_node_name_user ON user_traffic(node_name, user);
+		CREATE INDEX IF NOT EXISTS idx_user_traffic_user ON user_traffic(user);
 		CREATE INDEX IF NOT EXISTS idx_user_traffic_rate ON user_traffic(rate);
 		CREATE INDEX IF NOT EXISTS idx_user_traffic_last_seen ON user_traffic(last_seen);
 		CREATE INDEX IF NOT EXISTS idx_user_traffic_sess_uplink ON user_traffic(sess_uplink);
@@ -204,8 +201,6 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 		CREATE INDEX IF NOT EXISTS idx_user_traffic_uplink ON user_traffic(uplink);
 		CREATE INDEX IF NOT EXISTS idx_user_traffic_downlink ON user_traffic(downlink);
 		CREATE INDEX IF NOT EXISTS idx_user_traffic_created ON user_traffic(created);
-		CREATE INDEX IF NOT EXISTS idx_bound_traffic_node_name_source ON bound_traffic(node_name, source);
-		CREATE INDEX IF NOT EXISTS idx_user_dns_node_name_user ON user_dns(node_name, user);
 		CREATE INDEX IF NOT EXISTS idx_user_dns_domain ON user_dns(domain);
     `
 	if _, err = db.Exec(sqlStmt); err != nil {

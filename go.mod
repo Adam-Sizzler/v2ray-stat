@@ -3,6 +3,7 @@ module v2ray-stat
 go 1.24.5
 
 require (
+	github.com/google/uuid v1.6.0
 	github.com/mattn/go-sqlite3 v1.14.30
 	github.com/v2ray/v2ray-core v4.15.0+incompatible
 	github.com/xtls/xray-core v1.250726.0

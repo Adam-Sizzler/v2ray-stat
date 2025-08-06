@@ -45,10 +45,15 @@ func startAPIServer(ctx context.Context, manager *manager.DatabaseManager, cfg *
 
 	// Read-only endpoints (no token required)
 	http.HandleFunc("/api/v1/users", api.UsersHandler(manager, cfg))
-	http.HandleFunc("/api/v1/stats", api.StatsCustomHandler(manager, cfg))
-	http.HandleFunc("/api/v1/node_stats", api.NodeStatsHandler(manager, cfg))
-	http.HandleFunc("/api/v1/aggregate_stats", api.AggregateStatsHandler(manager, cfg))
 	http.HandleFunc("/api/v1/dns_stats", api.DnsStatsHandler(manager, cfg))
+	http.HandleFunc("/api/v1/stats", api.StatsHandler(manager, cfg))
+
+	// Data-modifying endpoints (token required)
+	http.HandleFunc("/api/v1/add_user", api.TokenAuthMiddleware(cfg, api.AddUserHandler(manager, cfg)))
+	// http.HandleFunc("/api/v1/set_enabled", api.TokenAuthMiddleware(cfg, api.SetEnabledHandler(manager, cfg)))
+	http.HandleFunc("/api/v1/update_lim_ip", api.TokenAuthMiddleware(cfg, api.UpdateIPLimitHandler(manager, cfg)))
+	http.HandleFunc("/api/v1/update_renew", api.TokenAuthMiddleware(cfg, api.UpdateRenewHandler(manager, cfg)))
+	// http.HandleFunc("/api/v1/adjust_date", api.TokenAuthMiddleware(cfg, api.AdjustDateOffsetHandler(manager, cfg)))
 
 	http.HandleFunc("/api/v1/delete_dns_stats", api.TokenAuthMiddleware(cfg, reset_stats.DeleteDNSStatsHandler(manager, cfg)))
 

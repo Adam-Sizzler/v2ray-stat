@@ -1,5 +1,5 @@
 log:
-  loglevel: info
+  loglevel: debug
   logmode: inclusive
 
 v2ray-stat:
@@ -44,7 +44,7 @@ stats_columns:
       - sess_uplink
       - sess_downlink
   client:
-    sort: user ASC
+    sort: rate DESC
     columns:
       - node_name
       - user
@@ -52,11 +52,11 @@ stats_columns:
       - rate
       - uplink
       - downlink
-      - sess_uplink
-      - sess_downlink
-      - created
-      - ips
+      # - sess_uplink
+      # - sess_downlink
+      # - created
       - enabled
       - sub_end
       - renew
       - lim_ip
+      - ips

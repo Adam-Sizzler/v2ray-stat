@@ -99,9 +99,7 @@ func getDnsStats(manager *manager.DatabaseManager, cfg *config.Config, node, use
 		}
 		defer rows.Close()
 
-		trafficColumns := []string{"Count"}
-
-		table, err := util.FormatTable(rows, trafficColumns, cfg)
+		table, err := util.FormatTable(rows, nil, cfg)
 		if err != nil {
 			cfg.Logger.Error("Failed to format DNS stats table", "error", err)
 			return fmt.Errorf("failed to format DNS stats table: %v", err)
@@ -137,8 +135,8 @@ func DnsStatsHandler(manager *manager.DatabaseManager, cfg *config.Config) http.
 
 		node := r.URL.Query().Get("node")
 		user := r.URL.Query().Get("user")
-		domain := r.URL.Query().Get("domain")
 		count := r.URL.Query().Get("count")
+		domain := r.URL.Query().Get("domain")
 
 		if count == "" {
 			count = "20"

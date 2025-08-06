@@ -54,12 +54,12 @@ func FormatTable(rows *sql.Rows, trafficColumns []string, cfg *config.Config) (s
 			if Contains(trafficColumns, columns[i]) {
 				if numVal, ok := val.(int64); ok {
 					switch columns[i] {
-					case "Count":
-						strVal = fmt.Sprintf("%d", numVal)
 					case "Rate":
 						strVal = FormatData(float64(numVal), "bps")
-					default:
+					case "Uplink", "Downlink", "Sess Up", "Sess Down":
 						strVal = FormatData(float64(numVal), "byte")
+					default:
+						strVal = fmt.Sprintf("%d", numVal)
 					}
 				}
 			}
