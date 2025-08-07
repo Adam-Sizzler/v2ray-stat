@@ -32,7 +32,7 @@ func AddUserToNode(node config.NodeConfig, user, inboundTag string) (string, err
 	}
 
 	// Используем полный URL ноды из конфигурации (адрес:порт)
-	conn, err := grpc.Dial(node.URL, opts...)
+	conn, err := grpc.NewClient(node.URL, opts...)
 	if err != nil {
 		return "", fmt.Errorf("failed to connect to node %s (%s): %v", node.Name, node.URL, err)
 	}
