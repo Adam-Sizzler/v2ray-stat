@@ -69,6 +69,7 @@ jobs:
           cp ${GITHUB_WORKSPACE}/node/node_config.yaml ./build_assets/node_config.yaml
           cp ${GITHUB_WORKSPACE}/README.md ./build_assets/README.md
           cp ${GITHUB_WORKSPACE}/LICENSE ./build_assets/LICENSE
+          cp ${GITHUB_WORKSPACE}/v2ray-manager.sh ./build_assets/v2ray-manager.sh
 
       - name: Create checksums
         run: |
