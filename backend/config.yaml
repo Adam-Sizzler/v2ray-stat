@@ -12,13 +12,13 @@ v2ray-stat:
     - node_name: local
       url: "127.0.0.1:10000"
     - node_name: swe
-      url: "194.164.34.44:10000"
+      url: "1.1.1.1:10000"
       mtls:
         cert: /root/v2ray-stat/certs/node.crt
         key: /root/v2ray-stat/certs/node.key
         ca_cert: /root/v2ray-stat/certs/node.crt
     - node_name: ru
-      url: "46.8.158.174:10000"
+      url: "8.8.8.8:10000"
       mtls:
         cert: /root/v2ray-stat/certs/node.crt
         key: /root/v2ray-stat/certs/node.key
@@ -27,7 +27,7 @@ v2ray-stat:
 api:
   api_token: ""
 
-timezone: "Asia/Krasnoyarsk"
+timezone: 
 
 paths:
   database: /root/v2ray-stat/data.db
