@@ -8,14 +8,23 @@ service NodeService {
   rpc GetUsers(GetUsersRequest) returns (GetUsersResponse) {}
   rpc GetApiResponse(GetApiResponseRequest) returns (GetApiResponseResponse) {}
   rpc GetLogData(GetLogDataRequest) returns (GetLogDataResponse) {}
+
   rpc AddUser(AddUserRequest) returns (AddUserResponse) {}
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse) {}
+}
+
+message DeleteUserRequest {
+  string user = 1;
+  string inbound_tag = 2;
+}
+message DeleteUserResponse {
+  string error = 1;
 }
 
 message AddUserRequest {
   string user = 1;
   string inbound_tag = 2;
 }
-
 message AddUserResponse {
   string credential = 1;
   string error = 2;

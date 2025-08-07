@@ -100,7 +100,7 @@ func LoadNodeConfig(configFile string) (NodeConfig, error) {
 	if err != nil {
 		return cfg, fmt.Errorf("error reading configuration file %s: %v", configFile, err)
 	}
-	cfg.Logger, _ = logger.NewLoggerWithValidation("debug", "inclusive", cfg.Timezone, os.Stderr)
+	cfg.Logger, _ = logger.NewLoggerWithValidation("info", "inclusive", cfg.Timezone, os.Stderr)
 	cfg.Logger.Debug("Read configuration file", "file", configFile, "size", len(data))
 
 	if err := yaml.Unmarshal(data, &cfg); err != nil {

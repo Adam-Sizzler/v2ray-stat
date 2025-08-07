@@ -20,7 +20,7 @@ type DnsStat struct {
 }
 
 // getDnsStats executes a query and returns formatted DNS statistics.
-func getDnsStats(manager *manager.DatabaseManager, cfg *config.Config, node, user, domain, count string) (string, error) {
+func getDnsStats(manager *manager.DatabaseManager, cfg *config.Config, nodes, users, domain, count string) (string, error) {
 	// Проверка параметра count
 	countInt, err := strconv.Atoi(count)
 	if err != nil {
@@ -44,23 +44,30 @@ func getDnsStats(manager *manager.DatabaseManager, cfg *config.Config, node, use
 		}
 	}
 
-	// Проверка валидности node, если указан
-	if node != "" {
-		var nodeExists bool
+	// Проверка валидности нод, если указаны
+	if nodes != "" {
+		nodeList := strings.Split(nodes, ",")
+		var invalidNodes []string
 		err = manager.ExecuteLowPriority(func(db *sql.DB) error {
-			err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM nodes WHERE name = ?)", node).Scan(&nodeExists)
-			if err != nil {
-				cfg.Logger.Error("Failed to check node existence", "node", node, "error", err)
-				return fmt.Errorf("failed to check node existence: %v", err)
+			for _, node := range nodeList {
+				var nodeExists bool
+				err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM nodes WHERE name = ?)", node).Scan(&nodeExists)
+				if err != nil {
+					cfg.Logger.Error("Failed to check node existence", "node", node, "error", err)
+					return fmt.Errorf("failed to check node existence: %v", err)
+				}
+				if !nodeExists {
+					invalidNodes = append(invalidNodes, node)
+				}
 			}
 			return nil
 		})
 		if err != nil {
 			return "", err
 		}
-		if !nodeExists {
-			cfg.Logger.Warn("Invalid node parameter", "node", node)
-			return "", fmt.Errorf("invalid node parameter: %s", node)
+		if len(invalidNodes) > 0 {
+			cfg.Logger.Warn("Invalid node parameters", "nodes", invalidNodes)
+			return "", fmt.Errorf("invalid node parameters: %v", invalidNodes)
 		}
 	}
 
@@ -76,13 +83,22 @@ func getDnsStats(manager *manager.DatabaseManager, cfg *config.Config, node, use
 				FROM user_dns
 				WHERE 1=1`
 		var args []any
-		if node != "" {
-			query += " AND node_name = ?"
-			args = append(args, node)
+
+		if nodes != "" {
+			nodeList := strings.Split(nodes, ",")
+			placeholders := strings.Repeat("?,", len(nodeList)-1) + "?"
+			query += fmt.Sprintf(" AND node_name IN (%s)", placeholders)
+			for _, node := range nodeList {
+				args = append(args, node)
+			}
 		}
-		if user != "" {
-			query += " AND user = ?"
-			args = append(args, user)
+		if users != "" {
+			userList := strings.Split(users, ",")
+			placeholders := strings.Repeat("?,", len(userList)-1) + "?"
+			query += fmt.Sprintf(" AND user IN (%s)", placeholders)
+			for _, user := range userList {
+				args = append(args, user)
+			}
 		}
 		if domain != "" {
 			query += " AND LOWER(domain) LIKE ?"
@@ -91,10 +107,10 @@ func getDnsStats(manager *manager.DatabaseManager, cfg *config.Config, node, use
 		query += " ORDER BY count DESC LIMIT ?"
 		args = append(args, countInt)
 
-		cfg.Logger.Debug("Executing query on user_dns table", "node", node, "user", user, "domain", domain, "count", count, "query", query)
+		cfg.Logger.Debug("Executing query on user_dns table", "nodes", nodes, "users", users, "domain", domain, "count", count, "query", query)
 		rows, err := db.Query(query, args...)
 		if err != nil {
-			cfg.Logger.Error("Failed to execute SQL query", "node", node, "user", user, "domain", domain, "error", err)
+			cfg.Logger.Error("Failed to execute SQL query", "nodes", nodes, "users", users, "domain", domain, "error", err)
 			return fmt.Errorf("failed to execute SQL query: %v", err)
 		}
 		defer rows.Close()
@@ -106,7 +122,7 @@ func getDnsStats(manager *manager.DatabaseManager, cfg *config.Config, node, use
 		}
 
 		if table == "" {
-			cfg.Logger.Warn("No DNS statistics found", "node", node, "user", user, "domain", domain)
+			cfg.Logger.Warn("No DNS statistics found", "nodes", nodes, "users", users, "domain", domain)
 			statsBuilder.WriteString("No DNS statistics available.\n")
 		} else {
 			statsBuilder.WriteString(table)
@@ -133,8 +149,8 @@ func DnsStatsHandler(manager *manager.DatabaseManager, cfg *config.Config) http.
 			return
 		}
 
-		node := r.URL.Query().Get("node")
-		user := r.URL.Query().Get("user")
+		nodes := r.URL.Query().Get("node")
+		users := r.URL.Query().Get("user")
 		count := r.URL.Query().Get("count")
 		domain := r.URL.Query().Get("domain")
 
@@ -143,15 +159,15 @@ func DnsStatsHandler(manager *manager.DatabaseManager, cfg *config.Config) http.
 			cfg.Logger.Debug("Setting default count value", "count", count)
 		}
 
-		response, err := getDnsStats(manager, cfg, node, user, domain, count)
+		response, err := getDnsStats(manager, cfg, nodes, users, domain, count)
 		if err != nil {
-			cfg.Logger.Error("Error in DnsStatsHandler retrieving stats", "node", node, "user", user, "domain", domain, "error", err)
+			cfg.Logger.Error("Error in DnsStatsHandler retrieving stats", "nodes", nodes, "users", users, "domain", domain, "error", err)
 			http.Error(w, "Error processing data", http.StatusInternalServerError)
 			return
 		}
 
-		cfg.Logger.Debug("Writing response", "node", node, "user", user, "domain", domain, "response_length", len(response))
+		cfg.Logger.Debug("Writing response", "nodes", nodes, "users", users, "domain", domain, "response_length", len(response))
 		fmt.Fprintln(w, response)
-		cfg.Logger.Info("API dns_stats: completed successfully", "node", node, "user", user, "domain", domain, "count", count)
+		cfg.Logger.Info("API dns_stats: completed successfully", "nodes", nodes, "users", users, "domain", domain, "count", count)
 	}
 }
