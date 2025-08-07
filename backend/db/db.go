@@ -22,9 +22,9 @@ import (
 
 // NodeClient represents a gRPC client for a node.
 type NodeClient struct {
-	Name   string
-	URL    string
-	Client proto.NodeServiceClient
+	NodeName string
+	URL      string
+	Client   proto.NodeServiceClient
 }
 
 // InitNodeClients initializes gRPC clients for all nodes.
@@ -35,17 +35,17 @@ func InitNodeClients(cfg *config.Config) ([]*NodeClient, error) {
 		if nodeCfg.MTLSConfig != nil {
 			cert, err := tls.LoadX509KeyPair(nodeCfg.MTLSConfig.Cert, nodeCfg.MTLSConfig.Key)
 			if err != nil {
-				cfg.Logger.Error("Failed to load client certificate", "node", nodeCfg.Name, "error", err)
+				cfg.Logger.Error("Failed to load client certificate", "node", nodeCfg.NodeName, "error", err)
 				continue
 			}
 			caCert, err := os.ReadFile(nodeCfg.MTLSConfig.CACert)
 			if err != nil {
-				cfg.Logger.Error("Failed to read CA certificate", "node", nodeCfg.Name, "error", err)
+				cfg.Logger.Error("Failed to read CA certificate", "node", nodeCfg.NodeName, "error", err)
 				continue
 			}
 			certPool := x509.NewCertPool()
 			if !certPool.AppendCertsFromPEM(caCert) {
-				cfg.Logger.Error("Failed to parse CA certificate", "node", nodeCfg.Name)
+				cfg.Logger.Error("Failed to parse CA certificate", "node", nodeCfg.NodeName)
 				continue
 			}
 			tlsConfig := &tls.Config{
@@ -61,15 +61,15 @@ func InitNodeClients(cfg *config.Config) ([]*NodeClient, error) {
 
 		conn, err := grpc.Dial(nodeCfg.URL, opts...)
 		if err != nil {
-			cfg.Logger.Error("Failed to connect to node", "node", nodeCfg.Name, "url", nodeCfg.URL, "error", err)
+			cfg.Logger.Error("Failed to connect to node", "node", nodeCfg.NodeName, "url", nodeCfg.URL, "error", err)
 			continue
 		}
 
 		client := proto.NewNodeServiceClient(conn)
 		nodeClients = append(nodeClients, &NodeClient{
-			Name:   nodeCfg.Name,
-			URL:    nodeCfg.URL,
-			Client: client,
+			NodeName: nodeCfg.NodeName,
+			URL:      nodeCfg.URL,
+			Client:   client,
 		})
 	}
 	return nodeClients, nil
@@ -107,7 +107,7 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 
 		-- Таблица для нод
 		CREATE TABLE IF NOT EXISTS nodes (
-			name TEXT PRIMARY KEY,
+			node_name TEXT PRIMARY KEY,
 			address TEXT NOT NULL UNIQUE
 		);
 
@@ -121,7 +121,7 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 			sess_uplink INTEGER DEFAULT 0,
 			sess_downlink INTEGER DEFAULT 0,
 			PRIMARY KEY (node_name, source),
-			FOREIGN KEY (node_name) REFERENCES nodes(name) ON DELETE CASCADE
+			FOREIGN KEY (node_name) REFERENCES nodes(node_name) ON DELETE CASCADE
 		);
 
 		-- Таблица для данных пользователей
@@ -146,7 +146,7 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 			sess_downlink INTEGER DEFAULT 0,
 			created TEXT,
 			PRIMARY KEY (node_name, user),
-			FOREIGN KEY (node_name) REFERENCES nodes(name) ON DELETE CASCADE,
+			FOREIGN KEY (node_name) REFERENCES nodes(node_name) ON DELETE CASCADE,
 			FOREIGN KEY (user) REFERENCES user_data(user) ON DELETE CASCADE
 		);
 
@@ -158,7 +158,7 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 			inbound_tag TEXT,
 			PRIMARY KEY (node_name, user, uuid, inbound_tag),
 			FOREIGN KEY (node_name, user) REFERENCES user_traffic(node_name, user) ON DELETE CASCADE,
-			FOREIGN KEY (node_name) REFERENCES nodes(name) ON DELETE CASCADE
+			FOREIGN KEY (node_name) REFERENCES nodes(node_name) ON DELETE CASCADE
 		);
 
 		-- Таблица для DNS-статистики
@@ -168,7 +168,7 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 			count INTEGER DEFAULT 1,
 			domain TEXT,
 			PRIMARY KEY (node_name, user, domain),
-			FOREIGN KEY (node_name) REFERENCES nodes(name) ON DELETE CASCADE,
+			FOREIGN KEY (node_name) REFERENCES nodes(node_name) ON DELETE CASCADE,
 			FOREIGN KEY (user) REFERENCES user_data(user) ON DELETE CASCADE
 		);
 
@@ -210,9 +210,9 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 	}
 
 	for _, node := range cfg.V2rayStat.Nodes {
-		_, err = db.Exec("INSERT OR IGNORE INTO nodes (name, address) VALUES (?, ?)", node.Name, node.URL)
+		_, err = db.Exec("INSERT OR IGNORE INTO nodes (node_name, address) VALUES (?, ?)", node.NodeName, node.URL)
 		if err != nil {
-			cfg.Logger.Error("Failed to insert node", "name", node.Name, "address", node.URL, "error", err)
+			cfg.Logger.Error("Failed to insert node", "node_name", node.NodeName, "address", node.URL, "error", err)
 		}
 	}
 

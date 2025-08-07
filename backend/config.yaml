@@ -9,15 +9,15 @@ v2ray-stat:
     ticker_interval: 10
     online_rate_threshold: 15
   nodes:
-    - name: local
+    - node_name: local
       url: "127.0.0.1:10000"
-    - name: swe
+    - node_name: swe
       url: "194.164.34.44:10000"
       mtls:
         cert: /root/v2ray-stat/certs/node.crt
         key: /root/v2ray-stat/certs/node.key
         ca_cert: /root/v2ray-stat/certs/node.crt
-    - name: ru
+    - node_name: ru
       url: "46.8.158.174:10000"
       mtls:
         cert: /root/v2ray-stat/certs/node.crt
@@ -52,11 +52,13 @@ stats_columns:
       - rate
       - uplink
       - downlink
-      # - sess_uplink
-      # - sess_downlink
+      - sess_uplink
+      - sess_downlink
       # - created
       - enabled
       - sub_end
       - renew
+      - uuid
+      - inbound_tag
       - lim_ip
       - ips

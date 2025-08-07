@@ -504,7 +504,7 @@ parse_command_line_args() {
 ### LANGUAGE SELECTION
 ###################################
 configure_language() {
-  CONF_FILE="${DIR_XCORE}/xcore.conf"
+  CONF_FILE="${DIR_XCORE}/v2ray.conf"
 
   hint " $(text 0) \n" 
   reading " $(text 1) " LANGUAGE_CHOISE
@@ -1460,7 +1460,7 @@ fetch_traffic_stats() {
   [ "$selected_nodes" != "all" ] && query="$query${query:+&}node=$selected_nodes"
   [ "$selected_users" != "all" ] && query="$query${query:+&}user=$selected_users"
 
-  # Выполнение запроса с обновлением каждые 20 секунд
+  # Выполнение запроса с обновлением каждые 10 секунд
   while true; do
     clear
     info "Сортировка > ${sort_by:--} | Порядок > ${sort_order:--} | Агрегация > ${aggregate:--} | Ноды > ${selected_nodes:-все} | Пользователи > ${selected_users:-все}"
@@ -1468,8 +1468,8 @@ fetch_traffic_stats() {
     # URL-кодирование параметров для корректной передачи
     encoded_query=$(echo "$query" | sed 's/,/%2C/g')
     curl -s -X GET "$API_URL${encoded_query:+?$encoded_query}"
-    echo -n "$(text 131) " # Нажмите 0 для выхода или дождитесь обновления (20 секунд)
-    read -t 20 -r sub_choice
+    echo -n "$(text 131) " # Нажмите 0 для выхода или дождитесь обновления (10 секунд)
+    read -t 10 -r sub_choice
     case "$sub_choice" in
       0) break ;;
       *) ;; # Продолжить цикл, если ничего не введено

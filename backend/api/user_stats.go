@@ -11,7 +11,7 @@ import (
 	"v2ray-stat/util"
 )
 
-// StatsHandler handles requests to /api/v1/stats.
+// StatsHandler остаётся без изменений
 func StatsHandler(manager *manager.DatabaseManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cfg.Logger.Debug("Starting StatsHandler request processing")
@@ -34,10 +34,12 @@ func StatsHandler(manager *manager.DatabaseManager, cfg *config.Config) http.Han
 		// Валидация sort_by
 		validSortColumns := []string{
 			"node_name", "user", "last_seen", "rate", "uplink", "downlink", "sess_uplink", "sess_downlink", "created",
+			"inbound_tag", "uuid", // Добавляем новые колонки для сортировки
 		}
 		if aggregate {
 			validSortColumns = []string{
 				"user", "last_seen", "rate", "uplink", "downlink", "sess_uplink", "sess_downlink", "created",
+				"inbound_tag", "uuid", // Добавляем новые колонки для агрегированной сортировки
 			}
 		}
 		if sortBy != "" && !util.Contains(validSortColumns, sortBy) {
@@ -55,7 +57,7 @@ func StatsHandler(manager *manager.DatabaseManager, cfg *config.Config) http.Han
 
 		var statsBuilder strings.Builder
 
-		// Построение серверной статистики
+		// Построение серверной статистики (без изменений)
 		if err := buildCustomServerStats(&statsBuilder, manager, cfg, nodeParam, aggregate); err != nil {
 			cfg.Logger.Error("Failed to retrieve server statistics", "error", err)
 			http.Error(w, "Error retrieving server statistics", http.StatusInternalServerError)
@@ -81,7 +83,7 @@ func StatsHandler(manager *manager.DatabaseManager, cfg *config.Config) http.Han
 	}
 }
 
-// buildCustomServerStats collects server statistics with node filtering and optional aggregation.
+// buildCustomServerStats (без изменений)
 func buildCustomServerStats(builder *strings.Builder, manager *manager.DatabaseManager, cfg *config.Config, nodeParam string, aggregate bool) error {
 	cfg.Logger.Debug("Collecting server statistics", "node", nodeParam, "aggregate", aggregate)
 
@@ -107,7 +109,7 @@ func buildCustomServerStats(builder *strings.Builder, manager *manager.DatabaseM
 		for _, col := range cfg.StatsColumns.Server.Columns {
 			if alias, ok := serverColumnAliases[col]; ok {
 				if aggregate && col == "node_name" {
-					continue // Пропускаем node_name для агрегированной статистики
+					continue
 				}
 				if aggregate && col != "source" && col != "node_name" {
 					serverCols = append(serverCols, fmt.Sprintf("SUM(%s) AS \"%s\"", col, alias))
@@ -123,7 +125,6 @@ func buildCustomServerStats(builder *strings.Builder, manager *manager.DatabaseM
 			return nil
 		}
 
-		// Формируем запрос с фильтрацией по нодам
 		serverQuery := fmt.Sprintf("SELECT %s FROM bound_traffic", strings.Join(serverCols, ", "))
 		var whereClauses []string
 		if nodeParam != "" {
@@ -151,13 +152,12 @@ func buildCustomServerStats(builder *strings.Builder, manager *manager.DatabaseM
 			}
 			defer rows.Close()
 
-			// Логирование количества строк
 			rowCount := 0
 			for rows.Next() {
 				rowCount++
 			}
 			cfg.Logger.Debug("Server stats query returned rows", "count", rowCount)
-			rows, err = db.Query(serverQuery) // Повторный запрос, так как rows.Next() сдвинул курсор
+			rows, err = db.Query(serverQuery)
 			if err != nil {
 				cfg.Logger.Error("Failed to re-execute server stats query", "error", err)
 				return fmt.Errorf("failed to re-execute server stats query: %v", err)
@@ -191,12 +191,12 @@ func buildCustomServerStats(builder *strings.Builder, manager *manager.DatabaseM
 	return nil
 }
 
-// buildCustomClientStats collects client statistics with node and user filtering and optional aggregation.
+// buildCustomClientStats collects client statistics with node, user, inbound_tag, and uuid.
 func buildCustomClientStats(builder *strings.Builder, manager *manager.DatabaseManager, cfg *config.Config, nodeParam, userParam, sortBy, sortOrder string, aggregate bool) error {
 	cfg.Logger.Debug("Collecting client statistics", "node", nodeParam, "user", userParam, "aggregate", aggregate)
 
 	clientColumnAliases := map[string]string{
-		"node_name":     "Node Name",
+		"node_name":     "Node",
 		"user":          "User",
 		"last_seen":     "Last seen",
 		"rate":          "Rate",
@@ -206,10 +206,12 @@ func buildCustomClientStats(builder *strings.Builder, manager *manager.DatabaseM
 		"sess_downlink": "Sess Down",
 		"sub_end":       "Sub end",
 		"renew":         "Renew",
-		"lim_ip":        "Lim IP",
+		"lim_ip":        "Lim",
 		"ips":           "Ips",
 		"created":       "Created",
 		"enabled":       "Enabled",
+		"inbound_tag":   "Inbound Tag",
+		"uuid":          "UUID",
 	}
 	clientAliases := []string{
 		"Rate",
@@ -238,11 +240,16 @@ func buildCustomClientStats(builder *strings.Builder, manager *manager.DatabaseM
 						clientCols = append(clientCols, fmt.Sprintf("ut.%s AS \"%s\"", col, alias))
 					}
 				case "sub_end", "renew", "lim_ip", "ips", "enabled":
-					// Для неагрегированного запроса убираем MIN, так как хотим получить все строки
 					if aggregate {
 						clientCols = append(clientCols, fmt.Sprintf("MIN(ud.%s) AS \"%s\"", col, alias))
 					} else {
 						clientCols = append(clientCols, fmt.Sprintf("ud.%s AS \"%s\"", col, alias))
+					}
+				case "inbound_tag", "uuid":
+					if aggregate {
+						clientCols = append(clientCols, fmt.Sprintf("MIN(uu.%s) AS \"%s\"", col, alias))
+					} else {
+						clientCols = append(clientCols, fmt.Sprintf("uu.%s AS \"%s\"", col, alias))
 					}
 				default:
 					if aggregate {
@@ -270,8 +277,8 @@ func buildCustomClientStats(builder *strings.Builder, manager *manager.DatabaseM
 			clientSortOrder = sortOrder
 		}
 
-		// Формируем запрос с фильтрацией по нодам и пользователям
-		clientQuery := fmt.Sprintf("SELECT %s FROM user_traffic ut LEFT JOIN user_data ud ON ut.user = ud.user", strings.Join(clientCols, ", "))
+		// Формируем запрос с LEFT JOIN на user_uuids
+		clientQuery := fmt.Sprintf("SELECT %s FROM user_traffic ut LEFT JOIN user_data ud ON ut.user = ud.user LEFT JOIN user_uuids uu ON ut.user = uu.user AND ut.node_name = uu.node_name", strings.Join(clientCols, ", "))
 		var whereClauses []string
 		if nodeParam != "" {
 			nodes := strings.Split(nodeParam, ",")
@@ -305,13 +312,12 @@ func buildCustomClientStats(builder *strings.Builder, manager *manager.DatabaseM
 			}
 			defer rows.Close()
 
-			// Логирование количества строк
 			rowCount := 0
 			for rows.Next() {
 				rowCount++
 			}
 			cfg.Logger.Debug("Client stats query returned rows", "count", rowCount)
-			rows, err = db.Query(clientQuery) // Повторный запрос, так как rows.Next() сдвинул курсор
+			rows, err = db.Query(clientQuery)
 			if err != nil {
 				cfg.Logger.Error("Failed to re-execute client stats query", "error", err)
 				return fmt.Errorf("failed to re-execute client stats query: %v", err)

@@ -22,8 +22,8 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 
 		resp, err := nc.Client.GetUsers(grpcCtx, &proto.GetUsersRequest{})
 		if err != nil {
-			cfg.Logger.Error("Failed to get users from node", "node", nc.Name, "error", err)
-			errs = append(errs, fmt.Errorf("node %s: %w", nc.Name, err))
+			cfg.Logger.Error("Failed to get users from node", "node_name", nc.NodeName, "error", err)
+			errs = append(errs, fmt.Errorf("node %s: %w", nc.NodeName, err))
 			continue
 		}
 
@@ -34,7 +34,7 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 
 		var dbUsers []string
 		err = manager.ExecuteHighPriority(func(db *sql.DB) error {
-			rows, err := db.Query("SELECT user FROM user_traffic WHERE node_name = ?", nc.Name)
+			rows, err := db.Query("SELECT user FROM user_traffic WHERE node_name = ?", nc.NodeName)
 			if err != nil {
 				return fmt.Errorf("query users from user_traffic: %w", err)
 			}
@@ -49,8 +49,8 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 			return rows.Err()
 		})
 		if err != nil {
-			cfg.Logger.Error("Failed to get users from database", "node", nc.Name, "error", err)
-			errs = append(errs, fmt.Errorf("node %s: %w", nc.Name, err))
+			cfg.Logger.Error("Failed to get users from database", "node_name", nc.NodeName, "error", err)
+			errs = append(errs, fmt.Errorf("node %s: %w", nc.NodeName, err))
 			continue
 		}
 
@@ -58,7 +58,7 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 		err = manager.ExecuteHighPriority(func(db *sql.DB) error {
 			tx, err := db.BeginTx(ctx, nil)
 			if err != nil {
-				return fmt.Errorf("start transaction for node %s: %w", nc.Name, err)
+				return fmt.Errorf("start transaction for node %s: %w", nc.NodeName, err)
 			}
 			defer tx.Rollback()
 
@@ -67,7 +67,7 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 				_, err = tx.Exec(`
 					INSERT OR IGNORE INTO user_traffic (node_name, user, rate, created)
 					VALUES (?, ?, 0, ?)`,
-					nc.Name, user.Username, time.Now().Format("2006-01-02-15"))
+					nc.NodeName, user.Username, time.Now().Format("2006-01-02-15"))
 				if err != nil {
 					return fmt.Errorf("insert user %s into user_traffic: %w", user.Username, err)
 				}
@@ -77,7 +77,7 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 					_, err := tx.Exec(`
 						INSERT OR IGNORE INTO user_uuids (node_name, user, uuid, inbound_tag)
 						VALUES (?, ?, ?, ?)`,
-						nc.Name, user.Username, ui.Uuid, ui.InboundTag)
+						nc.NodeName, user.Username, ui.Uuid, ui.InboundTag)
 					if err != nil {
 						return fmt.Errorf("insert uuid %s for user %s into user_uuids: %w", ui.Uuid, user.Username, err)
 					}
@@ -87,11 +87,11 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 
 			for _, user := range dbUsers {
 				if !nodeUsers[user] {
-					_, err := tx.Exec("DELETE FROM user_traffic WHERE node_name = ? AND user = ?", nc.Name, user)
+					_, err := tx.Exec("DELETE FROM user_traffic WHERE node_name = ? AND user = ?", nc.NodeName, user)
 					if err != nil {
 						return fmt.Errorf("delete user %s from user_traffic: %w", user, err)
 					}
-					_, err = tx.Exec("DELETE FROM user_uuids WHERE node_name = ? AND user = ?", nc.Name, user)
+					_, err = tx.Exec("DELETE FROM user_uuids WHERE node_name = ? AND user = ?", nc.NodeName, user)
 					if err != nil {
 						return fmt.Errorf("delete user %s from user_uuids: %w", user, err)
 					}
@@ -102,13 +102,13 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 			return tx.Commit()
 		})
 		if err != nil {
-			cfg.Logger.Error("Failed to sync users for node", "node", nc.Name, "error", err)
-			errs = append(errs, fmt.Errorf("node %s: %w", nc.Name, err))
+			cfg.Logger.Error("Failed to sync users for node", "node_name", nc.NodeName, "error", err)
+			errs = append(errs, fmt.Errorf("node %s: %w", nc.NodeName, err))
 			continue
 		}
 
 		cfg.Logger.Debug("Successfully synced users for node",
-			"node", nc.Name,
+			"node_name", nc.NodeName,
 			"added_users", addedUsers,
 			"added_uuids", addedUUIDs,
 			"deleted_users", deletedUsers)
@@ -120,7 +120,7 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 	return nil
 }
 
-// MonitorUsersAndLogs periodically synchronizes users from nodes with the database.
+// MonitorUsers периодически синхронизирует пользователей с нод с базой данных.
 func MonitorUsers(ctx context.Context, manager *manager.DatabaseManager, nodeClients []*db.NodeClient, cfg *config.Config, wg *sync.WaitGroup) {
 	wg.Add(1)
 	go func() {

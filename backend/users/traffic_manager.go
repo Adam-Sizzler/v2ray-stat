@@ -42,10 +42,10 @@ func LoadIsInactiveFromLastSeen(manager *manager.DatabaseManager, cfg *config.Co
 		for rows.Next() {
 			var nodeName, user, lastSeen string
 			if err := rows.Scan(&nodeName, &user, &lastSeen); err != nil {
-				cfg.Logger.Warn("Failed to scan row", "node", nodeName, "user", user, "error", err)
+				cfg.Logger.Warn("Failed to scan row", "node_name", nodeName, "user", user, "error", err)
 				continue
 			}
-			cfg.Logger.Trace("Processing user", "node", nodeName, "user", user, "last_seen", lastSeen)
+			cfg.Logger.Trace("Processing user", "node_name", nodeName, "user", user, "last_seen", lastSeen)
 			isInactiveLocal[nodeName+":"+user] = lastSeen != "online"
 		}
 		if err := rows.Err(); err != nil {
@@ -81,7 +81,7 @@ func convertProtoToApiResponse(protoData *proto.GetApiResponseResponse) *api.Api
 
 // updateProxyStats обновляет статистику трафика для inbound-тегов в базе данных.
 func updateProxyStats(manager *manager.DatabaseManager, nodeName string, apiData *api.ApiResponse, cfg *config.Config) error {
-	cfg.Logger.Debug("Starting proxy stats update", "node", nodeName)
+	cfg.Logger.Debug("Starting proxy stats update", "node_name", nodeName)
 
 	currentStats := extractProxyTraffic(apiData)
 	userActivityMutex.Lock()
@@ -95,7 +95,7 @@ func updateProxyStats(manager *manager.DatabaseManager, nodeName string, apiData
 	if previousStats[nodeName] == "" {
 		previousStats[nodeName] = strings.Join(currentStats, "\n")
 		previousStatsMutex.Unlock()
-		cfg.Logger.Debug("Initialized previous proxy stats", "node", nodeName, "count", len(currentStats))
+		cfg.Logger.Debug("Initialized previous proxy stats", "node_name", nodeName, "count", len(currentStats))
 		return nil
 	}
 	previous := previousStats[nodeName]
@@ -109,10 +109,10 @@ func updateProxyStats(manager *manager.DatabaseManager, nodeName string, apiData
 	for _, line := range currentStats {
 		parts := strings.Fields(line)
 		if len(parts) == 3 {
-			cfg.Logger.Trace("Parsing current proxy stats", "node", nodeName, "line", line)
+			cfg.Logger.Trace("Parsing current proxy stats", "node_name", nodeName, "line", line)
 			currentValues[parts[0]+" "+parts[1]] = stringToInt(cfg, parts[2])
 		} else {
-			cfg.Logger.Warn("Invalid proxy stats line format", "node", nodeName, "line", line)
+			cfg.Logger.Warn("Invalid proxy stats line format", "node_name", nodeName, "line", line)
 		}
 	}
 
@@ -120,7 +120,7 @@ func updateProxyStats(manager *manager.DatabaseManager, nodeName string, apiData
 	for line := range strings.SplitSeq(previous, "\n") {
 		parts := strings.Fields(line)
 		if len(parts) == 3 {
-			cfg.Logger.Trace("Parsing previous proxy stats", "node", nodeName, "line", line)
+			cfg.Logger.Trace("Parsing previous proxy stats", "node_name", nodeName, "line", line)
 			previousValues[parts[0]+" "+parts[1]] = stringToInt(cfg, parts[2])
 		}
 	}
@@ -133,7 +133,7 @@ func updateProxyStats(manager *manager.DatabaseManager, nodeName string, apiData
 	for key, current := range currentValues {
 		previous, exists := previousValues[key]
 		if !exists {
-			cfg.Logger.Warn("Missing previous proxy data", "node", nodeName, "key", key)
+			cfg.Logger.Warn("Missing previous proxy data", "node_name", nodeName, "key", key)
 			previous = 0
 		}
 		diff := max(current-previous, 0)
@@ -167,11 +167,11 @@ func updateProxyStats(manager *manager.DatabaseManager, nodeName string, apiData
 			previousDownlink, downlinkExists := previousValues[source+" downlink"]
 
 			if !uplinkExists {
-				cfg.Logger.Warn("Missing previous uplink data", "node", nodeName, "source", source)
+				cfg.Logger.Warn("Missing previous uplink data", "node_name", nodeName, "source", source)
 				previousUplink = 0
 			}
 			if !downlinkExists {
-				cfg.Logger.Warn("Missing previous downlink data", "node", nodeName, "source", source)
+				cfg.Logger.Warn("Missing previous downlink data", "node_name", nodeName, "source", source)
 				previousDownlink = 0
 			}
 
@@ -179,7 +179,7 @@ func updateProxyStats(manager *manager.DatabaseManager, nodeName string, apiData
 			downlinkOnline := max(sessDownlink-previousDownlink, 0)
 			rate := (uplinkOnline + downlinkOnline) * 8 / cfg.V2rayStat.Monitor.TickerInterval
 
-			cfg.Logger.Debug("Updating proxy stats", "node", nodeName, "source", source, "rate", rate, "uplink", uplink, "downlink", downlink)
+			cfg.Logger.Debug("Updating proxy stats", "node_name", nodeName, "source", source, "rate", rate, "uplink", uplink, "downlink", downlink)
 
 			_, err := tx.Exec(`
 				INSERT INTO bound_traffic (node_name, source, rate, uplink, downlink, sess_uplink, sess_downlink)
@@ -200,17 +200,17 @@ func updateProxyStats(manager *manager.DatabaseManager, nodeName string, apiData
 		return tx.Commit()
 	})
 	if err != nil {
-		cfg.Logger.Error("Failed to update proxy stats", "node", nodeName, "error", err)
+		cfg.Logger.Error("Failed to update proxy stats", "node_name", nodeName, "error", err)
 		return err
 	}
 
-	cfg.Logger.Debug("Finished proxy stats update", "node", nodeName, "entries", len(currentStats))
+	cfg.Logger.Debug("Finished proxy stats update", "node_name", nodeName, "entries", len(currentStats))
 	return nil
 }
 
 // updateUserStats обновляет статистику трафика пользователей в базе данных.
 func updateUserStats(manager *manager.DatabaseManager, nodeName string, apiData *api.ApiResponse, cfg *config.Config) error {
-	cfg.Logger.Debug("Starting user stats update", "node", nodeName)
+	cfg.Logger.Debug("Starting user stats update", "node_name", nodeName)
 
 	currentStats := extractUserTraffic(apiData)
 	userActivityMutex.Lock()
@@ -224,7 +224,7 @@ func updateUserStats(manager *manager.DatabaseManager, nodeName string, apiData 
 	if clientPreviousStats[nodeName] == "" {
 		clientPreviousStats[nodeName] = strings.Join(currentStats, "\n")
 		previousStatsMutex.Unlock()
-		cfg.Logger.Debug("Initialized previous user stats", "node", nodeName, "count", len(currentStats))
+		cfg.Logger.Debug("Initialized previous user stats", "node_name", nodeName, "count", len(currentStats))
 		return nil
 	}
 	previous := clientPreviousStats[nodeName]
@@ -238,10 +238,10 @@ func updateUserStats(manager *manager.DatabaseManager, nodeName string, apiData 
 	for _, line := range currentStats {
 		parts := strings.Fields(line)
 		if len(parts) == 3 {
-			cfg.Logger.Trace("Parsing current user stats", "node", nodeName, "line", line)
+			cfg.Logger.Trace("Parsing current user stats", "node_name", nodeName, "line", line)
 			currentValues[parts[0]+" "+parts[1]] = stringToInt(cfg, parts[2])
 		} else {
-			cfg.Logger.Warn("Invalid user stats line format", "node", nodeName, "line", line)
+			cfg.Logger.Warn("Invalid user stats line format", "node_name", nodeName, "line", line)
 		}
 	}
 
@@ -249,7 +249,7 @@ func updateUserStats(manager *manager.DatabaseManager, nodeName string, apiData 
 	for _, line := range strings.Split(previous, "\n") {
 		parts := strings.Fields(line)
 		if len(parts) == 3 {
-			cfg.Logger.Trace("Parsing previous user stats", "node", nodeName, "line", line)
+			cfg.Logger.Trace("Parsing previous user stats", "node_name", nodeName, "line", line)
 			previousValues[parts[0]+" "+parts[1]] = stringToInt(cfg, parts[2])
 		}
 	}
@@ -262,7 +262,7 @@ func updateUserStats(manager *manager.DatabaseManager, nodeName string, apiData 
 	for key, current := range currentValues {
 		previous, exists := previousValues[key]
 		if !exists {
-			cfg.Logger.Warn("Missing previous user data", "node", nodeName, "key", key)
+			cfg.Logger.Warn("Missing previous user data", "node_name", nodeName, "key", key)
 			previous = 0
 		}
 		diff := max(current-previous, 0)
@@ -283,7 +283,7 @@ func updateUserStats(manager *manager.DatabaseManager, nodeName string, apiData 
 	for key := range previousValues {
 		parts := strings.Fields(key)
 		if len(parts) != 2 {
-			cfg.Logger.Warn("Invalid key format in previous stats", "node", nodeName, "key", key)
+			cfg.Logger.Warn("Invalid key format in previous stats", "node_name", nodeName, "key", key)
 			continue
 		}
 		user := parts[0]
@@ -292,13 +292,13 @@ func updateUserStats(manager *manager.DatabaseManager, nodeName string, apiData 
 		switch direction {
 		case "uplink":
 			if _, exists := sessUplinkValues[user]; !exists {
-				cfg.Logger.Debug("Setting zero values for uplink", "node", nodeName, "user", user)
+				cfg.Logger.Debug("Setting zero values for uplink", "node_name", nodeName, "user", user)
 				sessUplinkValues[user] = 0
 				uplinkValues[user] = 0
 			}
 		case "downlink":
 			if _, exists := sessDownlinkValues[user]; !exists {
-				cfg.Logger.Debug("Setting zero values for downlink", "node", nodeName, "user", user)
+				cfg.Logger.Debug("Setting zero values for downlink", "node_name", nodeName, "user", user)
 				sessDownlinkValues[user] = 0
 				downlinkValues[user] = 0
 			}
@@ -325,11 +325,11 @@ func updateUserStats(manager *manager.DatabaseManager, nodeName string, apiData 
 			previousDownlink, downlinkExists := previousValues[user+" downlink"]
 
 			if !uplinkExists {
-				cfg.Logger.Warn("Missing previous uplink data", "node", nodeName, "user", user)
+				cfg.Logger.Warn("Missing previous uplink data", "node_name", nodeName, "user", user)
 				previousUplink = 0
 			}
 			if !downlinkExists {
-				cfg.Logger.Warn("Missing previous downlink data", "node", nodeName, "user", user)
+				cfg.Logger.Warn("Missing previous downlink data", "node_name", nodeName, "user", user)
 				previousDownlink = 0
 			}
 
@@ -342,16 +342,16 @@ func updateUserStats(manager *manager.DatabaseManager, nodeName string, apiData 
 			if rate > cfg.V2rayStat.Monitor.OnlineRateThreshold*1000 {
 				lastSeen = "online"
 				isInactive[userKey] = false
-				cfg.Logger.Debug("User is active", "node", nodeName, "user", user)
+				cfg.Logger.Debug("User is active", "node_name", nodeName, "user", user)
 			} else {
 				if !isInactive[userKey] {
 					lastSeen = currentTime.Truncate(time.Minute).Format("2006-01-02 15:04")
 					isInactive[userKey] = true
-					cfg.Logger.Debug("User transitioned to inactive state", "node", nodeName, "user", user, "last_seen", lastSeen)
+					cfg.Logger.Debug("User transitioned to inactive state", "node_name", nodeName, "user", user, "last_seen", lastSeen)
 				}
 			}
 
-			cfg.Logger.Debug("Updating user stats", "node", nodeName, "user", user, "rate", rate, "uplink", uplink, "downlink", downlink)
+			cfg.Logger.Debug("Updating user stats", "node_name", nodeName, "user", user, "rate", rate, "uplink", uplink, "downlink", downlink)
 
 			if lastSeen != "" {
 				_, err := tx.Exec(`
@@ -394,11 +394,11 @@ func updateUserStats(manager *manager.DatabaseManager, nodeName string, apiData 
 		return tx.Commit()
 	})
 	if err != nil {
-		cfg.Logger.Error("Failed to update user stats", "node", nodeName, "error", err)
+		cfg.Logger.Error("Failed to update user stats", "node_name", nodeName, "error", err)
 		return err
 	}
 
-	cfg.Logger.Debug("Finished user stats update", "node", nodeName, "entries", len(currentStats))
+	cfg.Logger.Debug("Finished user stats update", "node_name", nodeName, "entries", len(currentStats))
 	return nil
 }
 
@@ -481,16 +481,16 @@ func MonitorTrafficStats(ctx context.Context, manager *manager.DatabaseManager, 
 
 					protoData, err := nc.Client.GetApiResponse(grpcCtx, &proto.GetApiResponseRequest{})
 					if err != nil {
-						cfg.Logger.Error("Failed to retrieve API data from node", "node", nc.Name, "error", err)
+						cfg.Logger.Error("Failed to retrieve API data from node", "node_name", nc.NodeName, "error", err)
 						continue
 					}
 
 					apiData := convertProtoToApiResponse(protoData)
-					if err := updateProxyStats(manager, nc.Name, apiData, cfg); err != nil {
-						cfg.Logger.Error("Failed to update proxy stats", "node", nc.Name, "error", err)
+					if err := updateProxyStats(manager, nc.NodeName, apiData, cfg); err != nil {
+						cfg.Logger.Error("Failed to update proxy stats", "node_name", nc.NodeName, "error", err)
 					}
-					if err := updateUserStats(manager, nc.Name, apiData, cfg); err != nil {
-						cfg.Logger.Error("Failed to update user stats", "node", nc.Name, "error", err)
+					if err := updateUserStats(manager, nc.NodeName, apiData, cfg); err != nil {
+						cfg.Logger.Error("Failed to update user stats", "node_name", nc.NodeName, "error", err)
 					}
 				}
 			case <-ctx.Done():

@@ -76,9 +76,9 @@ func UpdateIPsBatch(manager *manager.DatabaseManager, ipUpdates map[string][]str
 
 // UpsertDNSRecordsBatch выполняет пакетное обновление или вставку DNS-записей.
 func UpsertDNSRecordsBatch(manager *manager.DatabaseManager, dnsStats map[string]map[string]int, nodeName string, cfg *config.Config) error {
-	cfg.Logger.Debug("Starting batch DNS records update", "node", nodeName, "records_count", len(dnsStats))
+	cfg.Logger.Debug("Starting batch DNS records update", "node_name", nodeName, "records_count", len(dnsStats))
 	if len(dnsStats) == 0 {
-		cfg.Logger.Warn("No DNS records to update", "node", nodeName)
+		cfg.Logger.Warn("No DNS records to update", "node_name", nodeName)
 		return nil
 	}
 
@@ -99,10 +99,10 @@ func UpsertDNSRecordsBatch(manager *manager.DatabaseManager, dnsStats map[string
                     DO UPDATE SET count = count + ?`,
 					nodeName, user, domain, count, count)
 				if err != nil {
-					cfg.Logger.Error("Failed to update DNS record", "node", nodeName, "user", user, "domain", domain, "error", err)
+					cfg.Logger.Error("Failed to update DNS record", "node_name", nodeName, "user", user, "domain", domain, "error", err)
 					return fmt.Errorf("failed to update user_dns for %s:%s:%s: %v", nodeName, user, domain, err)
 				}
-				cfg.Logger.Debug("DNS record updated successfully", "node", nodeName, "user", user, "domain", domain, "count", count)
+				cfg.Logger.Debug("DNS record updated successfully", "node_name", nodeName, "user", user, "domain", domain, "count", count)
 			}
 		}
 
@@ -114,11 +114,11 @@ func UpsertDNSRecordsBatch(manager *manager.DatabaseManager, dnsStats map[string
 		return nil
 	})
 	if err != nil {
-		cfg.Logger.Error("Error in UpsertDNSRecordsBatch", "node", nodeName, "error", err)
+		cfg.Logger.Error("Error in UpsertDNSRecordsBatch", "node_name", nodeName, "error", err)
 		return err
 	}
 
-	cfg.Logger.Debug("DNS records updated successfully", "node", nodeName, "records_count", len(dnsStats))
+	cfg.Logger.Debug("DNS records updated successfully", "node_name", nodeName, "records_count", len(dnsStats))
 	return nil
 }
 
@@ -134,7 +134,7 @@ func ProcessLogData(ctx context.Context, manager *manager.DatabaseManager, nodeC
 
 		response, err := nc.Client.GetLogData(grpcCtx, &proto.GetLogDataRequest{})
 		if err != nil {
-			cfg.Logger.Error("Failed to retrieve log data from node", "node", nc.Name, "error", err)
+			cfg.Logger.Error("Failed to retrieve log data from node", "node_name", nc.NodeName, "error", err)
 			continue
 		}
 
@@ -158,12 +158,12 @@ func ProcessLogData(ctx context.Context, manager *manager.DatabaseManager, nodeC
 
 		// Обновляем DNS-статистику в базе
 		if len(dnsStats) > 0 {
-			if err := UpsertDNSRecordsBatch(manager, dnsStats, nc.Name, cfg); err != nil {
-				cfg.Logger.Error("Failed to update user_dns", "node", nc.Name, "error", err)
+			if err := UpsertDNSRecordsBatch(manager, dnsStats, nc.NodeName, cfg); err != nil {
+				cfg.Logger.Error("Failed to update user_dns", "node_name", nc.NodeName, "error", err)
 				continue
 			}
 		} else {
-			cfg.Logger.Debug("No DNS records to update from node", "node", nc.Name)
+			cfg.Logger.Debug("No DNS records to update from node", "node_name", nc.NodeName)
 		}
 	}
 

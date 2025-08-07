@@ -39,7 +39,7 @@ type V2rayStatConfig struct {
 
 // NodeConfig holds configuration for a single node.
 type NodeConfig struct {
-	Name       string      `yaml:"name"`
+	NodeName   string      `yaml:"node_name"`
 	URL        string      `yaml:"url"`
 	MTLSConfig *MTLSConfig `yaml:"mtls"`
 }
@@ -159,19 +159,19 @@ func LoadConfig(configFile string) (Config, error) {
 	}
 
 	for i, node := range cfg.V2rayStat.Nodes {
-		if node.URL == "" || node.Name == "" {
-			cfg.Logger.Warn("Invalid node configuration, skipping", "index", i, "name", node.Name, "url", node.URL)
+		if node.URL == "" || node.NodeName == "" {
+			cfg.Logger.Warn("Invalid node configuration, skipping", "index", i, "node_name", node.NodeName, "url", node.URL)
 			cfg.V2rayStat.Nodes = append(cfg.V2rayStat.Nodes[:i], cfg.V2rayStat.Nodes[i+1:]...)
 			continue
 		}
 		if node.MTLSConfig != nil {
 			if node.MTLSConfig.Cert == "" || node.MTLSConfig.Key == "" || node.MTLSConfig.CACert == "" {
-				cfg.Logger.Warn("Incomplete mTLS configuration for node, disabling mTLS", "name", node.Name)
+				cfg.Logger.Warn("Incomplete mTLS configuration for node, disabling mTLS", "node_name", node.NodeName)
 				node.MTLSConfig = nil
 			} else {
 				for _, file := range []string{node.MTLSConfig.Cert, node.MTLSConfig.Key, node.MTLSConfig.CACert} {
 					if _, err := os.Stat(file); os.IsNotExist(err) {
-						cfg.Logger.Warn("mTLS certificate file not found for node, disabling mTLS", "name", node.Name, "file", file)
+						cfg.Logger.Warn("mTLS certificate file not found for node, disabling mTLS", "node_name", node.NodeName, "file", file)
 						node.MTLSConfig = nil
 						break
 					}
@@ -189,7 +189,7 @@ func LoadConfig(configFile string) (Config, error) {
 
 	// Validate columns
 	validServerColumns := []string{"node_name", "source", "rate", "uplink", "downlink", "sess_uplink", "sess_downlink"}
-	validClientColumns := []string{"node_name", "user", "last_seen", "rate", "uplink", "downlink", "sess_uplink", "sess_downlink", "enabled", "sub_end", "renew", "lim_ip", "ips", "created"}
+	validClientColumns := []string{"node_name", "user", "last_seen", "rate", "uplink", "downlink", "sess_uplink", "sess_downlink", "enabled", "sub_end", "renew", "lim_ip", "ips", "created", "uuid", "inbound_tag"}
 
 	var filteredServer []string
 	for _, col := range cfg.StatsColumns.Server.Columns {

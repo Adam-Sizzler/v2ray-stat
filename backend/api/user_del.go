@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
 	"v2ray-stat/backend/config"
 	"v2ray-stat/backend/db/manager"
 	"v2ray-stat/node/proto"
@@ -23,7 +24,7 @@ func DeleteUserFromNode(node config.NodeConfig, user, inboundTag string) error {
 	if node.MTLSConfig != nil {
 		creds, err := credentials.NewClientTLSFromFile(node.MTLSConfig.CACert, "")
 		if err != nil {
-			return fmt.Errorf("failed to load CA cert for node %s: %v", node.Name, err)
+			return fmt.Errorf("failed to load CA cert for node %s: %v", node.NodeName, err)
 		}
 		opts = append(opts, grpc.WithTransportCredentials(creds))
 	} else {
@@ -33,7 +34,7 @@ func DeleteUserFromNode(node config.NodeConfig, user, inboundTag string) error {
 	// Используем полный URL ноды из конфигурации (адрес:порт)
 	conn, err := grpc.NewClient(node.URL, opts...)
 	if err != nil {
-		return fmt.Errorf("failed to connect to node %s (%s): %v", node.Name, node.URL, err)
+		return fmt.Errorf("failed to connect to node %s (%s): %v", node.NodeName, node.URL, err)
 	}
 	defer conn.Close()
 
@@ -43,10 +44,10 @@ func DeleteUserFromNode(node config.NodeConfig, user, inboundTag string) error {
 		InboundTag: inboundTag,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to delete user from node %s: %v", node.Name, err)
+		return fmt.Errorf("failed to delete user from node %s: %v", node.NodeName, err)
 	}
 	if resp.Error != "" {
-		return fmt.Errorf("node %s returned error: %s", node.Name, resp.Error)
+		return fmt.Errorf("node %s returned error: %s", node.NodeName, resp.Error)
 	}
 	return nil
 }
@@ -74,7 +75,7 @@ func DeleteUserHandler(manager *manager.DatabaseManager, cfg *config.Config) htt
 			nodeNames := strings.Split(nodeParam, ",")
 			for _, nodeName := range nodeNames {
 				for _, node := range cfg.V2rayStat.Nodes {
-					if node.Name == nodeName {
+					if node.NodeName == nodeName {
 						targetNodes = append(targetNodes, node)
 						break
 					}
@@ -91,7 +92,7 @@ func DeleteUserHandler(manager *manager.DatabaseManager, cfg *config.Config) htt
 		for _, node := range targetNodes {
 			err := DeleteUserFromNode(node, user, inboundTag)
 			if err != nil {
-				errors[node.Name] = err.Error()
+				errors[node.NodeName] = err.Error()
 			}
 		}
 

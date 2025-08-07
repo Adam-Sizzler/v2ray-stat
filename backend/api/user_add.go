@@ -24,7 +24,7 @@ func AddUserToNode(node config.NodeConfig, user, inboundTag string) (string, err
 	if node.MTLSConfig != nil {
 		creds, err := credentials.NewClientTLSFromFile(node.MTLSConfig.CACert, "")
 		if err != nil {
-			return "", fmt.Errorf("failed to load CA cert for node %s: %v", node.Name, err)
+			return "", fmt.Errorf("failed to load CA cert for node %s: %v", node.NodeName, err)
 		}
 		opts = append(opts, grpc.WithTransportCredentials(creds))
 	} else {
@@ -34,7 +34,7 @@ func AddUserToNode(node config.NodeConfig, user, inboundTag string) (string, err
 	// Используем полный URL ноды из конфигурации (адрес:порт)
 	conn, err := grpc.NewClient(node.URL, opts...)
 	if err != nil {
-		return "", fmt.Errorf("failed to connect to node %s (%s): %v", node.Name, node.URL, err)
+		return "", fmt.Errorf("failed to connect to node %s (%s): %v", node.NodeName, node.URL, err)
 	}
 	defer conn.Close()
 
@@ -44,10 +44,10 @@ func AddUserToNode(node config.NodeConfig, user, inboundTag string) (string, err
 		InboundTag: inboundTag,
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to add user to node %s: %v", node.Name, err)
+		return "", fmt.Errorf("failed to add user to node %s: %v", node.NodeName, err)
 	}
 	if resp.Error != "" {
-		return "", fmt.Errorf("node %s returned error: %s", node.Name, resp.Error)
+		return "", fmt.Errorf("node %s returned error: %s", node.NodeName, resp.Error)
 	}
 	return resp.Credential, nil
 }
@@ -70,10 +70,10 @@ func AddUserHandler(manager *manager.DatabaseManager, cfg *config.Config) http.H
 			targetNodes = GetNodesFromConfig(cfg)
 		} else {
 			// Если указаны конкретные ноды, фильтруем их по именам
-			nodeNames := strings.SplitSeq(nodeParam, ",")
-			for nodeName := range nodeNames {
+			nodeNames := strings.Split(nodeParam, ",")
+			for _, nodeName := range nodeNames {
 				for _, node := range cfg.V2rayStat.Nodes {
-					if node.Name == nodeName {
+					if node.NodeName == nodeName {
 						targetNodes = append(targetNodes, node)
 						break
 					}
@@ -89,10 +89,10 @@ func AddUserHandler(manager *manager.DatabaseManager, cfg *config.Config) http.H
 		for _, node := range targetNodes {
 			credential, err := AddUserToNode(node, user, inboundTag)
 			if err != nil {
-				http.Error(w, fmt.Sprintf("failed to add user to %s: %v", node.Name, err), http.StatusInternalServerError)
+				http.Error(w, fmt.Sprintf("failed to add user to %s: %v", node.NodeName, err), http.StatusInternalServerError)
 				return
 			}
-			results[node.Name] = credential
+			results[node.NodeName] = credential
 		}
 
 		// Формируем JSON-ответ
