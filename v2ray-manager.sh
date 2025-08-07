@@ -1,19 +1,11 @@
 #!/usr/bin/env bash
 
-# Copyright (c) 2025 xCore Authors
-# This file is part of xCore.
-# xCore is licensed under the xCore Software License. See the LICENSE file for details.
-
 ###################################
 ### GLOBAL CONSTANTS AND VARIABLES
 ###################################
-VERSION_MANAGER='25.7.29'
-
-DIR_XCORE="/opt/xcore"
+DIR_XCORE="/opt/v2ray-stat"
 DIR_XRAY="/usr/local/etc/xray"
 DIR_HAPROXY="/etc/haproxy"
-
-REPO_URL="https://github.com/cortez24rus/XCore/archive/refs/heads/main.tar.gz"
 
 ###################################
 ### INITIALIZATION AND DECLARATIONS
@@ -322,50 +314,60 @@ EOF
 }
 
 ###################################
-### X CORE UPDATE MANAGER
+### UPDATE XCORE MANAGER
 ###################################
 update_xcore_manager() {
-  info " Script update and integration."
+  local REPO="Adam-Sizzler/v2ray-stat"
+  local FILE="v2ray-manager.sh"
+  local DEST_DIR="${DIR_XCORE}"
+  local LOG_FILE="${DIR_XCORE}/cron_jobs.log"
 
-  TOKEN=""
-  REPO_VER_URL="https://raw.githubusercontent.com/cortez24rus/XCore/main/xcore.sh"
-  GITHUB_VERSION=$(curl -s -H "Authorization: Bearer $TOKEN" "$REPO_VER_URL" | sed -n "s/^[[:space:]]*VERSION_MANAGER=[[:space:]]*'\([0-9\.]*\)'/\1/p")
-
-  echo " Current version: $VERSION_MANAGER"
-
-  if [[ -z "$GITHUB_VERSION" ]]; then
-    error "Failed to fetch latest version from GitHub"
-    return 1
-  fi
-  echo " Github version: $GITHUB_VERSION"
-
-  if [[ "$VERSION_MANAGER" == "$GITHUB_VERSION" ]]; then
-    warning "Script is up-to-date: $VERSION_MANAGER"
-    echo
-    return
-  else
-    warning "Updating script from $VERSION_MANAGER to $GITHUB_VERSION"
+  # Проверка наличия jq
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "$(date): Error: jq is required but not installed" >> "$LOG_FILE"
+    echo >> "$LOG_FILE"
+    error "jq is required but not installed. Please install it (e.g., 'apt-get install jq')."
   fi
 
-  REPO_URL="https://api.github.com/repos/cortez24rus/XCore/tarball/main"
-  mkdir -p "${DIR_XCORE}/repo/"
-  wget --header="Authorization: Bearer $TOKEN" -qO- $REPO_URL | tar xz --strip-components=1 -C "${DIR_XCORE}/repo/"
+  # Создание директорий, если они не существуют
+  echo "$(date): Creating directories if they don't exist" >> "$LOG_FILE"
+  mkdir -p "$DEST_DIR" || {
+    echo "$(date): Error: Failed to create directory $DEST_DIR" >> "$LOG_FILE"
+    echo >> "$LOG_FILE"
+    error "Failed to create directory $DEST_DIR"
+  }
 
-  chmod +x "${DIR_XCORE}/repo/xcore.sh"
-  ln -sf "${DIR_XCORE}/repo/xcore.sh" /usr/local/bin/xcore
-  
-  chmod +x ${DIR_XCORE}/repo/cron_jobs/*
-  bash "${DIR_XCORE}/repo/cron_jobs/get_v2ray-stat.sh"
+  # Получение URL последнего релиза (включая пререлизы)
+  echo "$(date): Starting download of $FILE" >> "$LOG_FILE"
+  URL=$(curl -s https://api.github.com/repos/$REPO/releases | \
+    jq -r '.[] | select(.prerelease == true or .prerelease == false) | .assets[] | select(.name == "'"$FILE"'") | .browser_download_url' | \
+    head -1)
 
-  systemctl daemon-reload
-  sleep 1
-  systemctl restart v2ray-stat
+  if [ -z "$URL" ]; then
+    echo "$(date): Error: File $FILE not found in any release" >> "$LOG_FILE"
+    echo >> "$LOG_FILE"
+    error "File $FILE not found in any release"
+  fi
 
-  # Комментарий: Закомментированная строка для crontab сохранена как есть для возможного будущего использования
-  # crontab -l | grep -v -- "--update" | crontab -
-  # schedule_cron_job "15 5 * * * ${DIR_XCORE}/repo/xcore.sh --update"
+  # Скачивание и установка скрипта
+  echo "$(date): Downloading $FILE to $DEST_DIR..." >> "$LOG_FILE"
+  curl -L -o "$DEST_DIR/v2ray-manager.sh" "$URL" && chmod +x "$DEST_DIR/v2ray-manager.sh" || {
+    echo "$(date): Error: Failed to download or set executable permissions for $FILE" >> "$LOG_FILE"
+    echo >> "$LOG_FILE"
+    error "Failed to download or set executable permissions for $FILE"
+  }
 
-  tilda "\n|-----------------------------------------------------------------------------|\n"
+  # Создание символической ссылки
+  echo "$(date): Creating symlink for v2ray-manager..." >> "$LOG_FILE"
+  ln -sf "$DEST_DIR/v2ray-manager.sh" /usr/local/bin/v2ray-manager || {
+    echo "$(date): Error: Failed to create symlink /usr/local/bin/v2ray-manager" >> "$LOG_FILE"
+    echo >> "$LOG_FILE"
+    error "Failed to create symlink /usr/local/bin/v2ray-manager"
+  }
+
+  echo "$(date): Done! $FILE downloaded to $DEST_DIR and set as executable, symlink created" >> "$LOG_FILE"
+  echo >> "$LOG_FILE"
+  info "v2ray-manager updated successfully"
 }
 
 ###################################
@@ -1528,9 +1530,9 @@ manage_xray_core() {
 ### FUNCTION INITIALIZE CONFIG
 ###################################
 init_file() {
-  if [ ! -f "${DIR_XCORE}/xcore.conf" ]; then
+  if [ ! -f "${DIR_XCORE}/v2ray.conf" ]; then
     mkdir -p ${DIR_XCORE}
-    cat > "${DIR_XCORE}/xcore.conf" << EOF
+    cat > "${DIR_XCORE}/v2ray.conf" << EOF
 LANGUAGE=EU
 CHAIN=false
 EOF
@@ -1553,7 +1555,7 @@ check_api_server() {
 ###################################
 main() {
   init_file
-  source "${DIR_XCORE}/xcore.conf"
+  source "${DIR_XCORE}/v2ray.conf"
   load_defaults_from_config
   parse_command_line_args "$@" || display_help_message
   check_api_server
