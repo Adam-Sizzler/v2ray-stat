@@ -86,7 +86,7 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 	db.SetMaxIdleConns(1)
 
 	var tableCount int
-	err = db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='nodes'").Scan(&tableCount)
+	err = db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='node_name'").Scan(&tableCount)
 	if err != nil {
 		cfg.Logger.Error("Failed to check table existence", "dbType", dbType, "error", err)
 		db.Close()

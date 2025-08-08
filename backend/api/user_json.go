@@ -17,24 +17,24 @@ type UuidEntry struct {
 
 // User represents a user entity from the user_traffic, user_data, and user_uuids tables.
 type User struct {
-	User          string       `json:"user"`
-	Inbounds      []UuidEntry  `json:"inbounds"`
-	Rate          string       `json:"rate"`
-	Enabled       string       `json:"enabled"`
-	Created       string       `json:"created"`
-	SubEnd        string       `json:"sub_end"`
-	Renew         int          `json:"renew"`
-	LimIp         int          `json:"lim_ip"`
-	Ips           string       `json:"ips"`
-	Uplink        int64        `json:"uplink"`
-	Downlink      int64        `json:"downlink"`
-	SessUplink    int64        `json:"sess_uplink"`
-	SessDownlink  int64        `json:"sess_downlink"`
+	User         string      `json:"user"`
+	Inbounds     []UuidEntry `json:"inbounds"`
+	Rate         string      `json:"rate"`
+	Enabled      string      `json:"enabled"`
+	Created      string      `json:"created"`
+	SubEnd       string      `json:"sub_end"`
+	Renew        int         `json:"renew"`
+	LimIp        int         `json:"lim_ip"`
+	Ips          string      `json:"ips"`
+	Uplink       int64       `json:"uplink"`
+	Downlink     int64       `json:"downlink"`
+	SessUplink   int64       `json:"sess_uplink"`
+	SessDownlink int64       `json:"sess_downlink"`
 }
 
 // NodeUsers represents users grouped by node with the node's address.
 type NodeUsers struct {
-	Node    string `json:"node"`
+	Node    string `json:"node_name"` // Изменено с "node" на "node_name" для соответствия JSON
 	Address string `json:"address"`
 	Users   []User `json:"users"`
 }
@@ -62,7 +62,7 @@ func UsersHandler(manager *manager.DatabaseManager, cfg *config.Config) http.Han
 				FROM user_traffic ut
 				LEFT JOIN user_data ud ON ut.user = ud.user
 				LEFT JOIN user_uuids uu ON ut.user = uu.user AND ut.node_name = uu.node_name
-				LEFT JOIN nodes n ON ut.node_name = n.name
+				LEFT JOIN nodes n ON ut.node_name = n.node_name
 			`
 			rows, err := db.Query(query)
 			if err != nil {
@@ -123,19 +123,19 @@ func UsersHandler(manager *manager.DatabaseManager, cfg *config.Config) http.Han
 				// Если пользователь не найден, создаём новую запись
 				if !userFound {
 					user := User{
-						User:          userName,
-						Inbounds:      []UuidEntry{},
-						Rate:          rate,
-						Enabled:       enabled,
-						Created:       created.String,
-						SubEnd:        subEnd,
-						Renew:         renew,
-						LimIp:         limIp,
-						Ips:           ips,
-						Uplink:        uplink,
-						Downlink:      downlink,
-						SessUplink:    sessUplink,
-						SessDownlink:  sessDownlink,
+						User:         userName,
+						Inbounds:     []UuidEntry{},
+						Rate:         rate,
+						Enabled:      enabled,
+						Created:      created.String,
+						SubEnd:       subEnd,
+						Renew:        renew,
+						LimIp:        limIp,
+						Ips:          ips,
+						Uplink:       uplink,
+						Downlink:     downlink,
+						SessUplink:   sessUplink,
+						SessDownlink: sessDownlink,
 					}
 					// Добавляем пару uuid и inbound_tag, если они не пустые
 					if uuid != "" && inboundTag != "" {
