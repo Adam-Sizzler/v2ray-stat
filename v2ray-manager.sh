@@ -1317,8 +1317,8 @@ fetch_traffic_stats() {
       tilda "|--------------------------------------------------------------------------|"
       info " Выберите порядок сортировки:"
       echo
-      echo " 1. ASC (по возрастанию)"
-      echo " 2. DESC (по убыванию)"
+      echo " 1. asc (по возрастанию)"
+      echo " 2. desc (по убыванию)"
       echo
       warning " $(text 84) " # 0. Previous menu
       tilda "|--------------------------------------------------------------------------|"
@@ -1328,8 +1328,8 @@ fetch_traffic_stats() {
         break
       fi
       case $order_choice in
-        1) sort_order="ASC"; break ;;
-        2) sort_order="DESC"; break ;;
+        1) sort_order="asc"; break ;;
+        2) sort_order="desc"; break ;;
         0) return ;;
         *) warning " $(text 33) "; sleep 2 ;;
       esac
