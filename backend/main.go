@@ -50,6 +50,7 @@ func startAPIServer(ctx context.Context, manager *manager.DatabaseManager, cfg *
 
 	// Data-modifying endpoints (token required)
 	http.HandleFunc("/api/v1/add_user", api.TokenAuthMiddleware(cfg, api.AddUserHandler(manager, cfg)))
+	http.HandleFunc("/api/v1/delete_user", api.TokenAuthMiddleware(cfg, api.DeleteUserHandler(manager, cfg)))
 	// http.HandleFunc("/api/v1/set_enabled", api.TokenAuthMiddleware(cfg, api.SetEnabledHandler(manager, cfg)))
 	http.HandleFunc("/api/v1/update_lim_ip", api.TokenAuthMiddleware(cfg, api.UpdateIPLimitHandler(manager, cfg)))
 	http.HandleFunc("/api/v1/update_renew", api.TokenAuthMiddleware(cfg, api.UpdateRenewHandler(manager, cfg)))

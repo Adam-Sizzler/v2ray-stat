@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"v2ray-stat/backend/config"
 	"v2ray-stat/backend/db/manager"
@@ -15,6 +14,13 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+// DeleteUserRequest представляет структуру JSON-запроса
+type DeleteUserRequest struct {
+	User       string   `json:"user"`
+	InboundTag string   `json:"inbound_tag"`
+	Nodes      []string `json:"nodes,omitempty"` // Поле nodes опционально
+}
 
 // DeleteUserFromNode отправляет gRPC-запрос на ноду для удаления пользователя
 func DeleteUserFromNode(node config.NodeConfig, user, inboundTag string) error {
@@ -55,25 +61,33 @@ func DeleteUserFromNode(node config.NodeConfig, user, inboundTag string) error {
 // DeleteUserHandler обрабатывает HTTP-запросы на удаление пользователя
 func DeleteUserHandler(manager *manager.DatabaseManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		user := r.URL.Query().Get("user")
-		inboundTag := r.URL.Query().Get("inbound_tag")
-		nodeParam := r.URL.Query().Get("nodes") // Параметр nodes может быть пустым или списком через запятую
+		// Проверка метода HTTP
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed, use POST", http.StatusMethodNotAllowed)
+			return
+		}
 
-		// Проверка обязательных полей
-		if user == "" || inboundTag == "" {
-			http.Error(w, "user and inbound_tag parameters are required", http.StatusBadRequest)
+		// Парсим JSON-тело запроса
+		var req DeleteUserRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf("failed to parse JSON: %v", err), http.StatusBadRequest)
+			return
+		}
+
+		// Проверяем обязательные поля
+		if req.User == "" || req.InboundTag == "" {
+			http.Error(w, "user and inbound_tag are required", http.StatusBadRequest)
 			return
 		}
 
 		// Определяем целевые ноды
 		var targetNodes []config.NodeConfig
-		if nodeParam == "" {
-			// Если параметр nodes не указан, берем все ноды из конфигурации
-			targetNodes = cfg.V2rayStat.Nodes
+		if len(req.Nodes) == 0 {
+			// Если nodes не указаны, берем все ноды из конфигурации
+			targetNodes = GetNodesFromConfig(cfg)
 		} else {
-			// Если указаны конкретные ноды, фильтруем их по именам
-			nodeNames := strings.Split(nodeParam, ",")
-			for _, nodeName := range nodeNames {
+			// Фильтруем ноды по указанным именам
+			for _, nodeName := range req.Nodes {
 				for _, node := range cfg.V2rayStat.Nodes {
 					if node.NodeName == nodeName {
 						targetNodes = append(targetNodes, node)
@@ -90,13 +104,13 @@ func DeleteUserHandler(manager *manager.DatabaseManager, cfg *config.Config) htt
 		// Удаляем пользователя с каждой ноды и собираем ошибки
 		errors := make(map[string]string)
 		for _, node := range targetNodes {
-			err := DeleteUserFromNode(node, user, inboundTag)
+			err := DeleteUserFromNode(node, req.User, req.InboundTag)
 			if err != nil {
 				errors[node.NodeName] = err.Error()
 			}
 		}
 
-		// Формируем ответ
+		// Формируем JSON-ответ
 		w.Header().Set("Content-Type", "application/json")
 		if len(errors) > 0 {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -105,6 +119,6 @@ func DeleteUserHandler(manager *manager.DatabaseManager, cfg *config.Config) htt
 		}
 
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "User deleted successfully from all specified nodes")
+		json.NewEncoder(w).Encode(map[string]string{"message": "User deleted successfully from all specified nodes"})
 	}
 }
