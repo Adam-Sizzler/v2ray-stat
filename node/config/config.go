@@ -44,7 +44,9 @@ type CoreConfig struct {
 
 // PathsConfig holds paths and logging settings.
 type PathsConfig struct {
-	Database string `yaml:"database"`
+	F2BLog       string `yaml:"f2b_log"`
+	F2BBannedLog string `yaml:"f2b_banned_log"`
+	AuthLua      string `yaml:"auth_lua"`
 }
 
 type MTLSConfig struct {
@@ -72,7 +74,9 @@ var defaultConfig = NodeConfig{
 		AccessLogRegex: `from (?:tcp|udp):([\d\.]+):\d+ accepted (?:tcp|udp):([\w\.\-]+):\d+ \[[^\]]+\] email: (\S+)`,
 	},
 	Paths: PathsConfig{
-		Database: "/usr/local/etc/v2ray-stat/data.db",
+		F2BLog:       "/var/log/v2ray-stat.log",
+		F2BBannedLog: "/var/log/v2ray-stat-banned.log",
+		AuthLua:      "/etc/haproxy/.auth.lua",
 	},
 }
 
