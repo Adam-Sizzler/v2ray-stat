@@ -104,7 +104,7 @@ func getDnsStats(manager *manager.DatabaseManager, cfg *config.Config, nodes, us
 			query += " AND LOWER(domain) LIKE ?"
 			args = append(args, "%"+domain+"%")
 		}
-		query += " ORDER BY count DESC LIMIT ?"
+		query += " ORDER BY count desc LIMIT ?"
 		args = append(args, countInt)
 
 		cfg.Logger.Debug("Executing query on user_dns table", "nodes", nodes, "users", users, "domain", domain, "count", count, "query", query)

@@ -77,7 +77,7 @@ type StatsColumns struct {
 type StatsSection struct {
 	Sort      string   `yaml:"sort"`
 	SortBy    string   // Parsed column name for sorting
-	SortOrder string   // Parsed sort order (ASC or DESC)
+	SortOrder string   // Parsed sort order (asc or desc)
 	Columns   []string `yaml:"columns"`
 }
 
@@ -103,8 +103,8 @@ var defaultConfig = Config{
 		Database: "/usr/local/etc/v2ray-stat/data.db",
 	},
 	StatsColumns: StatsColumns{
-		Server: StatsSection{Sort: "source ASC", Columns: []string{}},
-		Client: StatsSection{Sort: "last_seen DESC", Columns: []string{}},
+		Server: StatsSection{Sort: "source asc", Columns: []string{}},
+		Client: StatsSection{Sort: "last_seen desc", Columns: []string{}},
 	},
 }
 
@@ -215,29 +215,29 @@ func LoadConfig(configFile string) (Config, error) {
 	validateSort := func(section string, sortStr string, validColumns []string) (string, string) {
 		if sortStr == "" {
 			if section == "Server" {
-				return "source", "ASC"
+				return "source", "asc"
 			}
-			return "user", "ASC"
+			return "user", "asc"
 		}
 		parts := strings.Fields(sortStr)
 		if len(parts) != 2 {
 			cfg.Logger.Warn("Invalid sort format, using default", "section", section, "sort", sortStr)
 			if section == "Server" {
-				return "source", "ASC"
+				return "source", "asc"
 			}
-			return "user", "ASC"
+			return "user", "asc"
 		}
 		column, order := parts[0], strings.ToUpper(parts[1])
 		if !contains(validColumns, column) {
 			cfg.Logger.Warn("Invalid sort column, using default", "section", section, "column", column)
 			if section == "Server" {
-				return "source", "ASC"
+				return "source", "asc"
 			}
-			return "user", "ASC"
+			return "user", "asc"
 		}
-		if order != "ASC" && order != "DESC" {
-			cfg.Logger.Warn("Invalid sort order, using ASC", "section", section, "order", order)
-			order = "ASC"
+		if order != "asc" && order != "desc" {
+			cfg.Logger.Warn("Invalid sort order, using asc", "section", section, "order", order)
+			order = "asc"
 		}
 		return column, order
 	}

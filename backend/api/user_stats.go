@@ -49,9 +49,9 @@ func StatsHandler(manager *manager.DatabaseManager, cfg *config.Config) http.Han
 		}
 
 		// Валидация sort_order
-		if sortOrder != "" && sortOrder != "ASC" && sortOrder != "DESC" {
+		if sortOrder != "" && sortOrder != "asc" && sortOrder != "desc" {
 			cfg.Logger.Warn("Invalid sort_order parameter", "sort_order", sortOrder)
-			http.Error(w, fmt.Sprintf("Invalid sort_order parameter: %s, must be ASC or DESC", sortOrder), http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("Invalid sort_order parameter: %s, must be asc or desc", sortOrder), http.StatusBadRequest)
 			return
 		}
 
