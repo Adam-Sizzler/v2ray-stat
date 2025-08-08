@@ -15,7 +15,7 @@ import (
 // NodeConfig holds the configuration settings for the node.
 type NodeConfig struct {
 	Log       LogConfig       `yaml:"log"`
-	V2rayStat V2rayStatConfig `yaml:"v2ray-stat"`
+	V2rayStat V2rayStatConfig `yaml:"v2ray-stat-node"`
 	Timezone  string          `yaml:"timezone"`
 	Features  map[string]bool `yaml:"features"`
 	Core      CoreConfig      `yaml:"core"`
