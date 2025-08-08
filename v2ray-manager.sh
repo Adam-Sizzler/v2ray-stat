@@ -1018,7 +1018,7 @@ display_node_list() {
   fi
 
   # Извлекаем уникальные имена нод
-  mapfile -t nodes < <(echo "$response" | jq -r '.[].node' | sort -u)
+  mapfile -t nodes < <(echo "$response" | jq -r '.[].node_name' | sort -u)
 
   if [ ${#nodes[@]} -eq 0 ]; then
     info "Нет нод для отображения"
@@ -1065,7 +1065,7 @@ display_user_list() {
   else
     # Формируем фильтр для jq с использованием IN
     nodes=$(echo "$selected_nodes" | sed 's/,/","/g; s/^/"/; s/$/"/')
-    mapfile -t users < <(echo "$response" | jq -r --argjson nodes "[${nodes}]" '.[] | select(.node | IN($nodes[])) | .users[].user' | sort -u)
+    mapfile -t users < <(echo "$response" | jq -r --argjson nodes "[${nodes}]" '.[] | select(.node_name | IN($nodes[])) | .users[].user' | sort -u)
   fi
 
   if [ ${#users[@]} -eq 0 ]; then
