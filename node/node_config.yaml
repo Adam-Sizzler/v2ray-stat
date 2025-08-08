@@ -1,0 +1,37 @@
+# v2ray-stat-node Configuration File
+# This file specifies paths and settings for the v2ray-stat monitoring application.
+
+log:
+  loglevel: info                         # Logging level: none, error, warn, info, debug. NONE disables logging; each level includes messages from lower levels.
+  logmode: inclusive                     # Log mode: inclusive = this and lower levels; exclusive = only this level  
+
+# v2ray-stat Settings
+v2ray-stat:
+  type: xray                             # Type of proxy core used for statistics. Accepted values: xray, singbox.
+  address: 0.0.0.0                       # IP address of the v2ray-stat API server. 127.0.0.1 means it is accessible only locally (localhost).
+  port: 10000  
+  mtls:                                  # mTLS (mutual TLS) configuration for secure connection to the node.
+    cert: /usr/local/etc/v2ray-stat/certs/node.crt    # Path to the client's TLS certificate.
+    key: /usr/local/etc/v2ray-stat/certs/node.key     # Path to the client's private key.
+    ca_cert: /usr/local/etc/v2ray-stat/certs/node.crt # Path to the CA certificate for server verification.
+
+# Timezone Settings
+timezone: Europe/Amsterdam
+
+# Features & Monitoring Options
+features:
+  auth_lua: false                        # Enables dynamic updates to HAProxy's auth.lua file for credential management.
+
+# Core Settings
+core:
+  dir: /usr/local/etc/xray/                                                           # Directory path where the proxy (Xray or Singbox) config files are stored. Must end with a slash (/).
+  config: /usr/local/etc/xray/config.json                                             # Path to the main configuration file for the proxy core (e.g., Xray or Singbox config).
+  access_log: /usr/local/etc/xray/access.log                                          # Path to the proxy core's access log file for tracking user sessions and IPs.
+  access_log_regex: 'from (?:tcp|udp):([\d\.]+):\d+ accepted (?:tcp|udp):([\w\.\-]+):\d+ \[[^\]]+\] email: (\S+)' # Regular expression to parse access log. Should extract source IP, destination host, and user email/remark.
+  # access_log_regex: 'login: (\S+); ip: ([0-9\.]+)'                                  # Alternative regex (e.g., for custom login formats):
+
+# Paths & Logging
+paths:
+  f2b_log: /var/log/v2ray-stat.log               # Path to the log file for recording v2ray-stat violations or issues (e.g., IP limit exceeded).
+  f2b_banned_log: /var/log/v2ray-stat-banned.log # Path to the log file for recording IP bans and unbans.
+  auth_lua: /etc/haproxy/.auth.lua               # Path to HAProxy's .auth.lua file, dynamically updated if auth_lua feature is enabled.
