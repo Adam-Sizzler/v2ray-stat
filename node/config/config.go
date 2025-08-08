@@ -14,14 +14,13 @@ import (
 
 // NodeConfig holds the configuration settings for the node.
 type NodeConfig struct {
-	Log        LogConfig       `yaml:"log"`
-	V2rayStat  V2rayStatConfig `yaml:"v2ray-stat"`
-	Timezone   string          `yaml:"timezone"`
-	Features   map[string]bool `yaml:"features"`
-	Core       CoreConfig      `yaml:"core"`
-	Paths      PathsConfig     `yaml:"paths"`
-	MTLSConfig *MTLSConfig     `yaml:"mtls"`
-	Logger     *logger.Logger
+	Log       LogConfig       `yaml:"log"`
+	V2rayStat V2rayStatConfig `yaml:"v2ray-stat"`
+	Timezone  string          `yaml:"timezone"`
+	Features  map[string]bool `yaml:"features"`
+	Core      CoreConfig      `yaml:"core"`
+	Paths     PathsConfig     `yaml:"paths"`
+	Logger    *logger.Logger
 }
 
 type LogConfig struct {
@@ -30,9 +29,10 @@ type LogConfig struct {
 }
 
 type V2rayStatConfig struct {
-	Type    string `yaml:"type"`
-	Address string `yaml:"address"`
-	Port    string `yaml:"port"`
+	Type       string      `yaml:"type"`
+	Address    string      `yaml:"address"`
+	Port       string      `yaml:"port"`
+	MTLSConfig *MTLSConfig `yaml:"mtls"`
 }
 
 type CoreConfig struct {
@@ -44,10 +44,7 @@ type CoreConfig struct {
 
 // PathsConfig holds paths and logging settings.
 type PathsConfig struct {
-	Database     string `yaml:"database"`
-	F2BLog       string `yaml:"f2b_log"`
-	F2BBannedLog string `yaml:"f2b_banned_log"`
-	AuthLua      string `yaml:"auth_lua"`
+	Database string `yaml:"database"`
 }
 
 type MTLSConfig struct {
@@ -75,10 +72,7 @@ var defaultConfig = NodeConfig{
 		AccessLogRegex: `from (?:tcp|udp):([\d\.]+):\d+ accepted (?:tcp|udp):([\w\.\-]+):\d+ \[[^\]]+\] email: (\S+)`,
 	},
 	Paths: PathsConfig{
-		Database:     "/usr/local/etc/v2ray-stat/data.db",
-		F2BLog:       "/var/log/v2ray-stat.log",
-		F2BBannedLog: "/var/log/v2ray-stat-banned.log",
-		AuthLua:      "/etc/haproxy/.auth.lua",
+		Database: "/usr/local/etc/v2ray-stat/data.db",
 	},
 }
 
@@ -141,13 +135,13 @@ func LoadNodeConfig(configFile string) (NodeConfig, error) {
 		cfg.Core.Config = defaultConfig.Core.Config
 	}
 
-	if cfg.MTLSConfig != nil {
+	if cfg.V2rayStat.MTLSConfig != nil {
 		if cfg.V2rayStat.Address != "127.0.0.1" && cfg.V2rayStat.Address != "0.0.0.0" && cfg.V2rayStat.Address != "localhost" {
-			if cfg.MTLSConfig.Cert == "" || cfg.MTLSConfig.Key == "" || cfg.MTLSConfig.CACert == "" {
+			if cfg.V2rayStat.MTLSConfig.Cert == "" || cfg.V2rayStat.MTLSConfig.Key == "" || cfg.V2rayStat.MTLSConfig.CACert == "" {
 				cfg.Logger.Error("Incomplete mTLS configuration for non-localhost address", "address", cfg.V2rayStat.Address)
 				return cfg, fmt.Errorf("incomplete mTLS configuration for non-localhost address")
 			}
-			for _, file := range []string{cfg.MTLSConfig.Cert, cfg.MTLSConfig.Key, cfg.MTLSConfig.CACert} {
+			for _, file := range []string{cfg.V2rayStat.MTLSConfig.Cert, cfg.V2rayStat.MTLSConfig.Key, cfg.V2rayStat.MTLSConfig.CACert} {
 				if _, err := os.Stat(file); os.IsNotExist(err) {
 					cfg.Logger.Error("mTLS certificate file not found for non-localhost address", "file", file, "address", cfg.V2rayStat.Address)
 					return cfg, fmt.Errorf("mTLS certificate file not found: %s", file)
@@ -168,6 +162,6 @@ func LoadNodeConfig(configFile string) (NodeConfig, error) {
 		cfg.Features = make(map[string]bool)
 	}
 
-	cfg.Logger.Info("Node configuration validated", "address", cfg.V2rayStat.Address, "port", cfg.V2rayStat.Port, "mtls_enabled", cfg.MTLSConfig != nil)
+	cfg.Logger.Info("Node configuration validated", "address", cfg.V2rayStat.Address, "port", cfg.V2rayStat.Port, "mtls_enabled", cfg.V2rayStat.MTLSConfig != nil)
 	return cfg, nil
 }

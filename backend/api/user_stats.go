@@ -88,7 +88,7 @@ func buildCustomServerStats(builder *strings.Builder, manager *manager.DatabaseM
 	cfg.Logger.Debug("Collecting server statistics", "node", nodeParam, "aggregate", aggregate)
 
 	serverColumnAliases := map[string]string{
-		"node_name":     "Node Name",
+		"node_name":     "Node",
 		"source":        "Source",
 		"rate":          "Rate",
 		"uplink":        "Uplink",

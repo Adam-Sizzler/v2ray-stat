@@ -20,14 +20,14 @@ func StartGRPCServer(cfg *config.NodeConfig, nodeServer *server.NodeServer) erro
 	isLocalhost := cfg.V2rayStat.Address == "127.0.0.1" || cfg.V2rayStat.Address == "0.0.0.0" || cfg.V2rayStat.Address == "localhost"
 
 	var grpcServer *grpc.Server
-	if cfg.MTLSConfig != nil {
+	if cfg.V2rayStat.MTLSConfig != nil {
 		cfg.Logger.Debug("Configuring mTLS for gRPC server")
-		cert, err := tls.LoadX509KeyPair(cfg.MTLSConfig.Cert, cfg.MTLSConfig.Key)
+		cert, err := tls.LoadX509KeyPair(cfg.V2rayStat.MTLSConfig.Cert, cfg.V2rayStat.MTLSConfig.Key)
 		if err != nil {
 			cfg.Logger.Error("Failed to load server certificate", "error", err)
 			return err
 		}
-		caCert, err := os.ReadFile(cfg.MTLSConfig.CACert)
+		caCert, err := os.ReadFile(cfg.V2rayStat.MTLSConfig.CACert)
 		if err != nil {
 			cfg.Logger.Error("Failed to read CA certificate", "error", err)
 			return err

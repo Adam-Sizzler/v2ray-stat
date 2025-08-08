@@ -51,7 +51,7 @@ func getDnsStats(manager *manager.DatabaseManager, cfg *config.Config, nodes, us
 		err = manager.ExecuteLowPriority(func(db *sql.DB) error {
 			for _, node := range nodeList {
 				var nodeExists bool
-				err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM nodes WHERE name = ?)", node).Scan(&nodeExists)
+				err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM nodes WHERE node_name = ?)", node).Scan(&nodeExists)
 				if err != nil {
 					cfg.Logger.Error("Failed to check node existence", "node", node, "error", err)
 					return fmt.Errorf("failed to check node existence: %v", err)

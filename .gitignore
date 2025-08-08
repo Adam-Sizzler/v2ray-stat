@@ -1,0 +1,16 @@
+# Конфигурационные файлы
+backend/config.yaml
+node/node_config.yaml
+
+# Сертификаты
+certs/
+
+# Временные файлы и логи
+*.log
+*.tmp
+
+# Go модули
+go.sum
+
+# База данны
+data.db

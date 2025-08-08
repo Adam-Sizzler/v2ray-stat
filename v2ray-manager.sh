@@ -170,7 +170,7 @@ update_v2ray_stat_node() {
   # Получение URL последнего релиза (включая пререлизы)
   echo "$(date): Starting download of $FILE" >> "$LOG_FILE"
   URL=$(curl -s https://api.github.com/repos/$REPO/releases | \
-    jq -r '.[] | select(.prerelease == true or .prerelease == false) | .assets[] | select(.name == "'"$FILE"'") | .browser_download_url' | \
+    jq -r '.[] | select(.prerelease == true or .prerelease == false) | .assets[] | select(.node_name == "'"$FILE"'") | .browser_download_url' | \
     head -1)
 
   if [ -z "$URL" ]; then
@@ -255,7 +255,7 @@ update_v2ray_stat_backend() {
   # Получение URL последнего релиза (включая пререлизы)
   echo "$(date): Starting download of $FILE" >> "$LOG_FILE"
   URL=$(curl -s https://api.github.com/repos/$REPO/releases | \
-    jq -r '.[] | select(.prerelease == true or .prerelease == false) | .assets[] | select(.name == "'"$FILE"'") | .browser_download_url' | \
+    jq -r '.[] | select(.prerelease == true or .prerelease == false) | .assets[] | select(.node_name == "'"$FILE"'") | .browser_download_url' | \
     head -1)
 
   if [ -z "$URL" ]; then
@@ -340,7 +340,7 @@ update_xcore_manager() {
   # Получение URL последнего релиза (включая пререлизы)
   echo "$(date): Starting download of $FILE" >> "$LOG_FILE"
   URL=$(curl -s https://api.github.com/repos/$REPO/releases | \
-    jq -r '.[] | select(.prerelease == true or .prerelease == false) | .assets[] | select(.name == "'"$FILE"'") | .browser_download_url' | \
+    jq -r '.[] | select(.prerelease == true or .prerelease == false) | .assets[] | select(.node_name == "'"$FILE"'") | .browser_download_url' | \
     head -1)
 
   if [ -z "$URL" ]; then
