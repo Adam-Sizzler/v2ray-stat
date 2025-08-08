@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"v2ray-stat/backend/config"
 	"v2ray-stat/backend/db/manager"
@@ -15,6 +14,13 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+// AddUserRequest представляет структуру JSON-запроса
+type AddUserRequest struct {
+	User       string   `json:"user"`
+	InboundTag string   `json:"inbound_tag"`
+	Nodes      []string `json:"nodes,omitempty"` // Поле nodes опционально
+}
 
 // AddUserToNode отправляет gRPC-запрос на ноду для добавления пользователя
 func AddUserToNode(node config.NodeConfig, user, inboundTag string) (string, error) {
@@ -60,18 +66,32 @@ func GetNodesFromConfig(cfg *config.Config) []config.NodeConfig {
 // AddUserHandler обрабатывает запрос на добавление пользователя
 func AddUserHandler(manager *manager.DatabaseManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		user := r.URL.Query().Get("user")
-		inboundTag := r.URL.Query().Get("inbound_tag")
-		nodeParam := r.URL.Query().Get("nodes") // Параметр nodes может быть пустым или списком через запятую
+		// Проверка метода HTTP
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed, use POST", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Парсим JSON-тело запроса
+		var req AddUserRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf("failed to parse JSON: %v", err), http.StatusBadRequest)
+			return
+		}
+
+		// Проверяем обязательные поля
+		if req.User == "" || req.InboundTag == "" {
+			http.Error(w, "user and inbound_tag are required", http.StatusBadRequest)
+			return
+		}
 
 		var targetNodes []config.NodeConfig
-		if nodeParam == "" {
-			// Если параметр nodes не указан, берем все ноды из конфигурации
+		if len(req.Nodes) == 0 {
+			// Если nodes не указаны, берем все ноды из конфигурации
 			targetNodes = GetNodesFromConfig(cfg)
 		} else {
-			// Если указаны конкретные ноды, фильтруем их по именам
-			nodeNames := strings.Split(nodeParam, ",")
-			for _, nodeName := range nodeNames {
+			// Фильтруем ноды по указанным именам
+			for _, nodeName := range req.Nodes {
 				for _, node := range cfg.V2rayStat.Nodes {
 					if node.NodeName == nodeName {
 						targetNodes = append(targetNodes, node)
@@ -87,7 +107,7 @@ func AddUserHandler(manager *manager.DatabaseManager, cfg *config.Config) http.H
 
 		results := make(map[string]string)
 		for _, node := range targetNodes {
-			credential, err := AddUserToNode(node, user, inboundTag)
+			credential, err := AddUserToNode(node, req.User, req.InboundTag)
 			if err != nil {
 				http.Error(w, fmt.Sprintf("failed to add user to %s: %v", node.NodeName, err), http.StatusInternalServerError)
 				return
@@ -97,6 +117,7 @@ func AddUserHandler(manager *manager.DatabaseManager, cfg *config.Config) http.H
 
 		// Формируем JSON-ответ
 		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(results)
 	}
 }
