@@ -2,6 +2,7 @@ package reset_stats
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -14,11 +15,11 @@ func DeleteDNSStatsHandler(manager *manager.DatabaseManager, cfg *config.Config)
 	return func(w http.ResponseWriter, r *http.Request) {
 		cfg.Logger.Debug("Starting DeleteDNSStatsHandler request processing")
 
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
 		if r.Method != http.MethodPost {
 			cfg.Logger.Warn("Invalid HTTP method", "method", r.Method)
-			http.Error(w, "Invalid method. Use POST", http.StatusMethodNotAllowed)
+			http.Error(w, `{"error": "Invalid method. Use POST"}`, http.StatusMethodNotAllowed)
 			return
 		}
 
@@ -93,12 +94,16 @@ func DeleteDNSStatsHandler(manager *manager.DatabaseManager, cfg *config.Config)
 		})
 		if err != nil {
 			cfg.Logger.Error("Error in DeleteDNSStatsHandler", "error", err)
-			http.Error(w, fmt.Sprintf("Failed to delete DNS stats records: %v", err), http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to delete DNS stats records: %v", err)})
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
 		cfg.Logger.Info("API delete_user_dns: DNS stats deletion request completed successfully", "remote_addr", r.RemoteAddr, "rows_affected", rowsAffected, "nodes", nodes)
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "DNS stats records deleted successfully")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"message":       "DNS stats records deleted successfully",
+			"rows_affected": rowsAffected,
+		})
 	}
 }

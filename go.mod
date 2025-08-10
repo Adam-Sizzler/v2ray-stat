@@ -6,9 +6,9 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/mattn/go-sqlite3 v1.14.30
 	github.com/v2ray/v2ray-core v4.15.0+incompatible
-	github.com/xtls/xray-core v1.250726.0
+	github.com/xtls/xray-core v1.250803.0
 	google.golang.org/grpc v1.74.2
-	google.golang.org/protobuf v1.36.6
+	google.golang.org/protobuf v1.36.7
 	gopkg.in/yaml.v3 v3.0.1
 )
 

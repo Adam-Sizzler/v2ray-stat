@@ -1663,7 +1663,7 @@ select_inbound_tag() {
           done
           json_body=$(printf '{"user":"%s","inbound_tag":"%s","nodes":[%s]}' "$username" "$tag" "$nodes_json")
           info " POST $API_URL with body: $json_body"
-          curl -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body" > /dev/null
+          curl -s -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body" > /dev/null
         fi
       done
       tilda "|--------------------------------------------------------------------------|"
