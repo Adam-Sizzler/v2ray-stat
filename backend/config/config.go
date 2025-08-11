@@ -227,7 +227,7 @@ func LoadConfig(configFile string) (Config, error) {
 			}
 			return "user", "asc"
 		}
-		column, order := parts[0], strings.ToUpper(parts[1])
+		column, order := parts[0], strings.ToLower(parts[1])
 		if !contains(validColumns, column) {
 			cfg.Logger.Warn("Invalid sort column, using default", "section", section, "column", column)
 			if section == "Server" {
@@ -245,7 +245,7 @@ func LoadConfig(configFile string) (Config, error) {
 	cfg.StatsColumns.Server.SortBy, cfg.StatsColumns.Server.SortOrder = validateSort("Server", cfg.StatsColumns.Server.Sort, validServerColumns)
 	cfg.StatsColumns.Client.SortBy, cfg.StatsColumns.Client.SortOrder = validateSort("Client", cfg.StatsColumns.Client.Sort, validClientColumns)
 
-	cfg.Logger.Info("Configuration validated", "nodes_count", len(cfg.V2rayStat.Nodes))
+	cfg.Logger.Debug("Configuration validated", "nodes_count", len(cfg.V2rayStat.Nodes))
 	return cfg, nil
 }
 

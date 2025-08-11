@@ -7,12 +7,9 @@ import (
 	"net/http"
 
 	"v2ray-stat/backend/config"
+	"v2ray-stat/backend/db"
 	"v2ray-stat/backend/db/manager"
 	"v2ray-stat/node/proto"
-
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // AddUserRequest представляет структуру JSON-запроса
@@ -23,29 +20,14 @@ type AddUserRequest struct {
 }
 
 // AddUserToNode отправляет gRPC-запрос на ноду для добавления пользователя
-func AddUserToNode(node config.NodeConfig, user, inboundTag string) (string, error) {
-	var opts []grpc.DialOption
-
-	// Настройка mTLS, если оно указано в конфигурации ноды
-	if node.MTLSConfig != nil {
-		creds, err := credentials.NewClientTLSFromFile(node.MTLSConfig.CACert, "")
-		if err != nil {
-			return "", fmt.Errorf("failed to load CA cert for node %s: %v", node.NodeName, err)
-		}
-		opts = append(opts, grpc.WithTransportCredentials(creds))
-	} else {
-		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	}
-
-	// Используем полный URL ноды из конфигурации (адрес:порт)
-	conn, err := grpc.NewClient(node.URL, opts...)
+func AddUserToNode(node config.NodeConfig, user, inboundTag string, cfg *config.Config) (string, error) {
+	nodeClient, err := db.NewNodeClient(node, cfg)
 	if err != nil {
-		return "", fmt.Errorf("failed to connect to node %s (%s): %v", node.NodeName, node.URL, err)
+		return "", fmt.Errorf("failed to create client for node %s: %v", node.NodeName, err)
 	}
-	defer conn.Close()
+	defer func() { /* Закрыть conn если нужно */ nodeClient.Client = nil }()
 
-	client := proto.NewNodeServiceClient(conn)
-	resp, err := client.AddUser(context.Background(), &proto.AddUserRequest{
+	resp, err := nodeClient.Client.AddUser(context.Background(), &proto.AddUserRequest{
 		User:       user,
 		InboundTag: inboundTag,
 	})
@@ -107,7 +89,8 @@ func AddUserHandler(manager *manager.DatabaseManager, cfg *config.Config) http.H
 
 		results := make(map[string]string)
 		for _, node := range targetNodes {
-			credential, err := AddUserToNode(node, req.User, req.InboundTag)
+			// ИЗМЕНЕНИЕ: Добавляем cfg в вызов
+			credential, err := AddUserToNode(node, req.User, req.InboundTag, cfg)
 			if err != nil {
 				http.Error(w, fmt.Sprintf("failed to add user to %s: %v", node.NodeName, err), http.StatusInternalServerError)
 				return
@@ -115,7 +98,6 @@ func AddUserHandler(manager *manager.DatabaseManager, cfg *config.Config) http.H
 			results[node.NodeName] = credential
 		}
 
-		// Формируем JSON-ответ
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(results)

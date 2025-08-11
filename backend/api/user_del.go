@@ -7,45 +7,27 @@ import (
 	"net/http"
 
 	"v2ray-stat/backend/config"
+	"v2ray-stat/backend/db"
 	"v2ray-stat/backend/db/manager"
 	"v2ray-stat/node/proto"
-
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // DeleteUserRequest представляет структуру JSON-запроса
 type DeleteUserRequest struct {
 	User       string   `json:"user"`
 	InboundTag string   `json:"inbound_tag"`
-	Nodes      []string `json:"nodes,omitempty"` // Поле nodes опционально
+	Nodes      []string `json:"nodes,omitempty"`
 }
 
 // DeleteUserFromNode отправляет gRPC-запрос на ноду для удаления пользователя
-func DeleteUserFromNode(node config.NodeConfig, user, inboundTag string) error {
-	var opts []grpc.DialOption
-
-	// Настройка mTLS, если оно указано в конфигурации ноды
-	if node.MTLSConfig != nil {
-		creds, err := credentials.NewClientTLSFromFile(node.MTLSConfig.CACert, "")
-		if err != nil {
-			return fmt.Errorf("failed to load CA cert for node %s: %v", node.NodeName, err)
-		}
-		opts = append(opts, grpc.WithTransportCredentials(creds))
-	} else {
-		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	}
-
-	// Используем полный URL ноды из конфигурации (адрес:порт)
-	conn, err := grpc.NewClient(node.URL, opts...)
+func DeleteUserFromNode(node config.NodeConfig, user, inboundTag string, cfg *config.Config) error {
+	nodeClient, err := db.NewNodeClient(node, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to connect to node %s (%s): %v", node.NodeName, node.URL, err)
+		return fmt.Errorf("failed to create client for node %s: %v", node.NodeName, err)
 	}
-	defer conn.Close()
+	defer func() { nodeClient.Client = nil }()
 
-	client := proto.NewNodeServiceClient(conn)
-	resp, err := client.DeleteUser(context.Background(), &proto.DeleteUserRequest{
+	resp, err := nodeClient.Client.DeleteUser(context.Background(), &proto.DeleteUserRequest{
 		User:       user,
 		InboundTag: inboundTag,
 	})
@@ -104,7 +86,7 @@ func DeleteUserHandler(manager *manager.DatabaseManager, cfg *config.Config) htt
 		// Удаляем пользователя с каждой ноды и собираем ошибки
 		errors := make(map[string]string)
 		for _, node := range targetNodes {
-			err := DeleteUserFromNode(node, req.User, req.InboundTag)
+			err := DeleteUserFromNode(node, req.User, req.InboundTag, cfg)
 			if err != nil {
 				errors[node.NodeName] = err.Error()
 			}

@@ -11,18 +11,18 @@ v2ray-stat:
   port: 9952                                     # TCP port for v2ray-stat API server. Must be between 1 and 65535.
   monitor:        
     ticker_interval: 10                          # Interval (in seconds) for polling monitored services and users. Recommended: 5–60.
-    online_rate_threshold: 0                     # Minimum rate threshold in kilobits per second (kbps) to consider a user online. 0 means any non-zero rate is considered online.
+    online_rate_threshold: 15                     # Minimum rate threshold in kilobits per second (kbps) to consider a user online. 0 means any non-zero rate is considered online.
   nodes:                                         # List of monitored nodes and their API connection parameters.
     - node_name: swe                             # Display name of the node.
       url: "127.0.0.1:10000"                     # Node API endpoint address in host:port format.
     - node_name: nl
-      url: "example.com:443"
+      url: "194.164.34.44:10000"
       mtls:                                      # mTLS (mutual TLS) configuration for secure connection to the node.
         cert: /usr/local/etc/v2ray-stat/certs/node.crt    # Path to the client's TLS certificate.
         key: /usr/local/etc/v2ray-stat/certs/node.key     # Path to the client's private key.
         ca_cert: /usr/local/etc/v2ray-stat/certs/node.crt # Path to the CA certificate for server verification.
-    - node_name: uk
-      url: "1.2.3.4:10000"
+    - node_name: rus
+      url: "46.8.158.174:10000"
       mtls:
         cert: /usr/local/etc/v2ray-stat/certs/node.crt
         key: /usr/local/etc/v2ray-stat/certs/node.key
@@ -33,7 +33,7 @@ api:
   api_token: ""                                 # Token required to access the API endpoints. If empty, access is allowed without authorization. Format: Bearer <token>.
  
 # Timezone Settings 
-timezone: Europe/Amsterdam                      # IANA timezone name (e.g., Europe/Amsterdam, Asia/Singapore). If empty, uses TZ environment variable or UTC.
+timezone: Asia/Tomsk                      # IANA timezone name (e.g., Europe/Amsterdam, Asia/Singapore). If empty, uses TZ environment variable or UTC.
  
 # Paths & Logging 
 paths: 
@@ -42,7 +42,7 @@ paths:
 # Statistics Columns Configuration 
 stats_columns: 
   server: 
-    sort: rate desc                             # Sorting rule for server statistics. Format: "<column> <asc|desc>". Default: "source asc". Valid columns: source, rate, uplink, downlink, sess_uplink, sess_downlink.
+    sort: rate desc                             # Sorting rule for server statistics. Format: "<column> <ASC|DESC>". Default: "source ASC". Valid columns: source, rate, uplink, downlink, sess_uplink, sess_downlink.
     columns:                                    # List of columns to display in server statistics. If empty, no server statistics are shown.
       - node_name                               # Node name where the traffic is measured.
       - source                                  # Source of traffic (e.g., IP or hostname).
@@ -68,5 +68,5 @@ stats_columns:
       # - renew                                 # Renewal status or date for the client.
       # - uuid                                  # Unique client identifier (UUID).
       # - inbound_tag                           # Inbound tag associated with the client.
-      # - lim_ip                                # IP limit for the client (number of allowed IPs).
-      # - ips                                   # List of IPs currently used by the client.
+      - lim_ip                                # IP limit for the client (number of allowed IPs).
+      - ips                                   # List of IPs currently used by the client.

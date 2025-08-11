@@ -34,7 +34,7 @@ type User struct {
 
 // NodeUsers represents users grouped by node with the node's address.
 type NodeUsers struct {
-	Node    string `json:"node_name"` // Изменено с "node" на "node_name" для соответствия JSON
+	Node    string `json:"node_name"`
 	Address string `json:"address"`
 	Users   []User `json:"users"`
 }

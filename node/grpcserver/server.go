@@ -15,11 +15,10 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-// StartGRPCServer настраивает и запускает gRPC-сервер.
+// StartGRPCServer ...
 func StartGRPCServer(cfg *config.NodeConfig, nodeServer *server.NodeServer) error {
-	isLocalhost := cfg.V2rayStat.Address == "127.0.0.1" || cfg.V2rayStat.Address == "0.0.0.0" || cfg.V2rayStat.Address == "localhost"
-
 	var grpcServer *grpc.Server
+
 	if cfg.V2rayStat.MTLSConfig != nil {
 		cfg.Logger.Debug("Configuring mTLS for gRPC server")
 		cert, err := tls.LoadX509KeyPair(cfg.V2rayStat.MTLSConfig.Cert, cfg.V2rayStat.MTLSConfig.Key)
@@ -44,11 +43,13 @@ func StartGRPCServer(cfg *config.NodeConfig, nodeServer *server.NodeServer) erro
 		}
 		creds := credentials.NewTLS(tlsConfig)
 		grpcServer = grpc.NewServer(grpc.Creds(creds))
-	} else if !isLocalhost {
-		cfg.Logger.Error("mTLS is required for non-localhost addresses", "address", cfg.V2rayStat.Address)
-		return fmt.Errorf("mTLS is required for non-localhost addresses")
+		cfg.Logger.Info("mTLS enabled for gRPC server")
 	} else {
-		cfg.Logger.Debug("Using insecure gRPC server for localhost")
+		// ИЗМЕНЕНИЕ: Убрана проверка isLocalhost. Теперь insecure всегда возможен, но warn если не local.
+		if cfg.V2rayStat.Address != "127.0.0.1" && cfg.V2rayStat.Address != "localhost" {
+			cfg.Logger.Warn("Insecure gRPC on non-local address - security risk!", "address", cfg.V2rayStat.Address)
+		}
+		cfg.Logger.Debug("Using insecure gRPC server")
 		grpcServer = grpc.NewServer()
 	}
 
