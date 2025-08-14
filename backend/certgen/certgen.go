@@ -39,7 +39,7 @@ func EnsureCertificates(cfg *config.Config) (certPath, keyPath string, err error
 		if err := GenerateSelfSignedCert(certPath, keyPath, cfg); err != nil {
 			return "", "", fmt.Errorf("failed to generate cert: %v", err)
 		}
-		cfg.Logger.Info("Generated self-signed certificate", "certPath", certPath, "keyPath", keyPath)
+		cfg.Logger.Debug("Generated self-signed certificate", "certPath", certPath, "keyPath", keyPath)
 	} else if err != nil {
 		return "", "", fmt.Errorf("failed to check certificate existence: %v", err)
 	} else {

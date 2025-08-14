@@ -21,8 +21,6 @@ func main() {
 
 	common.InitTimezone(cfg.Timezone, cfg.Logger)
 
-	log.Printf("[START] v2ray-stat-node application %s", constant.Version)
-
 	nodeServer, err := server.NewNodeServer(&cfg)
 	if err != nil {
 		cfg.Logger.Error("Failed to create node server", "error", err)
@@ -33,4 +31,6 @@ func main() {
 		cfg.Logger.Error("Failed to start gRPC server", "error", err)
 		os.Exit(1)
 	}
+
+	log.Printf("[START] v2ray-stat-node application %s", constant.Version)
 }

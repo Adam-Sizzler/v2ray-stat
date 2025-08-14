@@ -1,118 +1,193 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
+
 	"v2ray-stat/backend/config"
+	"v2ray-stat/backend/db"
 	"v2ray-stat/backend/db/manager"
+	"v2ray-stat/node/proto"
 )
 
-// SetEnabledHandler handles requests to toggle a user's enabled status.
-func SetEnabledHandler(manager *manager.DatabaseManager, cfg *config.Config) http.HandlerFunc {
+// UserEnabledHandler обрабатывает запросы на включение/выключение пользователя на указанных нодах.
+func UserEnabledHandler(manager *manager.DatabaseManager, cfg *config.Config, nodeClients []*db.NodeClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cfg.Logger.Debug("Starting SetEnabledHandler request processing")
+		cfg.Logger.Debug("Начало обработки запроса UserEnabledHandler")
 
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 
 		if r.Method != http.MethodPatch {
-			cfg.Logger.Warn("Invalid HTTP method", "method", r.Method)
-			http.Error(w, "Invalid method. Use PATCH", http.StatusMethodNotAllowed)
+			cfg.Logger.Warn("Неверный метод HTTP", "method", r.Method)
+			http.Error(w, "Неверный метод. Используйте PATCH", http.StatusMethodNotAllowed)
 			return
 		}
 
-		cfg.Logger.Debug("Parsing form data")
 		if err := r.ParseForm(); err != nil {
-			cfg.Logger.Error("Failed to parse form data", "error", err)
-			http.Error(w, "Error parsing form data", http.StatusBadRequest)
+			cfg.Logger.Error("Ошибка разбора формы", "error", err)
+			http.Error(w, "Ошибка разбора формы", http.StatusBadRequest)
 			return
 		}
 
 		userIdentifier := r.FormValue("user")
 		enabledStr := r.FormValue("enabled")
-		cfg.Logger.Trace("Received form parameters", "user", userIdentifier, "enabled", enabledStr)
+		nodesStr := r.FormValue("nodes")
+		cfg.Logger.Debug("Получены параметры формы", "user", userIdentifier, "enabled", enabledStr, "nodes", nodesStr) // Изменен уровень на Debug для безопасности
 
 		if userIdentifier == "" {
-			cfg.Logger.Warn("Empty user identifier")
-			http.Error(w, "User field is required", http.StatusBadRequest)
+			cfg.Logger.Warn("Пустой идентификатор пользователя")
+			http.Error(w, "Поле user обязательно", http.StatusBadRequest)
 			return
 		}
-		if len(userIdentifier) > 60 {
-			cfg.Logger.Warn("User identifier too long", "length", len(userIdentifier))
-			http.Error(w, "User identifier too long (max 60 characters)", http.StatusBadRequest)
+		if len(userIdentifier) > 40 {
+			cfg.Logger.Warn("Идентификатор пользователя слишком длинный", "length", len(userIdentifier))
+			http.Error(w, "Идентификатор пользователя слишком длинный (макс. 40 символов)", http.StatusBadRequest)
 			return
 		}
-		if enabledStr != "" && len(enabledStr) > 60 {
-			cfg.Logger.Warn("Enabled value too long", "length", len(enabledStr))
-			http.Error(w, "Enabled value too long (max 40 characters)", http.StatusBadRequest)
-			return
-		}
-
-		var enabled bool
 		if enabledStr == "" {
-			enabled = true
 			enabledStr = "true"
-			cfg.Logger.Debug("Enabled not specified, set to true")
-		} else {
-			var err error
-			enabled, err = strconv.ParseBool(enabledStr)
-			if err != nil {
-				cfg.Logger.Warn("Invalid enabled value", "enabled", enabledStr, "error", err)
-				http.Error(w, "Enabled must be true or false", http.StatusBadRequest)
-				return
-			}
-			cfg.Logger.Debug("Enabled value parsed successfully", "enabled", enabled)
+			cfg.Logger.Debug("Enabled не указан, устанавливаем true")
+		} else if len(enabledStr) > 40 {
+			cfg.Logger.Warn("Значение enabled слишком длинное", "length", len(enabledStr))
+			http.Error(w, "Значение enabled слишком длинное (макс. 40 символов)", http.StatusBadRequest)
+			return
 		}
 
-		cfg.Logger.Debug("Updating user status", "user", userIdentifier, "enabled", enabled)
-		err := manager.ExecuteHighPriority(func(db1 *sql.DB) error {
-			cfg.Logger.Debug("Starting transaction for status update")
-			tx, err := db1.Begin()
+		enabled, err := strconv.ParseBool(enabledStr)
+		if err != nil {
+			cfg.Logger.Warn("Неверное значение enabled", "enabled", enabledStr, "error", err)
+			http.Error(w, "Enabled должно быть true или false", http.StatusBadRequest)
+			return
+		}
+
+		// Проверка существования пользователя в user_traffic
+		err = manager.ExecuteHighPriority(func(db *sql.DB) error {
+			var count int
+			err := db.QueryRow("SELECT COUNT(*) FROM user_traffic WHERE user = ?", userIdentifier).Scan(&count)
 			if err != nil {
-				cfg.Logger.Error("Failed to start transaction", "error", err)
-				return fmt.Errorf("failed to start transaction: %v", err)
+				return fmt.Errorf("failed to check user existence: %v", err)
 			}
-			defer tx.Rollback()
-
-			// if err := db.ToggleUserEnabled(manager, cfg, userIdentifier, enabled); err != nil {
-			// 	cfg.Logger.Error("Failed to toggle user status in configuration", "user", userIdentifier, "enabled", enabled, "error", err)
-			// 	return fmt.Errorf("failed to toggle user status: %v", err)
-			// }
-
-			cfg.Logger.Debug("Executing status update query")
-			result, err := tx.Exec("UPDATE clients_stats SET enabled = ? WHERE user = ?", enabledStr, userIdentifier)
-			if err != nil {
-				cfg.Logger.Error("Failed to update status in database", "user", userIdentifier, "enabled", enabledStr, "error", err)
-				return fmt.Errorf("failed to update status for %s: %v", userIdentifier, err)
+			if count == 0 {
+				return fmt.Errorf("user %s not found in user_traffic", userIdentifier)
 			}
-
-			rowsAffected, err := result.RowsAffected()
-			if err != nil {
-				cfg.Logger.Error("Failed to get affected rows", "error", err)
-				return fmt.Errorf("failed to get affected rows: %v", err)
-			}
-			if rowsAffected == 0 {
-				cfg.Logger.Warn("User not found in database", "user", userIdentifier)
-				return fmt.Errorf("user %s not found", userIdentifier)
-			}
-
-			cfg.Logger.Debug("Committing transaction")
-			if err := tx.Commit(); err != nil {
-				cfg.Logger.Error("Failed to commit transaction", "error", err)
-				return fmt.Errorf("failed to commit transaction: %v", err)
-			}
-
 			return nil
 		})
 		if err != nil {
-			cfg.Logger.Error("Error in SetEnabledHandler", "error", err)
-			http.Error(w, "Error updating status", http.StatusInternalServerError)
+			cfg.Logger.Warn("User check failed", "error", err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		cfg.Logger.Info("API set_enabled: user status updated successfully", "user", userIdentifier, "enabled", enabled)
+		var targetNodes []string
+		if nodesStr == "" {
+			for _, node := range cfg.V2rayStat.Nodes {
+				targetNodes = append(targetNodes, node.NodeName)
+			}
+			cfg.Logger.Debug("Nodes не указаны, применяем ко всем нодам", "nodes", targetNodes)
+		} else {
+			targetNodes = strings.Split(nodesStr, ",")
+			// Проверка существования указанных нод
+			for _, nodeName := range targetNodes {
+				found := false
+				for _, node := range cfg.V2rayStat.Nodes {
+					if node.NodeName == nodeName {
+						found = true
+						break
+					}
+				}
+				if !found {
+					cfg.Logger.Warn("Node not found in config", "node_name", nodeName)
+					http.Error(w, fmt.Sprintf("Нода %s не найдена", nodeName), http.StatusBadRequest)
+					return
+				}
+			}
+			cfg.Logger.Debug("Указаны nodes", "nodes", targetNodes)
+		}
+
+		var errors []string
+		successNodes := make([]string, 0)
+
+		for _, nodeName := range targetNodes {
+			var nodeClient *db.NodeClient
+			for _, nc := range nodeClients {
+				if nc.NodeName == nodeName {
+					nodeClient = nc
+					break
+				}
+			}
+			if nodeClient == nil {
+				errMsg := fmt.Sprintf("Нода %s не найдена", nodeName)
+				cfg.Logger.Warn(errMsg)
+				errors = append(errors, errMsg)
+				continue
+			}
+
+			grpcCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			resp, err := nodeClient.Client.SetEnabled(grpcCtx, &proto.SetEnabledRequest{User: userIdentifier, Enabled: enabled})
+			if err != nil {
+				errMsg := fmt.Sprintf("Ошибка gRPC на ноде %s: %v", nodeName, err)
+				cfg.Logger.Error(errMsg)
+				errors = append(errors, errMsg)
+				continue
+			}
+			if resp.Error != "" {
+				errMsg := fmt.Sprintf("Ошибка на ноде %s: %s", nodeName, resp.Error)
+				cfg.Logger.Warn(errMsg)
+				errors = append(errors, errMsg)
+				continue
+			}
+
+			successNodes = append(successNodes, nodeName)
+		}
+
+		if len(successNodes) > 0 {
+			err := manager.ExecuteHighPriority(func(db *sql.DB) error {
+				tx, err := db.Begin()
+				if err != nil {
+					return fmt.Errorf("не удалось начать транзакцию: %v", err)
+				}
+				defer tx.Rollback()
+
+				for _, nodeName := range successNodes {
+					_, err := tx.Exec("UPDATE user_traffic SET enabled = ? WHERE node_name = ? AND user = ?", enabledStr, nodeName, userIdentifier)
+					if err != nil {
+						return fmt.Errorf("не удалось обновить статус для %s на ноде %s: %v", userIdentifier, nodeName, err)
+					}
+				}
+
+				return tx.Commit()
+			})
+			if err != nil {
+				cfg.Logger.Error("Ошибка обновления статуса в БД", "error", err)
+				http.Error(w, "Ошибка обновления статуса в БД", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		if len(errors) > 0 {
+			if len(successNodes) > 0 {
+				// Частичный успех
+				w.WriteHeader(http.StatusMultiStatus) // Используем 207 Multi-Status
+				fmt.Fprintf(w, "Частичный успех: обновлены ноды %v; ошибки: %s", successNodes, strings.Join(errors, "; "))
+				cfg.Logger.Info("Partial success", "success_nodes", successNodes, "errors", errors)
+				return
+			}
+			// Полный провал
+			errMsg := fmt.Sprintf("Ошибки при обновлении статуса: %s", strings.Join(errors, "; "))
+			cfg.Logger.Error(errMsg)
+			http.Error(w, errMsg, http.StatusInternalServerError)
+			return
+		}
+
+		cfg.Logger.Info("Статус пользователя обновлён успешно", "user", userIdentifier, "enabled", enabled, "nodes", targetNodes)
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "User status updated successfully")
+		fmt.Fprintln(w, "Статус пользователя обновлён успешно")
 	}
 }

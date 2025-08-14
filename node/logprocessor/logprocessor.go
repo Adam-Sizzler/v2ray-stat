@@ -65,7 +65,7 @@ func NewLogProcessor(cfg *config.NodeConfig) (*LogProcessor, error) {
 		accessLog.Close()
 		return nil, err
 	}
-	cfg.Logger.Info("Initialized log processor", "file", cfg.Core.AccessLog, "offset", offset)
+	cfg.Logger.Debug("Initialized log processor", "file", cfg.Core.AccessLog, "offset", offset)
 
 	processor := &LogProcessor{
 		cfg:           cfg,

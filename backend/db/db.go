@@ -63,7 +63,7 @@ func NewNodeClient(nodeCfg config.NodeConfig, cfg *config.Config) (*NodeClient, 
 		opts = append(opts, grpc.WithTransportCredentials(creds))
 		cfg.Logger.Info("Using mTLS for node", "node", nodeCfg.NodeName)
 	} else {
-		cfg.Logger.Debug("Using insecure connection for node", "node", nodeCfg.NodeName)
+		cfg.Logger.Info("Using insecure connection for node", "node", nodeCfg.NodeName)
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
@@ -150,7 +150,6 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 		-- Таблица для данных пользователей
 		CREATE TABLE IF NOT EXISTS user_data (
 			user TEXT PRIMARY KEY,
-			enabled TEXT DEFAULT 'true',
 			sub_end TEXT DEFAULT '',
 			renew INTEGER DEFAULT 0,
 			lim_ip INTEGER DEFAULT 0,
@@ -168,6 +167,7 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 			sess_uplink INTEGER DEFAULT 0,
 			sess_downlink INTEGER DEFAULT 0,
 			created TEXT,
+			enabled TEXT DEFAULT 'true',
 			PRIMARY KEY (node_name, user),
 			FOREIGN KEY (node_name) REFERENCES nodes(node_name) ON DELETE CASCADE,
 			FOREIGN KEY (user) REFERENCES user_data(user) ON DELETE CASCADE
@@ -214,8 +214,6 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 		END;
 
 		-- Индексы для оптимизации запросов
-		CREATE INDEX IF NOT EXISTS idx_user_data_enabled ON user_data(enabled);
-		CREATE INDEX IF NOT EXISTS idx_user_data_sub_end ON user_data(sub_end);
 		CREATE INDEX IF NOT EXISTS idx_user_traffic_user ON user_traffic(user);
 		CREATE INDEX IF NOT EXISTS idx_user_traffic_rate ON user_traffic(rate);
 		CREATE INDEX IF NOT EXISTS idx_user_traffic_last_seen ON user_traffic(last_seen);
@@ -223,7 +221,6 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 		CREATE INDEX IF NOT EXISTS idx_user_traffic_sess_downlink ON user_traffic(sess_downlink);
 		CREATE INDEX IF NOT EXISTS idx_user_traffic_uplink ON user_traffic(uplink);
 		CREATE INDEX IF NOT EXISTS idx_user_traffic_downlink ON user_traffic(downlink);
-		CREATE INDEX IF NOT EXISTS idx_user_traffic_created ON user_traffic(created);
 		CREATE INDEX IF NOT EXISTS idx_user_dns_domain ON user_dns(domain);
     `
 	if _, err = db.Exec(sqlStmt); err != nil {

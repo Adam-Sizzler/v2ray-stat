@@ -11,23 +11,7 @@ service NodeService {
 
   rpc AddUser(AddUserRequest) returns (AddUserResponse) {}
   rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse) {}
-}
-
-message DeleteUserRequest {
-  string user = 1;
-  string inbound_tag = 2;
-}
-message DeleteUserResponse {
-  string error = 1;
-}
-
-message AddUserRequest {
-  string user = 1;
-  string inbound_tag = 2;
-}
-message AddUserResponse {
-  string credential = 1;
-  string error = 2;
+  rpc SetEnabled(SetEnabledRequest) returns (SetEnabledResponse) {}
 }
 
 message GetUsersRequest {}
@@ -40,6 +24,7 @@ message UUIDInbound {
 message User {
   string username = 1;
   repeated UUIDInbound uuid_inbounds = 2;
+  bool enabled = 3;
 }
 
 message GetUsersResponse {
@@ -66,4 +51,30 @@ message GetLogDataResponse {
 message UserLogData {
   repeated string valid_ips = 1;
   map<string, int32> dns_stats = 2;
+}
+
+message AddUserRequest {
+  string user = 1;
+  string inbound_tag = 2;
+}
+message AddUserResponse {
+  string credential = 1;
+  string error = 2;
+}
+
+message DeleteUserRequest {
+  string user = 1;
+  string inbound_tag = 2;
+}
+message DeleteUserResponse {
+  string error = 1;
+}
+
+message SetEnabledRequest {
+  string user = 1;
+  bool enabled = 2;
+}
+
+message SetEnabledResponse {
+  string error = 1;
 }

@@ -58,7 +58,7 @@ func UsersHandler(manager *manager.DatabaseManager, cfg *config.Config) http.Han
 
 			// Первый запрос: получаем пользователей и их данные
 			query := `
-				SELECT ut.node_name, n.address, ut.user, uu.uuid, uu.inbound_tag, ut.rate, ud.enabled, ut.created, ud.sub_end, ud.renew, ud.lim_ip, ud.ips, ut.uplink, ut.downlink, ut.sess_uplink, ut.sess_downlink
+				SELECT ut.node_name, n.address, ut.user, uu.uuid, uu.inbound_tag, ut.rate, ut.enabled, ut.created, ud.sub_end, ud.renew, ud.lim_ip, ud.ips, ut.uplink, ut.downlink, ut.sess_uplink, ut.sess_downlink
 				FROM user_traffic ut
 				LEFT JOIN user_data ud ON ut.user = ud.user
 				LEFT JOIN user_uuids uu ON ut.user = uu.user AND ut.node_name = uu.node_name
@@ -82,7 +82,24 @@ func UsersHandler(manager *manager.DatabaseManager, cfg *config.Config) http.Han
 				var uplink, downlink, sessUplink, sessDownlink int64
 				var uuidNull, inboundTagNull, enabledNull, created, subEndNull, ipsNull, addressNull sql.NullString
 
-				if err := rows.Scan(&nodeName, &addressNull, &userName, &uuidNull, &inboundTagNull, &rate, &enabledNull, &created, &subEndNull, &renew, &limIp, &ipsNull, &uplink, &downlink, &sessUplink, &sessDownlink); err != nil {
+				if err := rows.Scan(
+					&nodeName,
+					&addressNull,
+					&userName,
+					&uuidNull,
+					&inboundTagNull,
+					&rate,
+					&enabledNull,
+					&created,
+					&subEndNull,
+					&renew,
+					&limIp,
+					&ipsNull,
+					&uplink,
+					&downlink,
+					&sessUplink,
+					&sessDownlink,
+				); err != nil {
 					cfg.Logger.Error("Failed to scan row", "error", err)
 					return fmt.Errorf("failed to scan row: %v", err)
 				}

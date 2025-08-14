@@ -17,7 +17,25 @@ import (
 func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, nodeClients []*db.NodeClient, cfg *config.Config) error {
 	var errs []error
 	for _, nc := range nodeClients {
-		grpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		// Проверка существования ноды в таблице nodes
+		err := manager.ExecuteHighPriority(func(db *sql.DB) error {
+			var count int
+			err := db.QueryRow("SELECT COUNT(*) FROM nodes WHERE node_name = ?", nc.NodeName).Scan(&count)
+			if err != nil {
+				return fmt.Errorf("check node existence: %w", err)
+			}
+			if count == 0 {
+				return fmt.Errorf("node %s not found in nodes table", nc.NodeName)
+			}
+			return nil
+		})
+		if err != nil {
+			cfg.Logger.Warn("Node check failed", "node_name", nc.NodeName, "error", err)
+			errs = append(errs, err)
+			continue
+		}
+
+		grpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second) // Настраиваемый таймаут
 		defer cancel()
 
 		resp, err := nc.Client.GetUsers(grpcCtx, &proto.GetUsersRequest{})
@@ -31,6 +49,7 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 		for _, user := range resp.Users {
 			nodeUsers[user.Username] = true
 		}
+		cfg.Logger.Debug("Fetched users from node", "node_name", nc.NodeName, "user_count", len(nodeUsers))
 
 		var dbUsers []string
 		err = manager.ExecuteHighPriority(func(db *sql.DB) error {
@@ -63,11 +82,14 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 			defer tx.Rollback()
 
 			for _, user := range resp.Users {
-				// Добавляем пользователя в user_traffic с колонкой created
+				enabledStr := "false"
+				if user.Enabled {
+					enabledStr = "true"
+				}
 				_, err = tx.Exec(`
-					INSERT OR IGNORE INTO user_traffic (node_name, user, rate, created)
-					VALUES (?, ?, 0, ?)`,
-					nc.NodeName, user.Username, time.Now().Format("2006-01-02-15"))
+					INSERT OR IGNORE INTO user_traffic (node_name, user, rate, created, enabled)
+					VALUES (?, ?, 0, ?, ?)`,
+					nc.NodeName, user.Username, time.Now().Format("2006-01-02-15"), enabledStr)
 				if err != nil {
 					return fmt.Errorf("insert user %s into user_traffic: %w", user.Username, err)
 				}

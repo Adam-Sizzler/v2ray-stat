@@ -239,11 +239,17 @@ func buildCustomClientStats(builder *strings.Builder, manager *manager.DatabaseM
 					} else {
 						clientCols = append(clientCols, fmt.Sprintf("ut.%s AS \"%s\"", col, alias))
 					}
-				case "sub_end", "renew", "lim_ip", "ips", "enabled":
+				case "sub_end", "renew", "lim_ip", "ips":
 					if aggregate {
 						clientCols = append(clientCols, fmt.Sprintf("MIN(ud.%s) AS \"%s\"", col, alias))
 					} else {
 						clientCols = append(clientCols, fmt.Sprintf("ud.%s AS \"%s\"", col, alias))
+					}
+				case "enabled":
+					if aggregate {
+						clientCols = append(clientCols, fmt.Sprintf("MIN(ut.%s) AS \"%s\"", col, alias))
+					} else {
+						clientCols = append(clientCols, fmt.Sprintf("ut.%s AS \"%s\"", col, alias))
 					}
 				case "inbound_tag", "uuid":
 					if aggregate {
