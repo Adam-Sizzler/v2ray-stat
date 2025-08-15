@@ -13,11 +13,11 @@ import (
 	"v2ray-stat/node/proto"
 )
 
-// SyncUsersWithNode синхронизирует пользователей с ноды с базой данных, добавляя новых и удаляя отсутствующих.
+// SyncUsersWithNode синхронизирует пользователей с ноды с базой данных.
 func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, nodeClients []*db.NodeClient, cfg *config.Config) error {
 	var errs []error
 	for _, nc := range nodeClients {
-		// Проверка существования ноды в таблице nodes
+		// Проверка существования ноды
 		err := manager.ExecuteHighPriority(func(db *sql.DB) error {
 			var count int
 			err := db.QueryRow("SELECT COUNT(*) FROM nodes WHERE node_name = ?", nc.NodeName).Scan(&count)
@@ -35,7 +35,8 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 			continue
 		}
 
-		grpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second) // Настраиваемый таймаут
+		// Получение пользователей с ноды
+		grpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 
 		resp, err := nc.Client.GetUsers(grpcCtx, &proto.GetUsersRequest{})
@@ -45,12 +46,13 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 			continue
 		}
 
-		nodeUsers := make(map[string]bool)
+		nodeUsers := make(map[string]bool, len(resp.Users))
 		for _, user := range resp.Users {
 			nodeUsers[user.Username] = true
 		}
 		cfg.Logger.Debug("Fetched users from node", "node_name", nc.NodeName, "user_count", len(nodeUsers))
 
+		// Получение пользователей из базы данных
 		var dbUsers []string
 		err = manager.ExecuteHighPriority(func(db *sql.DB) error {
 			rows, err := db.Query("SELECT user FROM user_traffic WHERE node_name = ?", nc.NodeName)
@@ -73,7 +75,8 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 			continue
 		}
 
-		addedUsers, addedUUIDs, deletedUsers := 0, 0, 0
+		// Синхронизация пользователей
+		addedUsers, addedUUIDs, updatedUsers, deletedUsers := 0, 0, 0, 0
 		err = manager.ExecuteHighPriority(func(db *sql.DB) error {
 			tx, err := db.BeginTx(ctx, nil)
 			if err != nil {
@@ -81,43 +84,93 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 			}
 			defer tx.Rollback()
 
+			// Подготовка запросов для оптимизации
+			stmtInsertUser, err := tx.Prepare(`
+				INSERT OR REPLACE INTO user_traffic (node_name, user, rate, created, enabled)
+				VALUES (?, ?, 0, ?, ?)`)
+			if err != nil {
+				return fmt.Errorf("prepare insert user statement: %w", err)
+			}
+			defer stmtInsertUser.Close()
+
+			stmtInsertUUID, err := tx.Prepare(`
+				INSERT OR IGNORE INTO user_uuids (node_name, user, uuid, inbound_tag)
+				VALUES (?, ?, ?, ?)`)
+			if err != nil {
+				return fmt.Errorf("prepare insert uuid statement: %w", err)
+			}
+			defer stmtInsertUUID.Close()
+
+			// Обработка пользователей с ноды
+			currentTime := time.Now().Format("2006-01-02-15")
 			for _, user := range resp.Users {
-				enabledStr := "true"
-				if !user.Enabled {
-					enabledStr = "false"
+				enabledStr := "false"
+				if user.Enabled {
+					enabledStr = "true"
 				}
-				_, err = tx.Exec(`
-					INSERT OR IGNORE INTO user_traffic (node_name, user, rate, created, enabled)
-					VALUES (?, ?, 0, ?, ?)`,
-					nc.NodeName, user.Username, time.Now().Format("2006-01-02-15"), enabledStr)
+
+				result, err := stmtInsertUser.Exec(nc.NodeName, user.Username, currentTime, enabledStr)
 				if err != nil {
-					return fmt.Errorf("insert user %s into user_traffic: %w", user.Username, err)
+					return fmt.Errorf("insert or update user %s: %w", user.Username, err)
 				}
-				addedUsers++
+				rowsAffected, err := result.RowsAffected()
+				if err != nil {
+					return fmt.Errorf("check rows affected for user %s: %w", user.Username, err)
+				}
+				if rowsAffected > 0 {
+					if rowsAffected == 1 {
+						addedUsers++
+					} else {
+						updatedUsers++
+					}
+				}
 
 				for _, ui := range user.UuidInbounds {
-					_, err := tx.Exec(`
-						INSERT OR IGNORE INTO user_uuids (node_name, user, uuid, inbound_tag)
-						VALUES (?, ?, ?, ?)`,
-						nc.NodeName, user.Username, ui.Uuid, ui.InboundTag)
+					result, err := stmtInsertUUID.Exec(nc.NodeName, user.Username, ui.Uuid, ui.InboundTag)
 					if err != nil {
-						return fmt.Errorf("insert uuid %s for user %s into user_uuids: %w", ui.Uuid, user.Username, err)
+						return fmt.Errorf("insert uuid %s for user %s: %w", ui.Uuid, user.Username, err)
 					}
-					addedUUIDs++
+					rowsAffected, err := result.RowsAffected()
+					if err != nil {
+						return fmt.Errorf("check rows affected for uuid %s: %w", ui.Uuid, err)
+					}
+					if rowsAffected > 0 {
+						addedUUIDs++
+					}
 				}
 			}
 
+			// Удаление отсутствующих пользователей
+			stmtDeleteUser, err := tx.Prepare("DELETE FROM user_traffic WHERE node_name = ? AND user = ?")
+			if err != nil {
+				return fmt.Errorf("prepare delete user statement: %w", err)
+			}
+			defer stmtDeleteUser.Close()
+
+			stmtDeleteUUID, err := tx.Prepare("DELETE FROM user_uuids WHERE node_name = ? AND user = ?")
+			if err != nil {
+				return fmt.Errorf("prepare delete uuid statement: %w", err)
+			}
+			defer stmtDeleteUUID.Close()
+
 			for _, user := range dbUsers {
 				if !nodeUsers[user] {
-					_, err := tx.Exec("DELETE FROM user_traffic WHERE node_name = ? AND user = ?", nc.NodeName, user)
+					result, err := stmtDeleteUser.Exec(nc.NodeName, user)
 					if err != nil {
 						return fmt.Errorf("delete user %s from user_traffic: %w", user, err)
 					}
-					_, err = tx.Exec("DELETE FROM user_uuids WHERE node_name = ? AND user = ?", nc.NodeName, user)
+					rowsAffected, err := result.RowsAffected()
+					if err != nil {
+						return fmt.Errorf("check rows affected for user deletion %s: %w", user, err)
+					}
+					if rowsAffected > 0 {
+						deletedUsers++
+					}
+
+					_, err = stmtDeleteUUID.Exec(nc.NodeName, user)
 					if err != nil {
 						return fmt.Errorf("delete user %s from user_uuids: %w", user, err)
 					}
-					deletedUsers++
 				}
 			}
 
@@ -132,6 +185,7 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 		cfg.Logger.Debug("Successfully synced users for node",
 			"node_name", nc.NodeName,
 			"added_users", addedUsers,
+			"updated_users", updatedUsers,
 			"added_uuids", addedUUIDs,
 			"deleted_users", deletedUsers)
 	}
