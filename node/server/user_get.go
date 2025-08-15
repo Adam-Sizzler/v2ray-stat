@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"v2ray-stat/node/api"
 	"v2ray-stat/node/config"
 	"v2ray-stat/node/logprocessor"
 	"v2ray-stat/node/proto"
@@ -206,6 +207,26 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 	}
 	s.Cfg.Logger.Debug("Returning users", "count", len(resp.Users))
 	return resp, nil
+}
+
+func (s *NodeServer) GetApiResponse(ctx context.Context, req *proto.GetApiResponseRequest) (*proto.GetApiResponseResponse, error) {
+	s.Cfg.Logger.Debug("Received GetApiResponse request")
+	apiData, err := api.GetApiResponse(s.Cfg)
+	if err != nil {
+		s.Cfg.Logger.Error("Failed to get API response", "error", err)
+		return nil, fmt.Errorf("failed to get API response: %w", err)
+	}
+
+	response := &proto.GetApiResponseResponse{}
+	for _, stat := range apiData.Stat {
+		response.Stats = append(response.Stats, &proto.Stat{
+			Name:  stat.Name,
+			Value: stat.Value,
+		})
+	}
+
+	s.Cfg.Logger.Debug("Returning API response", "stats_count", len(response.Stats))
+	return response, nil
 }
 
 // NewNodeServer создаёт новый сервер ноды.
