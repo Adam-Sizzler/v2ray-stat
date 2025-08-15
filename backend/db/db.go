@@ -236,7 +236,7 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 		}
 	}
 
-	cfg.Logger.Info("Database initialized", "dbType", dbType)
+	cfg.Logger.Debug("Database initialized", "dbType", dbType)
 	return db, nil
 }
 
@@ -289,7 +289,7 @@ func InitDatabase(cfg *config.Config) (memDB, fileDB *sql.DB, err error) {
 		}
 	}
 
-	cfg.Logger.Info("Database initialization completed", "in-memory", true, "file", true)
+	cfg.Logger.Debug("Database initialization completed", "in-memory", true, "file", true)
 	return memDB, fileDB, nil
 }
 

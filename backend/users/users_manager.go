@@ -82,9 +82,9 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 			defer tx.Rollback()
 
 			for _, user := range resp.Users {
-				enabledStr := "false"
-				if user.Enabled {
-					enabledStr = "true"
+				enabledStr := "true"
+				if !user.Enabled {
+					enabledStr = "false"
 				}
 				_, err = tx.Exec(`
 					INSERT OR IGNORE INTO user_traffic (node_name, user, rate, created, enabled)

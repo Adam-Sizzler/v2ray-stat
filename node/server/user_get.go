@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
-	"v2ray-stat/node/api"
 	"v2ray-stat/node/config"
 	"v2ray-stat/node/logprocessor"
 	"v2ray-stat/node/proto"
@@ -19,35 +19,80 @@ type NodeServer struct {
 }
 
 func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (*proto.GetUsersResponse, error) {
-	userMap := make(map[string][]*proto.UUIDInbound)
+	userMap := make(map[string]struct {
+		uis     []*proto.UUIDInbound
+		enabled bool
+	})
+
+	mainConfigPath := s.Cfg.Core.Config
+	disabledUsersPath := filepath.Join(s.Cfg.Core.Dir, ".disabled_users")
 
 	switch s.Cfg.V2rayStat.Type {
 	case "xray":
-		data, err := os.ReadFile(s.Cfg.Core.Config)
+		// Read main config
+		data, err := os.ReadFile(mainConfigPath)
 		if err != nil {
-			s.Cfg.Logger.Error("Failed to read Xray config", "error", err)
+			s.Cfg.Logger.Error("Failed to read Xray main config", "error", err)
 			return nil, err
 		}
 		var cfgXray config.ConfigXray
 		if err := json.Unmarshal(data, &cfgXray); err != nil {
-			s.Cfg.Logger.Error("Failed to parse Xray config", "error", err)
+			s.Cfg.Logger.Error("Failed to parse Xray main config", "error", err)
 			return nil, err
 		}
 		for _, inbound := range cfgXray.Inbounds {
 			for _, client := range inbound.Settings.Clients {
 				ui := &proto.UUIDInbound{Uuid: client.ID, InboundTag: inbound.Tag}
-				userMap[client.Email] = append(userMap[client.Email], ui)
+				if val, exists := userMap[client.Email]; exists {
+					val.uis = append(val.uis, ui)
+					userMap[client.Email] = val
+				} else {
+					userMap[client.Email] = struct {
+						uis     []*proto.UUIDInbound
+						enabled bool
+					}{uis: []*proto.UUIDInbound{ui}, enabled: true}
+				}
 			}
 		}
+
+		// Read disabled users file if exists
+		disabledData, err := os.ReadFile(disabledUsersPath)
+		if err == nil {
+			var disabledCfg config.DisabledUsersConfigXray
+			if err := json.Unmarshal(disabledData, &disabledCfg); err != nil {
+				s.Cfg.Logger.Error("Failed to parse Xray disabled users file", "error", err)
+				return nil, err
+			}
+			for _, inbound := range disabledCfg.Inbounds {
+				for _, client := range inbound.Settings.Clients {
+					ui := &proto.UUIDInbound{Uuid: client.ID, InboundTag: inbound.Tag}
+					if val, exists := userMap[client.Email]; exists {
+						val.uis = append(val.uis, ui)
+						val.enabled = false // Set enabled to false if in disabled
+						userMap[client.Email] = val
+					} else {
+						userMap[client.Email] = struct {
+							uis     []*proto.UUIDInbound
+							enabled bool
+						}{uis: []*proto.UUIDInbound{ui}, enabled: false}
+					}
+				}
+			}
+		} else if !os.IsNotExist(err) {
+			s.Cfg.Logger.Error("Failed to read Xray disabled users file", "error", err)
+			return nil, err
+		}
+
 	case "singbox":
-		data, err := os.ReadFile(s.Cfg.Core.Config)
+		// Read main config
+		data, err := os.ReadFile(mainConfigPath)
 		if err != nil {
-			s.Cfg.Logger.Error("Failed to read Singbox config", "error", err)
+			s.Cfg.Logger.Error("Failed to read Singbox main config", "error", err)
 			return nil, err
 		}
 		var cfgSingbox config.ConfigSingbox
 		if err := json.Unmarshal(data, &cfgSingbox); err != nil {
-			s.Cfg.Logger.Error("Failed to parse Singbox config", "error", err)
+			s.Cfg.Logger.Error("Failed to parse Singbox main config", "error", err)
 			return nil, err
 		}
 		for _, inbound := range cfgSingbox.Inbounds {
@@ -60,42 +105,67 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 					uuid = user.Password
 				}
 				ui := &proto.UUIDInbound{Uuid: uuid, InboundTag: inbound.Tag}
-				userMap[user.Name] = append(userMap[user.Name], ui)
+				if val, exists := userMap[user.Name]; exists {
+					val.uis = append(val.uis, ui)
+					userMap[user.Name] = val
+				} else {
+					userMap[user.Name] = struct {
+						uis     []*proto.UUIDInbound
+						enabled bool
+					}{uis: []*proto.UUIDInbound{ui}, enabled: true}
+				}
 			}
 		}
+
+		// Read disabled users file if exists
+		disabledData, err := os.ReadFile(disabledUsersPath)
+		if err == nil {
+			var disabledCfg config.DisabledUsersConfigSingbox
+			if err := json.Unmarshal(disabledData, &disabledCfg); err != nil {
+				s.Cfg.Logger.Error("Failed to parse Singbox disabled users file", "error", err)
+				return nil, err
+			}
+			for _, inbound := range disabledCfg.Inbounds {
+				for _, user := range inbound.Users {
+					var uuid string
+					switch inbound.Type {
+					case "vless":
+						uuid = user.UUID
+					case "trojan":
+						uuid = user.Password
+					}
+					ui := &proto.UUIDInbound{Uuid: uuid, InboundTag: inbound.Tag}
+					if val, exists := userMap[user.Name]; exists {
+						val.uis = append(val.uis, ui)
+						val.enabled = false // Set enabled to false if in disabled
+						userMap[user.Name] = val
+					} else {
+						userMap[user.Name] = struct {
+							uis     []*proto.UUIDInbound
+							enabled bool
+						}{uis: []*proto.UUIDInbound{ui}, enabled: false}
+					}
+				}
+			}
+		} else if !os.IsNotExist(err) {
+			s.Cfg.Logger.Error("Failed to read Singbox disabled users file", "error", err)
+			return nil, err
+		}
+
 	default:
 		return nil, fmt.Errorf("unsupported core type: %s", s.Cfg.V2rayStat.Type)
 	}
 
 	resp := &proto.GetUsersResponse{}
-	for username, uis := range userMap {
+	for username, val := range userMap {
 		user := &proto.User{
 			Username:     username,
-			UuidInbounds: uis,
+			UuidInbounds: val.uis,
+			Enabled:      val.enabled,
 		}
 		resp.Users = append(resp.Users, user)
 	}
 	return resp, nil
-}
-
-func (s *NodeServer) GetApiResponse(ctx context.Context, req *proto.GetApiResponseRequest) (*proto.GetApiResponseResponse, error) {
-	s.Cfg.Logger.Debug("Received GetApiResponse request")
-	apiData, err := api.GetApiResponse(s.Cfg)
-	if err != nil {
-		s.Cfg.Logger.Error("Failed to get API response", "error", err)
-		return nil, fmt.Errorf("failed to get API response: %w", err)
-	}
-
-	response := &proto.GetApiResponseResponse{}
-	for _, stat := range apiData.Stat {
-		response.Stats = append(response.Stats, &proto.Stat{
-			Name:  stat.Name,
-			Value: stat.Value,
-		})
-	}
-
-	s.Cfg.Logger.Debug("Returning API response", "stats_count", len(response.Stats))
-	return response, nil
 }
 
 // NewNodeServer создаёт новый сервер ноды.
