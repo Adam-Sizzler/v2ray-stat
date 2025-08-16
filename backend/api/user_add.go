@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 
 	"v2ray-stat/backend/config"
 	"v2ray-stat/backend/db"
@@ -67,12 +68,11 @@ func AddUserHandler(manager *manager.DatabaseManager, cfg *config.Config) http.H
 			return
 		}
 
+		// Определяем список нод
 		var targetNodes []config.NodeConfig
 		if len(req.Nodes) == 0 {
-			// Если nodes не указаны, берем все ноды из конфигурации
 			targetNodes = GetNodesFromConfig(cfg)
 		} else {
-			// Фильтруем ноды по указанным именам
 			for _, nodeName := range req.Nodes {
 				for _, node := range cfg.V2rayStat.Nodes {
 					if node.NodeName == nodeName {
@@ -87,17 +87,49 @@ func AddUserHandler(manager *manager.DatabaseManager, cfg *config.Config) http.H
 			}
 		}
 
-		results := make(map[string]string)
-		for _, node := range targetNodes {
-			// ИЗМЕНЕНИЕ: Добавляем cfg в вызов
-			credential, err := AddUserToNode(node, req.User, req.InboundTag, cfg)
-			if err != nil {
-				http.Error(w, fmt.Sprintf("failed to add user to %s: %v", node.NodeName, err), http.StatusInternalServerError)
-				return
-			}
-			results[node.NodeName] = credential
+		// --- Параллельная обработка ---
+		type result struct {
+			nodeName   string
+			credential string
+			err        error
 		}
 
+		resultsCh := make(chan result, len(targetNodes))
+		var wg sync.WaitGroup
+
+		for _, node := range targetNodes {
+			wg.Add(1)
+			go func(node config.NodeConfig) {
+				defer wg.Done()
+
+				credential, err := AddUserToNode(node, req.User, req.InboundTag, cfg)
+				resultsCh <- result{
+					nodeName:   node.NodeName,
+					credential: credential,
+					err:        err,
+				}
+			}(node)
+		}
+
+		wg.Wait()
+		close(resultsCh)
+
+		results := make(map[string]string)
+		var errs []error
+		for res := range resultsCh {
+			if res.err != nil {
+				errs = append(errs, fmt.Errorf("failed to add user to %s: %v", res.nodeName, res.err))
+				continue
+			}
+			results[res.nodeName] = res.credential
+		}
+
+		if len(errs) > 0 {
+			http.Error(w, fmt.Sprintf("errors occurred: %v", errs), http.StatusInternalServerError)
+			return
+		}
+
+		// Отдаём успешный результат
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(results)

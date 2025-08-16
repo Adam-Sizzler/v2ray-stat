@@ -14,18 +14,58 @@ import (
 	"v2ray-stat/node/proto"
 )
 
-// IPStore хранит IP-адреса и их временные метки с мьютексом для будущей масштабируемости.
+// IPStore хранит IP-адреса и их временные метки с мьютексом для потокобезопасности.
 type IPStore struct {
 	timestamps map[string]map[string]time.Time // user -> ip -> timestamp
-	// mutex      sync.Mutex // Закомментировано, так как пока не требуется конкурентный доступ
+	mutex      sync.RWMutex
 }
 
 // NewIPStore создаёт новый экземпляр IPStore.
 func NewIPStore() *IPStore {
 	return &IPStore{
 		timestamps: make(map[string]map[string]time.Time),
-		// mutex:      sync.Mutex{},
 	}
+}
+
+// AddIPs добавляет/обновляет IP для пользователя с меткой времени.
+func (s *IPStore) AddIPs(user string, ips []string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.timestamps[user] == nil {
+		s.timestamps[user] = make(map[string]time.Time)
+	}
+	for _, ip := range ips {
+		s.timestamps[user][ip] = time.Now()
+	}
+}
+
+// CollectAndCleanup возвращает актуальные IP для обновления в БД и чистит старые.
+func (s *IPStore) CollectAndCleanup(ttl time.Duration) map[string][]string {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	ipUpdates := make(map[string][]string)
+	now := time.Now()
+
+	for user, ipMap := range s.timestamps {
+		validIPs := []string{}
+		for ip, timestamp := range ipMap {
+			if now.Sub(timestamp) <= ttl {
+				validIPs = append(validIPs, ip)
+			} else {
+				delete(ipMap, ip) // удаляем устаревший
+			}
+		}
+		if len(validIPs) > 0 {
+			ipUpdates[user] = validIPs
+		}
+		if len(ipMap) == 0 {
+			delete(s.timestamps, user) // чистим пустых
+		}
+	}
+
+	return ipUpdates
 }
 
 // UpdateIPsBatch обновляет IP-адреса для нескольких пользователей одной транзакцией.
@@ -124,10 +164,6 @@ func UpsertDNSRecordsBatch(manager *manager.DatabaseManager, dnsStats map[string
 
 // ProcessLogData обрабатывает данные логов с нод, обновляя IP-адреса и DNS-статистику.
 func ProcessLogData(ctx context.Context, manager *manager.DatabaseManager, nodeClients []*db.NodeClient, store *IPStore, cfg *config.Config) error {
-	// Закомментировано, так как пока не требуется конкурентный доступ
-	// store.mutex.Lock()
-	// defer store.mutex.Unlock()
-
 	for _, nc := range nodeClients {
 		grpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
@@ -138,25 +174,16 @@ func ProcessLogData(ctx context.Context, manager *manager.DatabaseManager, nodeC
 			continue
 		}
 
-		// Обрабатываем DNS-статистику и IP-адреса для каждой ноды
+		// Собираем DNS-статистику
 		dnsStats := make(map[string]map[string]int)
 		for user, data := range response.UserLogData {
-			// Обновляем IP-адреса в памяти с текущей меткой времени
-			if store.timestamps[user] == nil {
-				store.timestamps[user] = make(map[string]time.Time)
-			}
-			for _, ip := range data.ValidIps {
-				store.timestamps[user][ip] = time.Now()
-			}
-
-			// Собираем DNS-статистику
+			store.AddIPs(user, data.ValidIps)
 			dnsStats[user] = make(map[string]int)
 			for domain, count := range data.DnsStats {
 				dnsStats[user][domain] = int(count)
 			}
 		}
 
-		// Обновляем DNS-статистику в базе
 		if len(dnsStats) > 0 {
 			if err := UpsertDNSRecordsBatch(manager, dnsStats, nc.NodeName, cfg); err != nil {
 				cfg.Logger.Error("Failed to update user_dns", "node_name", nc.NodeName, "error", err)
@@ -167,26 +194,7 @@ func ProcessLogData(ctx context.Context, manager *manager.DatabaseManager, nodeC
 		}
 	}
 
-	// Собираем IP-адреса для обновления
-	ipUpdates := make(map[string][]string)
-	for user, ipMap := range store.timestamps {
-		validIPs := []string{}
-		for ip, timestamp := range ipMap {
-			if time.Since(timestamp) <= 66*time.Second {
-				validIPs = append(validIPs, ip)
-			} else {
-				delete(store.timestamps[user], ip) // Удаляем устаревшие IP
-			}
-		}
-		if len(validIPs) > 0 {
-			ipUpdates[user] = validIPs
-		}
-		if len(store.timestamps[user]) == 0 {
-			delete(store.timestamps, user) // Очищаем пустую мапу пользователя
-		}
-	}
-
-	// Обновляем IP-адреса одной транзакцией
+	ipUpdates := store.CollectAndCleanup(66 * time.Second)
 	if len(ipUpdates) > 0 {
 		if err := UpdateIPsBatch(manager, ipUpdates, cfg); err != nil {
 			cfg.Logger.Error("Failed to update IPs in database", "error", err)

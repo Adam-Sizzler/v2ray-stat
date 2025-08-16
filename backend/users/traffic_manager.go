@@ -19,12 +19,14 @@ import (
 )
 
 var (
-	userActivityTimestamps = make(map[string]map[string]time.Time) // node_name -> user -> timestamp
-	userActivityMutex      sync.Mutex
-	previousStats          = make(map[string]string) // node_name -> stats
-	clientPreviousStats    = make(map[string]string) // node_name -> stats
-	isInactive             = make(map[string]bool)   // node_name:user -> status
-	isInactiveMutex        sync.Mutex
+	userActivityTimestamps   = make(map[string]map[string]time.Time) // node_name -> user -> timestamp
+	userActivityMutex        sync.Mutex
+	previousStats            = make(map[string]string) // node_name -> stats
+	previousStatsMutex       sync.Mutex                // Глобальный мьютекс для previousStats
+	clientPreviousStats      = make(map[string]string) // node_name -> stats
+	clientPreviousStatsMutex sync.Mutex                // Глобальный мьютекс для clientPreviousStats
+	isInactive               = make(map[string]bool)   // node_name:user -> status
+	isInactiveMutex          sync.Mutex
 )
 
 // LoadIsInactiveFromLastSeen загружает статус неактивности пользователей из last_seen.
@@ -90,7 +92,6 @@ func updateProxyStats(manager *manager.DatabaseManager, nodeName string, apiData
 	}
 	userActivityMutex.Unlock()
 
-	previousStatsMutex := sync.Mutex{}
 	previousStatsMutex.Lock()
 	if previousStats[nodeName] == "" {
 		previousStats[nodeName] = strings.Join(currentStats, "\n")
@@ -117,7 +118,7 @@ func updateProxyStats(manager *manager.DatabaseManager, nodeName string, apiData
 	}
 
 	// Парсим предыдущие данные
-	for line := range strings.SplitSeq(previous, "\n") {
+	for _, line := range strings.Split(previous, "\n") {
 		parts := strings.Fields(line)
 		if len(parts) == 3 {
 			cfg.Logger.Trace("Parsing previous proxy stats", "node_name", nodeName, "line", line)
@@ -219,17 +220,16 @@ func updateUserStats(manager *manager.DatabaseManager, nodeName string, apiData 
 	}
 	userActivityMutex.Unlock()
 
-	previousStatsMutex := sync.Mutex{}
-	previousStatsMutex.Lock()
+	clientPreviousStatsMutex.Lock()
 	if clientPreviousStats[nodeName] == "" {
 		clientPreviousStats[nodeName] = strings.Join(currentStats, "\n")
-		previousStatsMutex.Unlock()
+		clientPreviousStatsMutex.Unlock()
 		cfg.Logger.Debug("Initialized previous user stats", "node_name", nodeName, "count", len(currentStats))
 		return nil
 	}
 	previous := clientPreviousStats[nodeName]
 	clientPreviousStats[nodeName] = strings.Join(currentStats, "\n")
-	previousStatsMutex.Unlock()
+	clientPreviousStatsMutex.Unlock()
 
 	currentValues := make(map[string]int)
 	previousValues := make(map[string]int)
@@ -475,24 +475,37 @@ func MonitorTrafficStats(ctx context.Context, manager *manager.DatabaseManager, 
 		for {
 			select {
 			case <-ticker.C:
+				// Создаем WaitGroup для синхронизации горутин
+				var nodeWG sync.WaitGroup
+				nodeWG.Add(len(nodeClients))
+
+				// Обрабатываем каждую ноду в отдельной горутине
 				for _, nc := range nodeClients {
-					grpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-					defer cancel()
+					go func(nc *db.NodeClient) {
+						defer nodeWG.Done()
 
-					protoData, err := nc.Client.GetApiResponse(grpcCtx, &proto.GetApiResponseRequest{})
-					if err != nil {
-						cfg.Logger.Error("Failed to retrieve API data from node", "node_name", nc.NodeName, "error", err)
-						continue
-					}
+						grpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+						defer cancel()
 
-					apiData := convertProtoToApiResponse(protoData)
-					if err := updateProxyStats(manager, nc.NodeName, apiData, cfg); err != nil {
-						cfg.Logger.Error("Failed to update proxy stats", "node_name", nc.NodeName, "error", err)
-					}
-					if err := updateUserStats(manager, nc.NodeName, apiData, cfg); err != nil {
-						cfg.Logger.Error("Failed to update user stats", "node_name", nc.NodeName, "error", err)
-					}
+						protoData, err := nc.Client.GetApiResponse(grpcCtx, &proto.GetApiResponseRequest{})
+						if err != nil {
+							cfg.Logger.Error("Failed to retrieve API data from node", "node_name", nc.NodeName, "error", err)
+							return
+						}
+
+						apiData := convertProtoToApiResponse(protoData)
+						if err := updateProxyStats(manager, nc.NodeName, apiData, cfg); err != nil {
+							cfg.Logger.Error("Failed to update proxy stats", "node_name", nc.NodeName, "error", err)
+						}
+						if err := updateUserStats(manager, nc.NodeName, apiData, cfg); err != nil {
+							cfg.Logger.Error("Failed to update user stats", "node_name", nc.NodeName, "error", err)
+						}
+					}(nc)
 				}
+
+				// Ожидаем завершения всех горутин для текущего тика
+				nodeWG.Wait()
+
 			case <-ctx.Done():
 				cfg.Logger.Debug("Traffic monitoring stopped")
 				return

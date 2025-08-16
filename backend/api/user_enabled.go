@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"v2ray-stat/backend/config"
@@ -85,11 +86,9 @@ func UserEnabledHandler(manager *manager.DatabaseManager, cfg *config.Config) ht
 		// Определяем целевые ноды
 		var targetNodes []config.NodeConfig
 		if len(req.Nodes) == 0 {
-			// Если nodes не указаны, берем все ноды из конфигурации
 			targetNodes = GetNodesFromConfig(cfg)
 			cfg.Logger.Debug("Nodes не указаны, применяем ко всем нодам", "nodes", targetNodes)
 		} else {
-			// Фильтруем ноды по указанным именам
 			for _, nodeName := range req.Nodes {
 				for _, node := range cfg.V2rayStat.Nodes {
 					if node.NodeName == nodeName {
@@ -106,39 +105,58 @@ func UserEnabledHandler(manager *manager.DatabaseManager, cfg *config.Config) ht
 			cfg.Logger.Debug("Указаны nodes", "nodes", targetNodes)
 		}
 
-		var errors []string
-		successNodes := make([]string, 0)
+		var (
+			errors       []string
+			successNodes []string
+			mu           sync.Mutex
+			wg           sync.WaitGroup
+		)
 
-		// Отправка gRPC-запросов на ноды
+		// Запускаем параллельно gRPC-запросы
 		for _, node := range targetNodes {
-			nodeClient, err := db.NewNodeClient(node, cfg)
-			if err != nil {
-				errMsg := fmt.Sprintf("failed to create client for node %s: %v", node.NodeName, err)
-				cfg.Logger.Error(errMsg)
-				errors = append(errors, errMsg)
-				continue
-			}
-			defer func() { nodeClient.Client = nil }()
+			wg.Add(1)
+			go func(node config.NodeConfig) {
+				defer wg.Done()
 
-			grpcCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
+				nodeClient, err := db.NewNodeClient(node, cfg)
+				if err != nil {
+					errMsg := fmt.Sprintf("failed to create client for node %s: %v", node.NodeName, err)
+					cfg.Logger.Error(errMsg)
+					mu.Lock()
+					errors = append(errors, errMsg)
+					mu.Unlock()
+					return
+				}
+				defer func() { nodeClient.Client = nil }()
 
-			resp, err := nodeClient.Client.SetEnabled(grpcCtx, &proto.SetEnabledRequest{User: req.User, Enabled: req.Enabled})
-			if err != nil {
-				errMsg := fmt.Sprintf("Ошибка gRPC на ноде %s: %v", node.NodeName, err)
-				cfg.Logger.Error(errMsg)
-				errors = append(errors, errMsg)
-				continue
-			}
-			if resp.Error != "" {
-				errMsg := fmt.Sprintf("Ошибка на ноде %s: %s", node.NodeName, resp.Error)
-				cfg.Logger.Warn(errMsg)
-				errors = append(errors, errMsg)
-				continue
-			}
+				grpcCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
 
-			successNodes = append(successNodes, node.NodeName)
+				resp, err := nodeClient.Client.SetEnabled(grpcCtx, &proto.SetEnabledRequest{User: req.User, Enabled: req.Enabled})
+				if err != nil {
+					errMsg := fmt.Sprintf("Ошибка gRPC на ноде %s: %v", node.NodeName, err)
+					cfg.Logger.Error(errMsg)
+					mu.Lock()
+					errors = append(errors, errMsg)
+					mu.Unlock()
+					return
+				}
+				if resp.Error != "" {
+					errMsg := fmt.Sprintf("Ошибка на ноде %s: %s", node.NodeName, resp.Error)
+					cfg.Logger.Warn(errMsg)
+					mu.Lock()
+					errors = append(errors, errMsg)
+					mu.Unlock()
+					return
+				}
+
+				mu.Lock()
+				successNodes = append(successNodes, node.NodeName)
+				mu.Unlock()
+			}(node)
 		}
+
+		wg.Wait()
 
 		// Обновление статуса в БД для успешных нод
 		if len(successNodes) > 0 {
@@ -169,19 +187,17 @@ func UserEnabledHandler(manager *manager.DatabaseManager, cfg *config.Config) ht
 			}
 		}
 
-		// Формирование ответа
+		// Формируем ответ
 		resp := UserEnabledResponse{
 			SuccessNodes: successNodes,
 		}
 		if len(errors) > 0 {
 			resp.Errors = errors
 			if len(successNodes) > 0 {
-				// Частичный успех
 				resp.Message = fmt.Sprintf("Частичный успех: обновлены ноды %v", successNodes)
-				w.WriteHeader(http.StatusMultiStatus) // 207 Multi-Status
+				w.WriteHeader(http.StatusMultiStatus)
 				cfg.Logger.Info("Partial success", "success_nodes", successNodes, "errors", errors)
 			} else {
-				// Полный провал
 				resp.Message = fmt.Sprintf("Ошибки при обновлении статуса: %s", strings.Join(errors, "; "))
 				cfg.Logger.Error(resp.Message)
 				w.WriteHeader(http.StatusInternalServerError)
@@ -192,7 +208,6 @@ func UserEnabledHandler(manager *manager.DatabaseManager, cfg *config.Config) ht
 			cfg.Logger.Info("Статус пользователя обновлён успешно", "user", req.User, "enabled", req.Enabled, "nodes", targetNodes)
 		}
 
-		// Отправка JSON-ответа
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
 			cfg.Logger.Error("Ошибка сериализации ответа", "error", err)
 			http.Error(w, `{"error": "Внутренняя ошибка сервера"}`, http.StatusInternalServerError)

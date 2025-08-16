@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 
 	"v2ray-stat/backend/config"
 	"v2ray-stat/backend/db"
@@ -65,10 +66,8 @@ func DeleteUserHandler(manager *manager.DatabaseManager, cfg *config.Config) htt
 		// Определяем целевые ноды
 		var targetNodes []config.NodeConfig
 		if len(req.Nodes) == 0 {
-			// Если nodes не указаны, берем все ноды из конфигурации
 			targetNodes = GetNodesFromConfig(cfg)
 		} else {
-			// Фильтруем ноды по указанным именам
 			for _, nodeName := range req.Nodes {
 				for _, node := range cfg.V2rayStat.Nodes {
 					if node.NodeName == nodeName {
@@ -83,14 +82,24 @@ func DeleteUserHandler(manager *manager.DatabaseManager, cfg *config.Config) htt
 			}
 		}
 
-		// Удаляем пользователя с каждой ноды и собираем ошибки
+		// Запускаем удаление параллельно
+		var wg sync.WaitGroup
+		var mu sync.Mutex
 		errors := make(map[string]string)
+
 		for _, node := range targetNodes {
-			err := DeleteUserFromNode(node, req.User, req.InboundTag, cfg)
-			if err != nil {
-				errors[node.NodeName] = err.Error()
-			}
+			wg.Add(1)
+			go func(n config.NodeConfig) {
+				defer wg.Done()
+				if err := DeleteUserFromNode(n, req.User, req.InboundTag, cfg); err != nil {
+					mu.Lock()
+					errors[n.NodeName] = err.Error()
+					mu.Unlock()
+				}
+			}(node)
 		}
+
+		wg.Wait()
 
 		// Формируем JSON-ответ
 		w.Header().Set("Content-Type", "application/json")
