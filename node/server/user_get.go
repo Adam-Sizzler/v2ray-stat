@@ -19,14 +19,13 @@ type NodeServer struct {
 	logProcessor *logprocessor.LogProcessor
 }
 
+// ключ уникальности
+func makeUserKey(username, uuid, tag string) string {
+	return fmt.Sprintf("%s|%s|%s", username, uuid, tag)
+}
+
 // processUsers обрабатывает пользователей из конфигурации и добавляет их в userMap.
-func processUsers[T any](data []byte, userMap map[string]struct {
-	uis     []*proto.UUIDInbound
-	enabled bool
-}, cfg *config.NodeConfig, isDisabled bool, process func(cfg T, userMap map[string]struct {
-	uis     []*proto.UUIDInbound
-	enabled bool
-})) error {
+func processUsers[T any](data []byte, userMap map[string]*proto.User, cfg *config.NodeConfig, isDisabled bool, process func(cfg T, userMap map[string]*proto.User)) error {
 	var config T
 	if err := json.Unmarshal(data, &config); err != nil {
 		cfg.Logger.Error("Failed to parse config", "error", err)
@@ -37,10 +36,7 @@ func processUsers[T any](data []byte, userMap map[string]struct {
 }
 
 func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (*proto.GetUsersResponse, error) {
-	userMap := make(map[string]struct {
-		uis     []*proto.UUIDInbound
-		enabled bool
-	})
+	userMap := make(map[string]*proto.User)
 
 	mainConfigPath := s.Cfg.Core.Config
 	disabledUsersPath := filepath.Join(s.Cfg.Core.Dir, ".disabled_users")
@@ -53,21 +49,16 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 			s.Cfg.Logger.Error("Failed to read Xray main config", "path", mainConfigPath, "error", err)
 			return nil, fmt.Errorf("read main config: %w", err)
 		}
-		err = processUsers(data, userMap, s.Cfg, false, func(cfg config.ConfigXray, userMap map[string]struct {
-			uis     []*proto.UUIDInbound
-			enabled bool
-		}) {
+		err = processUsers(data, userMap, s.Cfg, false, func(cfg config.ConfigXray, userMap map[string]*proto.User) {
 			for _, inbound := range cfg.Inbounds {
 				for _, client := range inbound.Settings.Clients {
 					ui := &proto.UUIDInbound{Uuid: client.ID, InboundTag: inbound.Tag}
-					if val, exists := userMap[client.Email]; exists {
-						val.uis = append(val.uis, ui)
-						userMap[client.Email] = val
-					} else {
-						userMap[client.Email] = struct {
-							uis     []*proto.UUIDInbound
-							enabled bool
-						}{uis: []*proto.UUIDInbound{ui}, enabled: true}
+					key := makeUserKey(client.Email, client.ID, inbound.Tag)
+
+					userMap[key] = &proto.User{
+						Username:     client.Email,
+						UuidInbounds: []*proto.UUIDInbound{ui},
+						Enabled:      true,
 					}
 				}
 			}
@@ -78,37 +69,24 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 
 		// Process disabled users
 		disabledData, err := os.ReadFile(disabledUsersPath)
-		if err == nil {
-			if len(disabledData) == 0 {
-				s.Cfg.Logger.Debug("Empty disabled users file", "path", disabledUsersPath)
-			} else {
-				err = processUsers(disabledData, userMap, s.Cfg, true, func(cfg config.DisabledUsersConfigXray, userMap map[string]struct {
-					uis     []*proto.UUIDInbound
-					enabled bool
-				}) {
-					for _, inbound := range cfg.Inbounds {
-						for _, client := range inbound.Settings.Clients {
-							ui := &proto.UUIDInbound{Uuid: client.ID, InboundTag: inbound.Tag}
-							if val, exists := userMap[client.Email]; exists {
-								val.uis = append(val.uis, ui)
-								val.enabled = false
-								userMap[client.Email] = val
-							} else {
-								userMap[client.Email] = struct {
-									uis     []*proto.UUIDInbound
-									enabled bool
-								}{uis: []*proto.UUIDInbound{ui}, enabled: false}
-							}
+		if err == nil && len(disabledData) > 0 {
+			err = processUsers(disabledData, userMap, s.Cfg, true, func(cfg config.DisabledUsersConfigXray, userMap map[string]*proto.User) {
+				for _, inbound := range cfg.Inbounds {
+					for _, client := range inbound.Settings.Clients {
+						ui := &proto.UUIDInbound{Uuid: client.ID, InboundTag: inbound.Tag}
+						key := makeUserKey(client.Email, client.ID, inbound.Tag)
+
+						userMap[key] = &proto.User{
+							Username:     client.Email,
+							UuidInbounds: []*proto.UUIDInbound{ui},
+							Enabled:      false,
 						}
 					}
-				})
-				if err != nil {
-					return nil, fmt.Errorf("process Xray disabled users: %w", err)
 				}
+			})
+			if err != nil {
+				return nil, fmt.Errorf("process Xray disabled users: %w", err)
 			}
-		} else if !os.IsNotExist(err) {
-			s.Cfg.Logger.Error("Failed to read Xray disabled users file", "path", disabledUsersPath, "error", err)
-			return nil, fmt.Errorf("read disabled users file: %w", err)
 		}
 
 	case "singbox":
@@ -118,10 +96,7 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 			s.Cfg.Logger.Error("Failed to read Singbox main config", "path", mainConfigPath, "error", err)
 			return nil, fmt.Errorf("read main config: %w", err)
 		}
-		err = processUsers(data, userMap, s.Cfg, false, func(cfg config.ConfigSingbox, userMap map[string]struct {
-			uis     []*proto.UUIDInbound
-			enabled bool
-		}) {
+		err = processUsers(data, userMap, s.Cfg, false, func(cfg config.ConfigSingbox, userMap map[string]*proto.User) {
 			for _, inbound := range cfg.Inbounds {
 				for _, user := range inbound.Users {
 					var uuid string
@@ -132,14 +107,12 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 						uuid = user.Password
 					}
 					ui := &proto.UUIDInbound{Uuid: uuid, InboundTag: inbound.Tag}
-					if val, exists := userMap[user.Name]; exists {
-						val.uis = append(val.uis, ui)
-						userMap[user.Name] = val
-					} else {
-						userMap[user.Name] = struct {
-							uis     []*proto.UUIDInbound
-							enabled bool
-						}{uis: []*proto.UUIDInbound{ui}, enabled: true}
+					key := makeUserKey(user.Name, uuid, inbound.Tag)
+
+					userMap[key] = &proto.User{
+						Username:     user.Name,
+						UuidInbounds: []*proto.UUIDInbound{ui},
+						Enabled:      true,
 					}
 				}
 			}
@@ -150,44 +123,31 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 
 		// Process disabled users
 		disabledData, err := os.ReadFile(disabledUsersPath)
-		if err == nil {
-			if len(disabledData) == 0 {
-				s.Cfg.Logger.Debug("Empty disabled users file", "path", disabledUsersPath)
-			} else {
-				err = processUsers(disabledData, userMap, s.Cfg, true, func(cfg config.DisabledUsersConfigSingbox, userMap map[string]struct {
-					uis     []*proto.UUIDInbound
-					enabled bool
-				}) {
-					for _, inbound := range cfg.Inbounds {
-						for _, user := range inbound.Users {
-							var uuid string
-							switch inbound.Type {
-							case "vless":
-								uuid = user.UUID
-							case "trojan":
-								uuid = user.Password
-							}
-							ui := &proto.UUIDInbound{Uuid: uuid, InboundTag: inbound.Tag}
-							if val, exists := userMap[user.Name]; exists {
-								val.uis = append(val.uis, ui)
-								val.enabled = false
-								userMap[user.Name] = val
-							} else {
-								userMap[user.Name] = struct {
-									uis     []*proto.UUIDInbound
-									enabled bool
-								}{uis: []*proto.UUIDInbound{ui}, enabled: false}
-							}
+		if err == nil && len(disabledData) > 0 {
+			err = processUsers(disabledData, userMap, s.Cfg, true, func(cfg config.DisabledUsersConfigSingbox, userMap map[string]*proto.User) {
+				for _, inbound := range cfg.Inbounds {
+					for _, user := range inbound.Users {
+						var uuid string
+						switch inbound.Type {
+						case "vless":
+							uuid = user.UUID
+						case "trojan":
+							uuid = user.Password
+						}
+						ui := &proto.UUIDInbound{Uuid: uuid, InboundTag: inbound.Tag}
+						key := makeUserKey(user.Name, uuid, inbound.Tag)
+
+						userMap[key] = &proto.User{
+							Username:     user.Name,
+							UuidInbounds: []*proto.UUIDInbound{ui},
+							Enabled:      false,
 						}
 					}
-				})
-				if err != nil {
-					return nil, fmt.Errorf("process Singbox disabled users: %w", err)
 				}
+			})
+			if err != nil {
+				return nil, fmt.Errorf("process Singbox disabled users: %w", err)
 			}
-		} else if !os.IsNotExist(err) {
-			s.Cfg.Logger.Error("Failed to read Singbox disabled users file", "path", disabledUsersPath, "error", err)
-			return nil, fmt.Errorf("read disabled users file: %w", err)
 		}
 
 	default:
@@ -198,12 +158,8 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 	resp := &proto.GetUsersResponse{
 		Users: make([]*proto.User, 0, len(userMap)),
 	}
-	for username, val := range userMap {
-		resp.Users = append(resp.Users, &proto.User{
-			Username:     username,
-			UuidInbounds: val.uis,
-			Enabled:      val.enabled,
-		})
+	for _, user := range userMap {
+		resp.Users = append(resp.Users, user)
 	}
 	s.Cfg.Logger.Debug("Returning users", "count", len(resp.Users))
 	return resp, nil

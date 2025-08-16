@@ -84,14 +84,17 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 			}
 			defer tx.Rollback()
 
-			// Подготовка запросов для оптимизации
-			stmtInsertUser, err := tx.Prepare(`
-				INSERT OR REPLACE INTO user_traffic (node_name, user, rate, created, enabled)
-				VALUES (?, ?, 0, ?, ?)`)
+			// Обновление / вставка пользователей
+			stmtUpsertUser, err := tx.Prepare(`
+				INSERT INTO user_traffic (node_name, user, rate, created, enabled)
+				VALUES (?, ?, 0, ?, ?)
+				ON CONFLICT(node_name, user) DO UPDATE SET
+				    enabled = excluded.enabled,
+				    created = excluded.created`)
 			if err != nil {
-				return fmt.Errorf("prepare insert user statement: %w", err)
+				return fmt.Errorf("prepare upsert user statement: %w", err)
 			}
-			defer stmtInsertUser.Close()
+			defer stmtUpsertUser.Close()
 
 			stmtInsertUUID, err := tx.Prepare(`
 				INSERT OR IGNORE INTO user_uuids (node_name, user, uuid, inbound_tag)
@@ -101,7 +104,6 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 			}
 			defer stmtInsertUUID.Close()
 
-			// Обработка пользователей с ноды
 			currentTime := time.Now().Format("2006-01-02-15")
 			for _, user := range resp.Users {
 				enabledStr := "false"
@@ -109,22 +111,33 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 					enabledStr = "true"
 				}
 
-				result, err := stmtInsertUser.Exec(nc.NodeName, user.Username, currentTime, enabledStr)
+				// Вставка или обновление
+				_, err := stmtUpsertUser.Exec(nc.NodeName, user.Username, currentTime, enabledStr)
 				if err != nil {
-					return fmt.Errorf("insert or update user %s: %w", user.Username, err)
+					return fmt.Errorf("upsert user %s: %w", user.Username, err)
 				}
-				rowsAffected, err := result.RowsAffected()
+
+				// Определяем добавлен ли пользователь или обновлен
+				var exists int
+				err = tx.QueryRow(`SELECT COUNT(*) FROM user_traffic WHERE node_name=? AND user=?`, nc.NodeName, user.Username).Scan(&exists)
 				if err != nil {
-					return fmt.Errorf("check rows affected for user %s: %w", user.Username, err)
+					return fmt.Errorf("check existence for user %s: %w", user.Username, err)
 				}
-				if rowsAffected > 0 {
-					if rowsAffected == 1 {
+				if exists == 1 {
+					// проверим дату (если новая — обновлен, если первый раз — добавлен)
+					var created string
+					err = tx.QueryRow(`SELECT created FROM user_traffic WHERE node_name=? AND user=?`, nc.NodeName, user.Username).Scan(&created)
+					if err != nil {
+						return fmt.Errorf("get created for user %s: %w", user.Username, err)
+					}
+					if created == currentTime {
 						addedUsers++
 					} else {
 						updatedUsers++
 					}
 				}
 
+				// UUIDs
 				for _, ui := range user.UuidInbounds {
 					result, err := stmtInsertUUID.Exec(nc.NodeName, user.Username, ui.Uuid, ui.InboundTag)
 					if err != nil {
