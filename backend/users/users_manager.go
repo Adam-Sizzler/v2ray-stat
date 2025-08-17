@@ -220,7 +220,10 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 	wg.Wait()
 
 	if len(errs) > 0 {
-		return fmt.Errorf("synchronization errors: %v", errs)
+		for i, err := range errs {
+			cfg.Logger.Error("Synchronization error", "index", i, "error", err)
+		}
+		return fmt.Errorf("synchronization failed with %d errors", len(errs))
 	}
 	return nil
 }

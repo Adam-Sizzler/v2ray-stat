@@ -19,9 +19,9 @@ type NodeServer struct {
 	logProcessor *logprocessor.LogProcessor
 }
 
-// ключ уникальности
-func makeUserKey(username, uuid, tag string) string {
-	return fmt.Sprintf("%s|%s|%s", username, uuid, tag)
+// makeUserKey создаёт ключ уникальности для пользователя
+func makeUserKey(username string) string {
+	return username // Уникальность по username, так как uuid и tag хранятся в UuidInbounds
 }
 
 // processUsers обрабатывает пользователей из конфигурации и добавляет их в userMap.
@@ -29,7 +29,7 @@ func processUsers[T any](data []byte, userMap map[string]*proto.User, cfg *confi
 	var config T
 	if err := json.Unmarshal(data, &config); err != nil {
 		cfg.Logger.Error("Failed to parse config", "error", err)
-		return err
+		return fmt.Errorf("failed to parse config: %w", err)
 	}
 	process(config, userMap)
 	return nil
@@ -51,15 +51,23 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 		}
 		err = processUsers(data, userMap, s.Cfg, false, func(cfg config.ConfigXray, userMap map[string]*proto.User) {
 			for _, inbound := range cfg.Inbounds {
+				if inbound.Protocol != "vless" && inbound.Protocol != "trojan" {
+					s.Cfg.Logger.Debug("Skipping inbound with unsupported protocol", "protocol", inbound.Protocol, "tag", inbound.Tag)
+					continue
+				}
 				for _, client := range inbound.Settings.Clients {
-					ui := &proto.UUIDInbound{Uuid: client.ID, InboundTag: inbound.Tag}
-					key := makeUserKey(client.Email, client.ID, inbound.Tag)
-
-					userMap[key] = &proto.User{
-						Username:     client.Email,
-						UuidInbounds: []*proto.UUIDInbound{ui},
-						Enabled:      true,
+					key := makeUserKey(client.Email)
+					if _, exists := userMap[key]; !exists {
+						userMap[key] = &proto.User{
+							Username:     client.Email,
+							UuidInbounds: []*proto.UUIDInbound{},
+							Enabled:      true,
+						}
 					}
+					userMap[key].UuidInbounds = append(userMap[key].UuidInbounds, &proto.UUIDInbound{
+						Uuid:       client.ID,
+						InboundTag: inbound.Tag,
+					})
 				}
 			}
 		})
@@ -72,21 +80,33 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 		if err == nil && len(disabledData) > 0 {
 			err = processUsers(disabledData, userMap, s.Cfg, true, func(cfg config.DisabledUsersConfigXray, userMap map[string]*proto.User) {
 				for _, inbound := range cfg.Inbounds {
+					if inbound.Protocol != "vless" && inbound.Protocol != "trojan" {
+						s.Cfg.Logger.Debug("Skipping disabled inbound with unsupported protocol", "protocol", inbound.Protocol, "tag", inbound.Tag)
+						continue
+					}
 					for _, client := range inbound.Settings.Clients {
-						ui := &proto.UUIDInbound{Uuid: client.ID, InboundTag: inbound.Tag}
-						key := makeUserKey(client.Email, client.ID, inbound.Tag)
-
-						userMap[key] = &proto.User{
-							Username:     client.Email,
-							UuidInbounds: []*proto.UUIDInbound{ui},
-							Enabled:      false,
+						key := makeUserKey(client.Email)
+						if _, exists := userMap[key]; !exists {
+							userMap[key] = &proto.User{
+								Username:     client.Email,
+								UuidInbounds: []*proto.UUIDInbound{},
+								Enabled:      false,
+							}
 						}
+						userMap[key].UuidInbounds = append(userMap[key].UuidInbounds, &proto.UUIDInbound{
+							Uuid:       client.ID,
+							InboundTag: inbound.Tag,
+						})
+						userMap[key].Enabled = false // Disabled users перезаписывают Enabled
 					}
 				}
 			})
 			if err != nil {
 				return nil, fmt.Errorf("process Xray disabled users: %w", err)
 			}
+		} else if err != nil && !os.IsNotExist(err) {
+			s.Cfg.Logger.Error("Failed to read Xray disabled users", "path", disabledUsersPath, "error", err)
+			return nil, fmt.Errorf("read disabled users: %w", err)
 		}
 
 	case "singbox":
@@ -98,6 +118,10 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 		}
 		err = processUsers(data, userMap, s.Cfg, false, func(cfg config.ConfigSingbox, userMap map[string]*proto.User) {
 			for _, inbound := range cfg.Inbounds {
+				if inbound.Type != "vless" && inbound.Type != "trojan" {
+					s.Cfg.Logger.Debug("Skipping inbound with unsupported type", "type", inbound.Type, "tag", inbound.Tag)
+					continue
+				}
 				for _, user := range inbound.Users {
 					var uuid string
 					switch inbound.Type {
@@ -105,15 +129,22 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 						uuid = user.UUID
 					case "trojan":
 						uuid = user.Password
+					default:
+						s.Cfg.Logger.Warn("Unexpected protocol in inbound", "type", inbound.Type, "tag", inbound.Tag)
+						continue
 					}
-					ui := &proto.UUIDInbound{Uuid: uuid, InboundTag: inbound.Tag}
-					key := makeUserKey(user.Name, uuid, inbound.Tag)
-
-					userMap[key] = &proto.User{
-						Username:     user.Name,
-						UuidInbounds: []*proto.UUIDInbound{ui},
-						Enabled:      true,
+					key := makeUserKey(user.Name)
+					if _, exists := userMap[key]; !exists {
+						userMap[key] = &proto.User{
+							Username:     user.Name,
+							UuidInbounds: []*proto.UUIDInbound{},
+							Enabled:      true,
+						}
 					}
+					userMap[key].UuidInbounds = append(userMap[key].UuidInbounds, &proto.UUIDInbound{
+						Uuid:       uuid,
+						InboundTag: inbound.Tag,
+					})
 				}
 			}
 		})
@@ -126,6 +157,10 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 		if err == nil && len(disabledData) > 0 {
 			err = processUsers(disabledData, userMap, s.Cfg, true, func(cfg config.DisabledUsersConfigSingbox, userMap map[string]*proto.User) {
 				for _, inbound := range cfg.Inbounds {
+					if inbound.Type != "vless" && inbound.Type != "trojan" {
+						s.Cfg.Logger.Debug("Skipping disabled inbound with unsupported type", "type", inbound.Type, "tag", inbound.Tag)
+						continue
+					}
 					for _, user := range inbound.Users {
 						var uuid string
 						switch inbound.Type {
@@ -133,21 +168,32 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 							uuid = user.UUID
 						case "trojan":
 							uuid = user.Password
+						default:
+							s.Cfg.Logger.Warn("Unexpected protocol in disabled inbound", "type", inbound.Type, "tag", inbound.Tag)
+							continue
 						}
-						ui := &proto.UUIDInbound{Uuid: uuid, InboundTag: inbound.Tag}
-						key := makeUserKey(user.Name, uuid, inbound.Tag)
-
-						userMap[key] = &proto.User{
-							Username:     user.Name,
-							UuidInbounds: []*proto.UUIDInbound{ui},
-							Enabled:      false,
+						key := makeUserKey(user.Name)
+						if _, exists := userMap[key]; !exists {
+							userMap[key] = &proto.User{
+								Username:     user.Name,
+								UuidInbounds: []*proto.UUIDInbound{},
+								Enabled:      false,
+							}
 						}
+						userMap[key].UuidInbounds = append(userMap[key].UuidInbounds, &proto.UUIDInbound{
+							Uuid:       uuid,
+							InboundTag: inbound.Tag,
+						})
+						userMap[key].Enabled = false // Disabled users перезаписывают Enabled
 					}
 				}
 			})
 			if err != nil {
 				return nil, fmt.Errorf("process Singbox disabled users: %w", err)
 			}
+		} else if err != nil && !os.IsNotExist(err) {
+			s.Cfg.Logger.Error("Failed to read Singbox disabled users", "path", disabledUsersPath, "error", err)
+			return nil, fmt.Errorf("read disabled users: %w", err)
 		}
 
 	default:
@@ -161,7 +207,7 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 	for _, user := range userMap {
 		resp.Users = append(resp.Users, user)
 	}
-	s.Cfg.Logger.Debug("Returning users", "count", len(resp.Users))
+	s.Cfg.Logger.Info("Returning users", "count", len(resp.Users))
 	return resp, nil
 }
 
@@ -206,6 +252,6 @@ func (s *NodeServer) GetLogData(ctx context.Context, req *proto.GetLogDataReques
 		s.Cfg.Logger.Error("Failed to read log data", "error", err)
 		return nil, fmt.Errorf("read log data: %w", err)
 	}
-	s.Cfg.Logger.Debug("Returning log data via gRPC", "users", len(response.UserLogData))
+	s.Cfg.Logger.Info("Returning log data via gRPC", "users", len(response.UserLogData))
 	return response, nil
 }
