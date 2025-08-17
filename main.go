@@ -312,6 +312,17 @@ func updateClientStats(manager *manager.DatabaseManager, apiData *api.ApiRespons
 		defer isInactiveMutex.Unlock()
 
 		for user := range clientUplinkValues {
+			var count int
+			err := tx.QueryRow("SELECT COUNT(*) FROM clients_stats WHERE user = ?", user).Scan(&count)
+			if err != nil {
+				cfg.Logger.Error("Failed to check user existence", "user", user, "error", err)
+				return fmt.Errorf("failed to check user %s: %v", user, err)
+			}
+			if count == 0 {
+				cfg.Logger.Warn("Skipping stats update for non-existing user (not added via AddUserToDB)", "user", user)
+				continue
+			}
+
 			uplink := clientUplinkValues[user]
 			downlink := clientDownlinkValues[user]
 			sessUplink := clientSessUplinkValues[user]
@@ -349,15 +360,15 @@ func updateClientStats(manager *manager.DatabaseManager, apiData *api.ApiRespons
 
 			if lastSeen != "" {
 				_, err := tx.Exec(`
-					INSERT INTO clients_stats (user, last_seen, rate, uplink, downlink, sess_uplink, sess_downlink)
-					VALUES (?, ?, ?, ?, ?, ?, ?)
-					ON CONFLICT(user) DO UPDATE SET
-						last_seen = ?,
-						rate = ?,
-						uplink = uplink + ?,
-						downlink = downlink + ?,
-						sess_uplink = ?,
-						sess_downlink = ?`,
+                    INSERT INTO clients_stats (user, last_seen, rate, uplink, downlink, sess_uplink, sess_downlink)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(user) DO UPDATE SET
+                        last_seen = ?,
+                        rate = ?,
+                        uplink = uplink + ?,
+                        downlink = downlink + ?,
+                        sess_uplink = ?,
+                        sess_downlink = ?`,
 					user, lastSeen, rate, uplink, downlink, sessUplink, sessDownlink,
 					lastSeen, rate, uplink, downlink, sessUplink, sessDownlink)
 				if err != nil {
@@ -366,14 +377,14 @@ func updateClientStats(manager *manager.DatabaseManager, apiData *api.ApiRespons
 				}
 			} else {
 				_, err := tx.Exec(`
-					INSERT INTO clients_stats (user, rate, uplink, downlink, sess_uplink, sess_downlink)
-					VALUES (?, ?, ?, ?, ?, ?)
-					ON CONFLICT(user) DO UPDATE SET
-						rate = ?,
-						uplink = uplink + ?,
-						downlink = downlink + ?,
-						sess_uplink = ?,
-						sess_downlink = ?`,
+                    INSERT INTO clients_stats (user, rate, uplink, downlink, sess_uplink, sess_downlink)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(user) DO UPDATE SET
+                        rate = ?,
+                        uplink = uplink + ?,
+                        downlink = downlink + ?,
+                        sess_uplink = ?,
+                        sess_downlink = ?`,
 					user, rate, uplink, downlink, sessUplink, sessDownlink,
 					rate, uplink, downlink, sessUplink, sessDownlink)
 				if err != nil {

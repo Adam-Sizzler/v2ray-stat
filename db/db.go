@@ -34,9 +34,13 @@ func extractUsersXrayServer(cfg *config.Config) []config.XrayClient {
 
 	extractClients := func(inbounds []config.XrayInbound) {
 		for _, inbound := range inbounds {
-			for _, client := range inbound.Settings.Clients {
-				cfg.Logger.Trace("Processing client", "email", client.Email)
-				clientMap[client.Email] = client
+			if inbound.Protocol == "vless" || inbound.Protocol == "trojan" {
+				for _, client := range inbound.Settings.Clients {
+					cfg.Logger.Trace("Processing client", "email", client.Email, "protocol", inbound.Protocol)
+					clientMap[client.Email] = client
+				}
+			} else {
+				cfg.Logger.Debug("Skipping inbound with unsupported protocol", "protocol", inbound.Protocol)
 			}
 		}
 	}
@@ -80,37 +84,66 @@ func extractUsersXrayServer(cfg *config.Config) []config.XrayClient {
 	return clients
 }
 
-// extractUsersSingboxServer retrieves Singbox users from config file.
+// extractUsersSingboxServer retrieves Singbox users from config files.
 func extractUsersSingboxServer(cfg *config.Config) []config.XrayClient {
 	cfg.Logger.Debug("Extracting Singbox users from config")
+	clientMap := make(map[string]config.XrayClient)
+
+	extractClients := func(inbounds []config.SingboxInbound) {
+		for _, inbound := range inbounds {
+			if inbound.Type == "vless" || inbound.Type == "trojan" {
+				for _, user := range inbound.Users {
+					cfg.Logger.Trace("Processing Singbox user", "name", user.Name, "type", inbound.Type)
+					client := config.XrayClient{Email: user.Name}
+					switch inbound.Type {
+					case "vless":
+						client.ID = user.UUID
+					case "trojan":
+						client.ID = user.Password
+						client.Password = user.UUID
+					}
+					clientMap[user.Name] = client
+				}
+			} else {
+				cfg.Logger.Debug("Skipping inbound with unsupported type", "type", inbound.Type)
+			}
+		}
+	}
+
 	data, err := os.ReadFile(cfg.Core.Config)
 	if err != nil {
 		cfg.Logger.Error("Failed to read config.json for Singbox", "path", cfg.Core.Config, "error", err)
-		return nil
+	} else {
+		var cfgSingbox config.ConfigSingbox
+		if err := json.Unmarshal(data, &cfgSingbox); err != nil {
+			cfg.Logger.Error("Failed to parse JSON for Singbox", "error", err)
+		} else {
+			cfg.Logger.Debug("Processing Singbox inbounds from config.json")
+			extractClients(cfgSingbox.Inbounds)
+		}
 	}
 
-	var cfgSingbox config.ConfigSingbox
-	if err := json.Unmarshal(data, &cfgSingbox); err != nil {
-		cfg.Logger.Error("Failed to parse JSON for Singbox", "error", err)
-		return nil
+	disabledUsersPath := filepath.Join(cfg.Core.Dir, ".disabled_users")
+	disabledData, err := os.ReadFile(disabledUsersPath)
+	if err == nil {
+		if len(disabledData) != 0 {
+			var disabledCfg config.DisabledUsersConfigSingbox
+			if err := json.Unmarshal(disabledData, &disabledCfg); err != nil {
+				cfg.Logger.Error("Failed to parse JSON from .disabled_users", "path", disabledUsersPath, "error", err)
+			} else {
+				cfg.Logger.Debug("Processing Singbox inbounds from .disabled_users")
+				extractClients(disabledCfg.Inbounds)
+			}
+		} else {
+			cfg.Logger.Warn("Empty .disabled_users file", "path", disabledUsersPath)
+		}
+	} else if !os.IsNotExist(err) {
+		cfg.Logger.Error("Failed to read .disabled_users", "path", disabledUsersPath, "error", err)
 	}
 
 	var clients []config.XrayClient
-	for _, inbound := range cfgSingbox.Inbounds {
-		if inbound.Tag == "vless-in" || inbound.Tag == "trojan-in" {
-			for _, user := range inbound.Users {
-				cfg.Logger.Trace("Processing Singbox user", "name", user.Name, "tag", inbound.Tag)
-				client := config.XrayClient{Email: user.Name}
-				switch inbound.Type {
-				case "vless":
-					client.ID = user.UUID
-				case "trojan":
-					client.ID = user.Password
-					client.Password = user.UUID
-				}
-				clients = append(clients, client)
-			}
-		}
+	for _, client := range clientMap {
+		clients = append(clients, client)
 	}
 	cfg.Logger.Info("Extracted Singbox users", "count", len(clients))
 	return clients
