@@ -8,19 +8,23 @@ import (
 	"path/filepath"
 	"v2ray-stat/node/config"
 	"v2ray-stat/node/proto"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
-func (s *NodeServer) SetEnabled(ctx context.Context, req *proto.SetEnabledRequest) (*proto.SetEnabledResponse, error) {
-	err := toggleUserEnabled(s.Cfg, req.User, req.Enabled)
+// SetUserEnabled enables or disables a user on the node.
+func (s *NodeServer) SetUserEnabled(ctx context.Context, req *proto.SetUserEnabledRequest) (*proto.OperationResponse, error) {
+	err := toggleUserEnabled(s.Cfg, req.Username, req.Enabled)
 	if err != nil {
-		s.Cfg.Logger.Error("Ошибка переключения статуса пользователя", "user", req.User, "enabled", req.Enabled, "error", err)
-		return &proto.SetEnabledResponse{Error: err.Error()}, nil
+		s.Cfg.Logger.Error("Ошибка переключения статуса пользователя", "user", req.Username, "enabled", req.Enabled, "error", err)
+		return nil, status.Errorf(codes.FailedPrecondition, "failed to toggle user enabled status: %v", err)
 	}
-	s.Cfg.Logger.Info("Статус пользователя переключён успешно", "user", req.User, "enabled", req.Enabled)
-	return &proto.SetEnabledResponse{}, nil
+	s.Cfg.Logger.Info("Статус пользователя переключён успешно", "user", req.Username, "enabled", req.Enabled)
+	return &proto.OperationResponse{}, nil
 }
 
-// toggleUserEnabled переключает статус пользователя в конфигурационных файлах.
+// toggleUserEnabled toggles the enabled status of a user in configuration files.
 func toggleUserEnabled(cfg *config.NodeConfig, userIdentifier string, enabled bool) error {
 	cfg.Logger.Debug("Переключение статуса пользователя", "user", userIdentifier, "enabled", enabled)
 	mainConfigPath := cfg.Core.Config
@@ -179,7 +183,6 @@ func toggleUserEnabled(cfg *config.NodeConfig, userIdentifier string, enabled bo
 		}
 
 	case "singbox":
-		// Аналогичная логика для singbox, скопирована из старого кода
 		mainConfigData, err := os.ReadFile(mainConfigPath)
 		if err != nil {
 			cfg.Logger.Error("Failed to read Singbox main config", "path", mainConfigPath, "error", err)
@@ -329,7 +332,7 @@ func toggleUserEnabled(cfg *config.NodeConfig, userIdentifier string, enabled bo
 	return nil
 }
 
-// hasInboundXray ...
+// hasInboundXray checks if an inbound with the given tag exists in the Xray configuration.
 func hasInboundXray(inbounds []config.XrayInbound, tag string) bool {
 	for _, inbound := range inbounds {
 		if inbound.Tag == tag {
@@ -339,7 +342,7 @@ func hasInboundXray(inbounds []config.XrayInbound, tag string) bool {
 	return false
 }
 
-// hasInboundSingbox ...
+// hasInboundSingbox checks if an inbound with the given tag exists in the Singbox configuration.
 func hasInboundSingbox(inbounds []config.SingboxInbound, tag string) bool {
 	for _, inbound := range inbounds {
 		if inbound.Tag == tag {

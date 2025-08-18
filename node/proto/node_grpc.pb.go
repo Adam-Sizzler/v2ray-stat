@@ -19,24 +19,32 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	NodeService_GetUsers_FullMethodName       = "/node.NodeService/GetUsers"
-	NodeService_GetApiResponse_FullMethodName = "/node.NodeService/GetApiResponse"
+	NodeService_ListUsers_FullMethodName      = "/node.NodeService/ListUsers"
+	NodeService_GetApiStats_FullMethodName    = "/node.NodeService/GetApiStats"
 	NodeService_GetLogData_FullMethodName     = "/node.NodeService/GetLogData"
 	NodeService_AddUser_FullMethodName        = "/node.NodeService/AddUser"
 	NodeService_DeleteUser_FullMethodName     = "/node.NodeService/DeleteUser"
-	NodeService_SetEnabled_FullMethodName     = "/node.NodeService/SetEnabled"
+	NodeService_SetUserEnabled_FullMethodName = "/node.NodeService/SetUserEnabled"
 )
 
 // NodeServiceClient is the client API for NodeService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// NodeService provides methods for managing node users and data.
 type NodeServiceClient interface {
-	GetUsers(ctx context.Context, in *GetUsersRequest, opts ...grpc.CallOption) (*GetUsersResponse, error)
-	GetApiResponse(ctx context.Context, in *GetApiResponseRequest, opts ...grpc.CallOption) (*GetApiResponseResponse, error)
+	// ListUsers retrieves a list of users on the node.
+	ListUsers(ctx context.Context, in *ListUsersRequest, opts ...grpc.CallOption) (*ListUsersResponse, error)
+	// GetApiStats retrieves API statistics for the node.
+	GetApiStats(ctx context.Context, in *GetApiStatsRequest, opts ...grpc.CallOption) (*GetApiStatsResponse, error)
+	// GetLogData retrieves processed log data from the node.
 	GetLogData(ctx context.Context, in *GetLogDataRequest, opts ...grpc.CallOption) (*GetLogDataResponse, error)
+	// AddUser adds a new user to the node.
 	AddUser(ctx context.Context, in *AddUserRequest, opts ...grpc.CallOption) (*AddUserResponse, error)
-	DeleteUser(ctx context.Context, in *DeleteUserRequest, opts ...grpc.CallOption) (*DeleteUserResponse, error)
-	SetEnabled(ctx context.Context, in *SetEnabledRequest, opts ...grpc.CallOption) (*SetEnabledResponse, error)
+	// DeleteUser deletes a user from the node.
+	DeleteUser(ctx context.Context, in *DeleteUserRequest, opts ...grpc.CallOption) (*OperationResponse, error)
+	// SetUserEnabled enables or disables a user on the node.
+	SetUserEnabled(ctx context.Context, in *SetUserEnabledRequest, opts ...grpc.CallOption) (*OperationResponse, error)
 }
 
 type nodeServiceClient struct {
@@ -47,20 +55,20 @@ func NewNodeServiceClient(cc grpc.ClientConnInterface) NodeServiceClient {
 	return &nodeServiceClient{cc}
 }
 
-func (c *nodeServiceClient) GetUsers(ctx context.Context, in *GetUsersRequest, opts ...grpc.CallOption) (*GetUsersResponse, error) {
+func (c *nodeServiceClient) ListUsers(ctx context.Context, in *ListUsersRequest, opts ...grpc.CallOption) (*ListUsersResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetUsersResponse)
-	err := c.cc.Invoke(ctx, NodeService_GetUsers_FullMethodName, in, out, cOpts...)
+	out := new(ListUsersResponse)
+	err := c.cc.Invoke(ctx, NodeService_ListUsers_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *nodeServiceClient) GetApiResponse(ctx context.Context, in *GetApiResponseRequest, opts ...grpc.CallOption) (*GetApiResponseResponse, error) {
+func (c *nodeServiceClient) GetApiStats(ctx context.Context, in *GetApiStatsRequest, opts ...grpc.CallOption) (*GetApiStatsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetApiResponseResponse)
-	err := c.cc.Invoke(ctx, NodeService_GetApiResponse_FullMethodName, in, out, cOpts...)
+	out := new(GetApiStatsResponse)
+	err := c.cc.Invoke(ctx, NodeService_GetApiStats_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -87,9 +95,9 @@ func (c *nodeServiceClient) AddUser(ctx context.Context, in *AddUserRequest, opt
 	return out, nil
 }
 
-func (c *nodeServiceClient) DeleteUser(ctx context.Context, in *DeleteUserRequest, opts ...grpc.CallOption) (*DeleteUserResponse, error) {
+func (c *nodeServiceClient) DeleteUser(ctx context.Context, in *DeleteUserRequest, opts ...grpc.CallOption) (*OperationResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(DeleteUserResponse)
+	out := new(OperationResponse)
 	err := c.cc.Invoke(ctx, NodeService_DeleteUser_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -97,10 +105,10 @@ func (c *nodeServiceClient) DeleteUser(ctx context.Context, in *DeleteUserReques
 	return out, nil
 }
 
-func (c *nodeServiceClient) SetEnabled(ctx context.Context, in *SetEnabledRequest, opts ...grpc.CallOption) (*SetEnabledResponse, error) {
+func (c *nodeServiceClient) SetUserEnabled(ctx context.Context, in *SetUserEnabledRequest, opts ...grpc.CallOption) (*OperationResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(SetEnabledResponse)
-	err := c.cc.Invoke(ctx, NodeService_SetEnabled_FullMethodName, in, out, cOpts...)
+	out := new(OperationResponse)
+	err := c.cc.Invoke(ctx, NodeService_SetUserEnabled_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -110,13 +118,21 @@ func (c *nodeServiceClient) SetEnabled(ctx context.Context, in *SetEnabledReques
 // NodeServiceServer is the server API for NodeService service.
 // All implementations must embed UnimplementedNodeServiceServer
 // for forward compatibility.
+//
+// NodeService provides methods for managing node users and data.
 type NodeServiceServer interface {
-	GetUsers(context.Context, *GetUsersRequest) (*GetUsersResponse, error)
-	GetApiResponse(context.Context, *GetApiResponseRequest) (*GetApiResponseResponse, error)
+	// ListUsers retrieves a list of users on the node.
+	ListUsers(context.Context, *ListUsersRequest) (*ListUsersResponse, error)
+	// GetApiStats retrieves API statistics for the node.
+	GetApiStats(context.Context, *GetApiStatsRequest) (*GetApiStatsResponse, error)
+	// GetLogData retrieves processed log data from the node.
 	GetLogData(context.Context, *GetLogDataRequest) (*GetLogDataResponse, error)
+	// AddUser adds a new user to the node.
 	AddUser(context.Context, *AddUserRequest) (*AddUserResponse, error)
-	DeleteUser(context.Context, *DeleteUserRequest) (*DeleteUserResponse, error)
-	SetEnabled(context.Context, *SetEnabledRequest) (*SetEnabledResponse, error)
+	// DeleteUser deletes a user from the node.
+	DeleteUser(context.Context, *DeleteUserRequest) (*OperationResponse, error)
+	// SetUserEnabled enables or disables a user on the node.
+	SetUserEnabled(context.Context, *SetUserEnabledRequest) (*OperationResponse, error)
 	mustEmbedUnimplementedNodeServiceServer()
 }
 
@@ -127,11 +143,11 @@ type NodeServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedNodeServiceServer struct{}
 
-func (UnimplementedNodeServiceServer) GetUsers(context.Context, *GetUsersRequest) (*GetUsersResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetUsers not implemented")
+func (UnimplementedNodeServiceServer) ListUsers(context.Context, *ListUsersRequest) (*ListUsersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListUsers not implemented")
 }
-func (UnimplementedNodeServiceServer) GetApiResponse(context.Context, *GetApiResponseRequest) (*GetApiResponseResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetApiResponse not implemented")
+func (UnimplementedNodeServiceServer) GetApiStats(context.Context, *GetApiStatsRequest) (*GetApiStatsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetApiStats not implemented")
 }
 func (UnimplementedNodeServiceServer) GetLogData(context.Context, *GetLogDataRequest) (*GetLogDataResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetLogData not implemented")
@@ -139,11 +155,11 @@ func (UnimplementedNodeServiceServer) GetLogData(context.Context, *GetLogDataReq
 func (UnimplementedNodeServiceServer) AddUser(context.Context, *AddUserRequest) (*AddUserResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddUser not implemented")
 }
-func (UnimplementedNodeServiceServer) DeleteUser(context.Context, *DeleteUserRequest) (*DeleteUserResponse, error) {
+func (UnimplementedNodeServiceServer) DeleteUser(context.Context, *DeleteUserRequest) (*OperationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteUser not implemented")
 }
-func (UnimplementedNodeServiceServer) SetEnabled(context.Context, *SetEnabledRequest) (*SetEnabledResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SetEnabled not implemented")
+func (UnimplementedNodeServiceServer) SetUserEnabled(context.Context, *SetUserEnabledRequest) (*OperationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetUserEnabled not implemented")
 }
 func (UnimplementedNodeServiceServer) mustEmbedUnimplementedNodeServiceServer() {}
 func (UnimplementedNodeServiceServer) testEmbeddedByValue()                     {}
@@ -166,38 +182,38 @@ func RegisterNodeServiceServer(s grpc.ServiceRegistrar, srv NodeServiceServer) {
 	s.RegisterService(&NodeService_ServiceDesc, srv)
 }
 
-func _NodeService_GetUsers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetUsersRequest)
+func _NodeService_ListUsers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListUsersRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(NodeServiceServer).GetUsers(ctx, in)
+		return srv.(NodeServiceServer).ListUsers(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: NodeService_GetUsers_FullMethodName,
+		FullMethod: NodeService_ListUsers_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NodeServiceServer).GetUsers(ctx, req.(*GetUsersRequest))
+		return srv.(NodeServiceServer).ListUsers(ctx, req.(*ListUsersRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _NodeService_GetApiResponse_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetApiResponseRequest)
+func _NodeService_GetApiStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetApiStatsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(NodeServiceServer).GetApiResponse(ctx, in)
+		return srv.(NodeServiceServer).GetApiStats(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: NodeService_GetApiResponse_FullMethodName,
+		FullMethod: NodeService_GetApiStats_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NodeServiceServer).GetApiResponse(ctx, req.(*GetApiResponseRequest))
+		return srv.(NodeServiceServer).GetApiStats(ctx, req.(*GetApiStatsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -256,20 +272,20 @@ func _NodeService_DeleteUser_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
-func _NodeService_SetEnabled_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SetEnabledRequest)
+func _NodeService_SetUserEnabled_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetUserEnabledRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(NodeServiceServer).SetEnabled(ctx, in)
+		return srv.(NodeServiceServer).SetUserEnabled(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: NodeService_SetEnabled_FullMethodName,
+		FullMethod: NodeService_SetUserEnabled_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NodeServiceServer).SetEnabled(ctx, req.(*SetEnabledRequest))
+		return srv.(NodeServiceServer).SetUserEnabled(ctx, req.(*SetUserEnabledRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -282,12 +298,12 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*NodeServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "GetUsers",
-			Handler:    _NodeService_GetUsers_Handler,
+			MethodName: "ListUsers",
+			Handler:    _NodeService_ListUsers_Handler,
 		},
 		{
-			MethodName: "GetApiResponse",
-			Handler:    _NodeService_GetApiResponse_Handler,
+			MethodName: "GetApiStats",
+			Handler:    _NodeService_GetApiStats_Handler,
 		},
 		{
 			MethodName: "GetLogData",
@@ -302,8 +318,8 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _NodeService_DeleteUser_Handler,
 		},
 		{
-			MethodName: "SetEnabled",
-			Handler:    _NodeService_SetEnabled_Handler,
+			MethodName: "SetUserEnabled",
+			Handler:    _NodeService_SetUserEnabled_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

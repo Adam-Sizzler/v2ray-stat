@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
+
+	"google.golang.org/grpc/codes"
 
 	"v2ray-stat/backend/config"
 	"v2ray-stat/backend/db"
@@ -13,60 +16,77 @@ import (
 	"v2ray-stat/node/proto"
 )
 
-// DeleteUserRequest представляет структуру JSON-запроса
+// DeleteUserRequest represents the JSON request structure for deleting a user.
 type DeleteUserRequest struct {
-	User       string   `json:"user"`
+	Username   string   `json:"username"`
 	InboundTag string   `json:"inbound_tag"`
-	Nodes      []string `json:"nodes,omitempty"`
+	Nodes      []string `json:"nodes,omitempty"` // Nodes field is optional
 }
 
-// DeleteUserFromNode отправляет gRPC-запрос на ноду для удаления пользователя
-func DeleteUserFromNode(node config.NodeConfig, user, inboundTag string, cfg *config.Config) error {
+// DeleteUserFromNode sends a gRPC request to a node to delete a user.
+func DeleteUserFromNode(ctx context.Context, node config.NodeConfig, username, inboundTag string, cfg *config.Config) error {
+	cfg.Logger.Debug("Deleting user from node", "node_name", node.NodeName, "username", username, "inbound_tag", inboundTag)
+
 	nodeClient, err := db.NewNodeClient(node, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to create client for node %s: %v", node.NodeName, err)
+		cfg.Logger.Error("Failed to create client for node", "node_name", node.NodeName, "error", err)
+		return fmt.Errorf("failed to create client for node %s: %w", node.NodeName, err)
 	}
-	defer func() { nodeClient.Client = nil }()
+	defer func() { nodeClient.Client = nil }() // Ensure client is cleaned up
 
-	resp, err := nodeClient.Client.DeleteUser(context.Background(), &proto.DeleteUserRequest{
-		User:       user,
+	grpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	resp, err := nodeClient.Client.DeleteUser(grpcCtx, &proto.DeleteUserRequest{
+		Username:   username,
 		InboundTag: inboundTag,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to delete user from node %s: %v", node.NodeName, err)
+		cfg.Logger.Error("Failed to delete user via gRPC", "node_name", node.NodeName, "username", username, "error", err)
+		return fmt.Errorf("failed to delete user from node %s: %w", node.NodeName, err)
 	}
-	if resp.Error != "" {
-		return fmt.Errorf("node %s returned error: %s", node.NodeName, resp.Error)
+
+	if resp.Status.Code != int32(codes.OK) {
+		cfg.Logger.Error("Node returned error", "node_name", node.NodeName, "username", username, "status_code", resp.Status.Code, "message", resp.Status.Message)
+		return fmt.Errorf("node %s returned error: %s", node.NodeName, resp.Status.Message)
 	}
+
+	cfg.Logger.Info("User deleted successfully from node", "node_name", node.NodeName, "username", username)
 	return nil
 }
 
-// DeleteUserHandler обрабатывает HTTP-запросы на удаление пользователя
+// DeleteUserHandler handles HTTP requests to delete a user from specified nodes.
 func DeleteUserHandler(manager *manager.DatabaseManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Проверка метода HTTP
+		cfg.Logger.Debug("Received DeleteUser HTTP request", "method", r.Method)
+
+		// Check HTTP method
 		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed, use POST", http.StatusMethodNotAllowed)
+			cfg.Logger.Warn("Invalid HTTP method", "method", r.Method)
+			http.Error(w, `{"error": "method not allowed, use POST"}`, http.StatusMethodNotAllowed)
 			return
 		}
 
-		// Парсим JSON-тело запроса
+		// Parse JSON request body
 		var req DeleteUserRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, fmt.Sprintf("failed to parse JSON: %v", err), http.StatusBadRequest)
+			cfg.Logger.Error("Failed to parse JSON request", "error", err)
+			http.Error(w, fmt.Sprintf(`{"error": "failed to parse JSON: %v"}`, err), http.StatusBadRequest)
 			return
 		}
 
-		// Проверяем обязательные поля
-		if req.User == "" || req.InboundTag == "" {
-			http.Error(w, "user and inbound_tag are required", http.StatusBadRequest)
+		// Validate required fields
+		if req.Username == "" || req.InboundTag == "" {
+			cfg.Logger.Warn("Missing required fields", "username", req.Username, "inbound_tag", req.InboundTag)
+			http.Error(w, `{"error": "username and inbound_tag are required"}`, http.StatusBadRequest)
 			return
 		}
 
-		// Определяем целевые ноды
+		// Determine target nodes
 		var targetNodes []config.NodeConfig
 		if len(req.Nodes) == 0 {
 			targetNodes = GetNodesFromConfig(cfg)
+			cfg.Logger.Debug("Using all nodes from config", "node_count", len(targetNodes))
 		} else {
 			for _, nodeName := range req.Nodes {
 				for _, node := range cfg.V2rayStat.Nodes {
@@ -77,39 +97,69 @@ func DeleteUserHandler(manager *manager.DatabaseManager, cfg *config.Config) htt
 				}
 			}
 			if len(targetNodes) == 0 {
-				http.Error(w, "no valid nodes found for the provided names", http.StatusBadRequest)
+				cfg.Logger.Warn("No valid nodes found", "requested_nodes", req.Nodes)
+				http.Error(w, `{"error": "no valid nodes found for the provided names"}`, http.StatusBadRequest)
 				return
 			}
+			cfg.Logger.Debug("Selected nodes", "node_count", len(targetNodes), "nodes", req.Nodes)
 		}
 
-		// Запускаем удаление параллельно
-		var wg sync.WaitGroup
-		var mu sync.Mutex
-		errors := make(map[string]string)
+		// Parallel processing of nodes
+		type result struct {
+			nodeName string
+			err      error
+		}
 
+		resultsCh := make(chan result, len(targetNodes))
+		var wg sync.WaitGroup
+
+		ctx := r.Context()
 		for _, node := range targetNodes {
 			wg.Add(1)
-			go func(n config.NodeConfig) {
+			go func(node config.NodeConfig) {
 				defer wg.Done()
-				if err := DeleteUserFromNode(n, req.User, req.InboundTag, cfg); err != nil {
-					mu.Lock()
-					errors[n.NodeName] = err.Error()
-					mu.Unlock()
+				err := DeleteUserFromNode(ctx, node, req.Username, req.InboundTag, cfg)
+				resultsCh <- result{
+					nodeName: node.NodeName,
+					err:      err,
 				}
 			}(node)
 		}
 
 		wg.Wait()
+		close(resultsCh)
 
-		// Формируем JSON-ответ
-		w.Header().Set("Content-Type", "application/json")
-		if len(errors) > 0 {
+		results := make(map[string]string)
+		var errs []error
+		for res := range resultsCh {
+			if res.err != nil {
+				cfg.Logger.Error("Error deleting user from node", "node_name", res.nodeName, "error", res.err)
+				errs = append(errs, fmt.Errorf("failed to delete user from %s: %w", res.nodeName, res.err))
+				results[res.nodeName] = res.err.Error()
+			} else {
+				results[res.nodeName] = "success"
+			}
+		}
+
+		// Form JSON response
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		if len(errs) > 0 {
+			cfg.Logger.Error("Errors occurred while deleting user", "username", req.Username, "error_count", len(errs), "errors", errs)
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(errors)
+			if err := json.NewEncoder(w).Encode(map[string]interface{}{
+				"errors": results,
+			}); err != nil {
+				cfg.Logger.Error("Failed to encode JSON response", "error", err)
+			}
 			return
 		}
 
+		cfg.Logger.Info("User deleted successfully from all nodes", "username", req.Username, "node_count", len(targetNodes))
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"message": "User deleted successfully from all specified nodes"})
+		if err := json.NewEncoder(w).Encode(map[string]string{
+			"message": "user deleted successfully from all specified nodes",
+		}); err != nil {
+			cfg.Logger.Error("Failed to encode JSON response", "error", err)
+		}
 	}
 }

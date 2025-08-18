@@ -7,6 +7,7 @@
 package proto
 
 import (
+	status "google.golang.org/genproto/googleapis/rpc/status"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -21,26 +22,27 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type GetUsersRequest struct {
+// ListUsersRequest is an empty request for listing users.
+type ListUsersRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetUsersRequest) Reset() {
-	*x = GetUsersRequest{}
+func (x *ListUsersRequest) Reset() {
+	*x = ListUsersRequest{}
 	mi := &file_node_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetUsersRequest) String() string {
+func (x *ListUsersRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetUsersRequest) ProtoMessage() {}
+func (*ListUsersRequest) ProtoMessage() {}
 
-func (x *GetUsersRequest) ProtoReflect() protoreflect.Message {
+func (x *ListUsersRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_node_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -52,33 +54,34 @@ func (x *GetUsersRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetUsersRequest.ProtoReflect.Descriptor instead.
-func (*GetUsersRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use ListUsersRequest.ProtoReflect.Descriptor instead.
+func (*ListUsersRequest) Descriptor() ([]byte, []int) {
 	return file_node_proto_rawDescGZIP(), []int{0}
 }
 
-type UUIDInbound struct {
+// IdInbound represents an ID and inbound tag pair for a user.
+type IdInbound struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Uuid          string                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	InboundTag    string                 `protobuf:"bytes,2,opt,name=inbound_tag,json=inboundTag,proto3" json:"inbound_tag,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *UUIDInbound) Reset() {
-	*x = UUIDInbound{}
+func (x *IdInbound) Reset() {
+	*x = IdInbound{}
 	mi := &file_node_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *UUIDInbound) String() string {
+func (x *IdInbound) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*UUIDInbound) ProtoMessage() {}
+func (*IdInbound) ProtoMessage() {}
 
-func (x *UUIDInbound) ProtoReflect() protoreflect.Message {
+func (x *IdInbound) ProtoReflect() protoreflect.Message {
 	mi := &file_node_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -90,29 +93,30 @@ func (x *UUIDInbound) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use UUIDInbound.ProtoReflect.Descriptor instead.
-func (*UUIDInbound) Descriptor() ([]byte, []int) {
+// Deprecated: Use IdInbound.ProtoReflect.Descriptor instead.
+func (*IdInbound) Descriptor() ([]byte, []int) {
 	return file_node_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *UUIDInbound) GetUuid() string {
+func (x *IdInbound) GetId() string {
 	if x != nil {
-		return x.Uuid
+		return x.Id
 	}
 	return ""
 }
 
-func (x *UUIDInbound) GetInboundTag() string {
+func (x *IdInbound) GetInboundTag() string {
 	if x != nil {
 		return x.InboundTag
 	}
 	return ""
 }
 
+// User represents a user on the node.
 type User struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
-	UuidInbounds  []*UUIDInbound         `protobuf:"bytes,2,rep,name=uuid_inbounds,json=uuidInbounds,proto3" json:"uuid_inbounds,omitempty"`
+	IdInbounds    []*IdInbound           `protobuf:"bytes,2,rep,name=id_inbounds,json=idInbounds,proto3" json:"id_inbounds,omitempty"`
 	Enabled       bool                   `protobuf:"varint,3,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -155,9 +159,9 @@ func (x *User) GetUsername() string {
 	return ""
 }
 
-func (x *User) GetUuidInbounds() []*UUIDInbound {
+func (x *User) GetIdInbounds() []*IdInbound {
 	if x != nil {
-		return x.UuidInbounds
+		return x.IdInbounds
 	}
 	return nil
 }
@@ -169,27 +173,28 @@ func (x *User) GetEnabled() bool {
 	return false
 }
 
-type GetUsersResponse struct {
+// ListUsersResponse contains a list of users.
+type ListUsersResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Users         []*User                `protobuf:"bytes,1,rep,name=users,proto3" json:"users,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetUsersResponse) Reset() {
-	*x = GetUsersResponse{}
+func (x *ListUsersResponse) Reset() {
+	*x = ListUsersResponse{}
 	mi := &file_node_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetUsersResponse) String() string {
+func (x *ListUsersResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetUsersResponse) ProtoMessage() {}
+func (*ListUsersResponse) ProtoMessage() {}
 
-func (x *GetUsersResponse) ProtoReflect() protoreflect.Message {
+func (x *ListUsersResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_node_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -201,38 +206,39 @@ func (x *GetUsersResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetUsersResponse.ProtoReflect.Descriptor instead.
-func (*GetUsersResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use ListUsersResponse.ProtoReflect.Descriptor instead.
+func (*ListUsersResponse) Descriptor() ([]byte, []int) {
 	return file_node_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *GetUsersResponse) GetUsers() []*User {
+func (x *ListUsersResponse) GetUsers() []*User {
 	if x != nil {
 		return x.Users
 	}
 	return nil
 }
 
-type GetApiResponseRequest struct {
+// GetApiStatsRequest is an empty request for retrieving API statistics.
+type GetApiStatsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetApiResponseRequest) Reset() {
-	*x = GetApiResponseRequest{}
+func (x *GetApiStatsRequest) Reset() {
+	*x = GetApiStatsRequest{}
 	mi := &file_node_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetApiResponseRequest) String() string {
+func (x *GetApiStatsRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetApiResponseRequest) ProtoMessage() {}
+func (*GetApiStatsRequest) ProtoMessage() {}
 
-func (x *GetApiResponseRequest) ProtoReflect() protoreflect.Message {
+func (x *GetApiStatsRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_node_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -244,55 +250,12 @@ func (x *GetApiResponseRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetApiResponseRequest.ProtoReflect.Descriptor instead.
-func (*GetApiResponseRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetApiStatsRequest.ProtoReflect.Descriptor instead.
+func (*GetApiStatsRequest) Descriptor() ([]byte, []int) {
 	return file_node_proto_rawDescGZIP(), []int{4}
 }
 
-type GetApiResponseResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Stats         []*Stat                `protobuf:"bytes,1,rep,name=stats,proto3" json:"stats,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *GetApiResponseResponse) Reset() {
-	*x = GetApiResponseResponse{}
-	mi := &file_node_proto_msgTypes[5]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *GetApiResponseResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*GetApiResponseResponse) ProtoMessage() {}
-
-func (x *GetApiResponseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_node_proto_msgTypes[5]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use GetApiResponseResponse.ProtoReflect.Descriptor instead.
-func (*GetApiResponseResponse) Descriptor() ([]byte, []int) {
-	return file_node_proto_rawDescGZIP(), []int{5}
-}
-
-func (x *GetApiResponseResponse) GetStats() []*Stat {
-	if x != nil {
-		return x.Stats
-	}
-	return nil
-}
-
+// Stat represents a single statistic entry.
 type Stat struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -303,7 +266,7 @@ type Stat struct {
 
 func (x *Stat) Reset() {
 	*x = Stat{}
-	mi := &file_node_proto_msgTypes[6]
+	mi := &file_node_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -315,7 +278,7 @@ func (x *Stat) String() string {
 func (*Stat) ProtoMessage() {}
 
 func (x *Stat) ProtoReflect() protoreflect.Message {
-	mi := &file_node_proto_msgTypes[6]
+	mi := &file_node_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -328,7 +291,7 @@ func (x *Stat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Stat.ProtoReflect.Descriptor instead.
 func (*Stat) Descriptor() ([]byte, []int) {
-	return file_node_proto_rawDescGZIP(), []int{6}
+	return file_node_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Stat) GetName() string {
@@ -345,6 +308,52 @@ func (x *Stat) GetValue() string {
 	return ""
 }
 
+// GetApiStatsResponse contains API statistics.
+type GetApiStatsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Stats         []*Stat                `protobuf:"bytes,1,rep,name=stats,proto3" json:"stats,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetApiStatsResponse) Reset() {
+	*x = GetApiStatsResponse{}
+	mi := &file_node_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetApiStatsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetApiStatsResponse) ProtoMessage() {}
+
+func (x *GetApiStatsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_node_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetApiStatsResponse.ProtoReflect.Descriptor instead.
+func (*GetApiStatsResponse) Descriptor() ([]byte, []int) {
+	return file_node_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *GetApiStatsResponse) GetStats() []*Stat {
+	if x != nil {
+		return x.Stats
+	}
+	return nil
+}
+
+// GetLogDataRequest is an empty request for retrieving log data.
 type GetLogDataRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -381,50 +390,7 @@ func (*GetLogDataRequest) Descriptor() ([]byte, []int) {
 	return file_node_proto_rawDescGZIP(), []int{7}
 }
 
-type GetLogDataResponse struct {
-	state         protoimpl.MessageState  `protogen:"open.v1"`
-	UserLogData   map[string]*UserLogData `protobuf:"bytes,1,rep,name=user_log_data,json=userLogData,proto3" json:"user_log_data,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *GetLogDataResponse) Reset() {
-	*x = GetLogDataResponse{}
-	mi := &file_node_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *GetLogDataResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*GetLogDataResponse) ProtoMessage() {}
-
-func (x *GetLogDataResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_node_proto_msgTypes[8]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use GetLogDataResponse.ProtoReflect.Descriptor instead.
-func (*GetLogDataResponse) Descriptor() ([]byte, []int) {
-	return file_node_proto_rawDescGZIP(), []int{8}
-}
-
-func (x *GetLogDataResponse) GetUserLogData() map[string]*UserLogData {
-	if x != nil {
-		return x.UserLogData
-	}
-	return nil
-}
-
+// UserLogData contains log data for a specific user.
 type UserLogData struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ValidIps      []string               `protobuf:"bytes,1,rep,name=valid_ips,json=validIps,proto3" json:"valid_ips,omitempty"`
@@ -435,7 +401,7 @@ type UserLogData struct {
 
 func (x *UserLogData) Reset() {
 	*x = UserLogData{}
-	mi := &file_node_proto_msgTypes[9]
+	mi := &file_node_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -447,7 +413,7 @@ func (x *UserLogData) String() string {
 func (*UserLogData) ProtoMessage() {}
 
 func (x *UserLogData) ProtoReflect() protoreflect.Message {
-	mi := &file_node_proto_msgTypes[9]
+	mi := &file_node_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -460,7 +426,7 @@ func (x *UserLogData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserLogData.ProtoReflect.Descriptor instead.
 func (*UserLogData) Descriptor() ([]byte, []int) {
-	return file_node_proto_rawDescGZIP(), []int{9}
+	return file_node_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *UserLogData) GetValidIps() []string {
@@ -477,9 +443,55 @@ func (x *UserLogData) GetDnsStats() map[string]int32 {
 	return nil
 }
 
+// GetLogDataResponse contains log data for multiple users.
+type GetLogDataResponse struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	UserLogData   map[string]*UserLogData `protobuf:"bytes,1,rep,name=user_log_data,json=userLogData,proto3" json:"user_log_data,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetLogDataResponse) Reset() {
+	*x = GetLogDataResponse{}
+	mi := &file_node_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetLogDataResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetLogDataResponse) ProtoMessage() {}
+
+func (x *GetLogDataResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_node_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetLogDataResponse.ProtoReflect.Descriptor instead.
+func (*GetLogDataResponse) Descriptor() ([]byte, []int) {
+	return file_node_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *GetLogDataResponse) GetUserLogData() map[string]*UserLogData {
+	if x != nil {
+		return x.UserLogData
+	}
+	return nil
+}
+
+// AddUserRequest specifies a user to add to the node.
 type AddUserRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	User          string                 `protobuf:"bytes,1,opt,name=user,proto3" json:"user,omitempty"`
+	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
 	InboundTag    string                 `protobuf:"bytes,2,opt,name=inbound_tag,json=inboundTag,proto3" json:"inbound_tag,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -515,9 +527,9 @@ func (*AddUserRequest) Descriptor() ([]byte, []int) {
 	return file_node_proto_rawDescGZIP(), []int{10}
 }
 
-func (x *AddUserRequest) GetUser() string {
+func (x *AddUserRequest) GetUsername() string {
 	if x != nil {
-		return x.User
+		return x.Username
 	}
 	return ""
 }
@@ -529,10 +541,11 @@ func (x *AddUserRequest) GetInboundTag() string {
 	return ""
 }
 
+// AddUserResponse contains the generated credential for the new user.
 type AddUserResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Credential    string                 `protobuf:"bytes,1,opt,name=credential,proto3" json:"credential,omitempty"`
-	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	Status        *status.Status         `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -574,16 +587,17 @@ func (x *AddUserResponse) GetCredential() string {
 	return ""
 }
 
-func (x *AddUserResponse) GetError() string {
+func (x *AddUserResponse) GetStatus() *status.Status {
 	if x != nil {
-		return x.Error
+		return x.Status
 	}
-	return ""
+	return nil
 }
 
+// DeleteUserRequest specifies a user to delete from the node.
 type DeleteUserRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	User          string                 `protobuf:"bytes,1,opt,name=user,proto3" json:"user,omitempty"`
+	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
 	InboundTag    string                 `protobuf:"bytes,2,opt,name=inbound_tag,json=inboundTag,proto3" json:"inbound_tag,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -619,9 +633,9 @@ func (*DeleteUserRequest) Descriptor() ([]byte, []int) {
 	return file_node_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *DeleteUserRequest) GetUser() string {
+func (x *DeleteUserRequest) GetUsername() string {
 	if x != nil {
-		return x.User
+		return x.Username
 	}
 	return ""
 }
@@ -633,27 +647,28 @@ func (x *DeleteUserRequest) GetInboundTag() string {
 	return ""
 }
 
-type DeleteUserResponse struct {
+// OperationResponse represents the result of an operation.
+type OperationResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Error         string                 `protobuf:"bytes,1,opt,name=error,proto3" json:"error,omitempty"`
+	Status        *status.Status         `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *DeleteUserResponse) Reset() {
-	*x = DeleteUserResponse{}
+func (x *OperationResponse) Reset() {
+	*x = OperationResponse{}
 	mi := &file_node_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *DeleteUserResponse) String() string {
+func (x *OperationResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DeleteUserResponse) ProtoMessage() {}
+func (*OperationResponse) ProtoMessage() {}
 
-func (x *DeleteUserResponse) ProtoReflect() protoreflect.Message {
+func (x *OperationResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_node_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -665,40 +680,41 @@ func (x *DeleteUserResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DeleteUserResponse.ProtoReflect.Descriptor instead.
-func (*DeleteUserResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use OperationResponse.ProtoReflect.Descriptor instead.
+func (*OperationResponse) Descriptor() ([]byte, []int) {
 	return file_node_proto_rawDescGZIP(), []int{13}
 }
 
-func (x *DeleteUserResponse) GetError() string {
+func (x *OperationResponse) GetStatus() *status.Status {
 	if x != nil {
-		return x.Error
+		return x.Status
 	}
-	return ""
+	return nil
 }
 
-type SetEnabledRequest struct {
+// SetUserEnabledRequest specifies a user to enable or disable.
+type SetUserEnabledRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	User          string                 `protobuf:"bytes,1,opt,name=user,proto3" json:"user,omitempty"`
+	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
 	Enabled       bool                   `protobuf:"varint,2,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *SetEnabledRequest) Reset() {
-	*x = SetEnabledRequest{}
+func (x *SetUserEnabledRequest) Reset() {
+	*x = SetUserEnabledRequest{}
 	mi := &file_node_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SetEnabledRequest) String() string {
+func (x *SetUserEnabledRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SetEnabledRequest) ProtoMessage() {}
+func (*SetUserEnabledRequest) ProtoMessage() {}
 
-func (x *SetEnabledRequest) ProtoReflect() protoreflect.Message {
+func (x *SetUserEnabledRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_node_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -710,67 +726,23 @@ func (x *SetEnabledRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SetEnabledRequest.ProtoReflect.Descriptor instead.
-func (*SetEnabledRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use SetUserEnabledRequest.ProtoReflect.Descriptor instead.
+func (*SetUserEnabledRequest) Descriptor() ([]byte, []int) {
 	return file_node_proto_rawDescGZIP(), []int{14}
 }
 
-func (x *SetEnabledRequest) GetUser() string {
+func (x *SetUserEnabledRequest) GetUsername() string {
 	if x != nil {
-		return x.User
+		return x.Username
 	}
 	return ""
 }
 
-func (x *SetEnabledRequest) GetEnabled() bool {
+func (x *SetUserEnabledRequest) GetEnabled() bool {
 	if x != nil {
 		return x.Enabled
 	}
 	return false
-}
-
-type SetEnabledResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Error         string                 `protobuf:"bytes,1,opt,name=error,proto3" json:"error,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SetEnabledResponse) Reset() {
-	*x = SetEnabledResponse{}
-	mi := &file_node_proto_msgTypes[15]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SetEnabledResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SetEnabledResponse) ProtoMessage() {}
-
-func (x *SetEnabledResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_node_proto_msgTypes[15]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SetEnabledResponse.ProtoReflect.Descriptor instead.
-func (*SetEnabledResponse) Descriptor() ([]byte, []int) {
-	return file_node_proto_rawDescGZIP(), []int{15}
-}
-
-func (x *SetEnabledResponse) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
 }
 
 var File_node_proto protoreflect.FileDescriptor
@@ -778,68 +750,66 @@ var File_node_proto protoreflect.FileDescriptor
 const file_node_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"node.proto\x12\x04node\"\x11\n" +
-	"\x0fGetUsersRequest\"B\n" +
-	"\vUUIDInbound\x12\x12\n" +
-	"\x04uuid\x18\x01 \x01(\tR\x04uuid\x12\x1f\n" +
+	"node.proto\x12\x04node\x1a\x17google/rpc/status.proto\"\x12\n" +
+	"\x10ListUsersRequest\"<\n" +
+	"\tIdInbound\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
 	"\vinbound_tag\x18\x02 \x01(\tR\n" +
-	"inboundTag\"t\n" +
+	"inboundTag\"n\n" +
 	"\x04User\x12\x1a\n" +
-	"\busername\x18\x01 \x01(\tR\busername\x126\n" +
-	"\ruuid_inbounds\x18\x02 \x03(\v2\x11.node.UUIDInboundR\fuuidInbounds\x12\x18\n" +
-	"\aenabled\x18\x03 \x01(\bR\aenabled\"4\n" +
-	"\x10GetUsersResponse\x12 \n" +
+	"\busername\x18\x01 \x01(\tR\busername\x120\n" +
+	"\vid_inbounds\x18\x02 \x03(\v2\x0f.node.IdInboundR\n" +
+	"idInbounds\x12\x18\n" +
+	"\aenabled\x18\x03 \x01(\bR\aenabled\"5\n" +
+	"\x11ListUsersResponse\x12 \n" +
 	"\x05users\x18\x01 \x03(\v2\n" +
-	".node.UserR\x05users\"\x17\n" +
-	"\x15GetApiResponseRequest\":\n" +
-	"\x16GetApiResponseResponse\x12 \n" +
-	"\x05stats\x18\x01 \x03(\v2\n" +
-	".node.StatR\x05stats\"0\n" +
+	".node.UserR\x05users\"\x14\n" +
+	"\x12GetApiStatsRequest\"0\n" +
 	"\x04Stat\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value\"\x13\n" +
-	"\x11GetLogDataRequest\"\xb6\x01\n" +
-	"\x12GetLogDataResponse\x12M\n" +
-	"\ruser_log_data\x18\x01 \x03(\v2).node.GetLogDataResponse.UserLogDataEntryR\vuserLogData\x1aQ\n" +
-	"\x10UserLogDataEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12'\n" +
-	"\x05value\x18\x02 \x01(\v2\x11.node.UserLogDataR\x05value:\x028\x01\"\xa5\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\"7\n" +
+	"\x13GetApiStatsResponse\x12 \n" +
+	"\x05stats\x18\x01 \x03(\v2\n" +
+	".node.StatR\x05stats\"\x13\n" +
+	"\x11GetLogDataRequest\"\xa5\x01\n" +
 	"\vUserLogData\x12\x1b\n" +
 	"\tvalid_ips\x18\x01 \x03(\tR\bvalidIps\x12<\n" +
 	"\tdns_stats\x18\x02 \x03(\v2\x1f.node.UserLogData.DnsStatsEntryR\bdnsStats\x1a;\n" +
 	"\rDnsStatsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"E\n" +
-	"\x0eAddUserRequest\x12\x12\n" +
-	"\x04user\x18\x01 \x01(\tR\x04user\x12\x1f\n" +
+	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xb6\x01\n" +
+	"\x12GetLogDataResponse\x12M\n" +
+	"\ruser_log_data\x18\x01 \x03(\v2).node.GetLogDataResponse.UserLogDataEntryR\vuserLogData\x1aQ\n" +
+	"\x10UserLogDataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12'\n" +
+	"\x05value\x18\x02 \x01(\v2\x11.node.UserLogDataR\x05value:\x028\x01\"M\n" +
+	"\x0eAddUserRequest\x12\x1a\n" +
+	"\busername\x18\x01 \x01(\tR\busername\x12\x1f\n" +
 	"\vinbound_tag\x18\x02 \x01(\tR\n" +
-	"inboundTag\"G\n" +
+	"inboundTag\"]\n" +
 	"\x0fAddUserResponse\x12\x1e\n" +
 	"\n" +
 	"credential\x18\x01 \x01(\tR\n" +
-	"credential\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"H\n" +
-	"\x11DeleteUserRequest\x12\x12\n" +
-	"\x04user\x18\x01 \x01(\tR\x04user\x12\x1f\n" +
+	"credential\x12*\n" +
+	"\x06status\x18\x02 \x01(\v2\x12.google.rpc.StatusR\x06status\"P\n" +
+	"\x11DeleteUserRequest\x12\x1a\n" +
+	"\busername\x18\x01 \x01(\tR\busername\x12\x1f\n" +
 	"\vinbound_tag\x18\x02 \x01(\tR\n" +
-	"inboundTag\"*\n" +
-	"\x12DeleteUserResponse\x12\x14\n" +
-	"\x05error\x18\x01 \x01(\tR\x05error\"A\n" +
-	"\x11SetEnabledRequest\x12\x12\n" +
-	"\x04user\x18\x01 \x01(\tR\x04user\x12\x18\n" +
-	"\aenabled\x18\x02 \x01(\bR\aenabled\"*\n" +
-	"\x12SetEnabledResponse\x12\x14\n" +
-	"\x05error\x18\x01 \x01(\tR\x05error2\x9c\x03\n" +
-	"\vNodeService\x12;\n" +
-	"\bGetUsers\x12\x15.node.GetUsersRequest\x1a\x16.node.GetUsersResponse\"\x00\x12M\n" +
-	"\x0eGetApiResponse\x12\x1b.node.GetApiResponseRequest\x1a\x1c.node.GetApiResponseResponse\"\x00\x12A\n" +
+	"inboundTag\"?\n" +
+	"\x11OperationResponse\x12*\n" +
+	"\x06status\x18\x01 \x01(\v2\x12.google.rpc.StatusR\x06status\"M\n" +
+	"\x15SetUserEnabledRequest\x12\x1a\n" +
+	"\busername\x18\x01 \x01(\tR\busername\x12\x18\n" +
+	"\aenabled\x18\x02 \x01(\bR\aenabled2\x9c\x03\n" +
+	"\vNodeService\x12>\n" +
+	"\tListUsers\x12\x16.node.ListUsersRequest\x1a\x17.node.ListUsersResponse\"\x00\x12D\n" +
+	"\vGetApiStats\x12\x18.node.GetApiStatsRequest\x1a\x19.node.GetApiStatsResponse\"\x00\x12A\n" +
 	"\n" +
 	"GetLogData\x12\x17.node.GetLogDataRequest\x1a\x18.node.GetLogDataResponse\"\x00\x128\n" +
-	"\aAddUser\x12\x14.node.AddUserRequest\x1a\x15.node.AddUserResponse\"\x00\x12A\n" +
+	"\aAddUser\x12\x14.node.AddUserRequest\x1a\x15.node.AddUserResponse\"\x00\x12@\n" +
 	"\n" +
-	"DeleteUser\x12\x17.node.DeleteUserRequest\x1a\x18.node.DeleteUserResponse\"\x00\x12A\n" +
-	"\n" +
-	"SetEnabled\x12\x17.node.SetEnabledRequest\x1a\x18.node.SetEnabledResponse\"\x00B\tZ\a./protob\x06proto3"
+	"DeleteUser\x12\x17.node.DeleteUserRequest\x1a\x17.node.OperationResponse\"\x00\x12H\n" +
+	"\x0eSetUserEnabled\x12\x1b.node.SetUserEnabledRequest\x1a\x17.node.OperationResponse\"\x00B\tZ\a./protob\x06proto3"
 
 var (
 	file_node_proto_rawDescOnce sync.Once
@@ -853,51 +823,53 @@ func file_node_proto_rawDescGZIP() []byte {
 	return file_node_proto_rawDescData
 }
 
-var file_node_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_node_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_node_proto_goTypes = []any{
-	(*GetUsersRequest)(nil),        // 0: node.GetUsersRequest
-	(*UUIDInbound)(nil),            // 1: node.UUIDInbound
-	(*User)(nil),                   // 2: node.User
-	(*GetUsersResponse)(nil),       // 3: node.GetUsersResponse
-	(*GetApiResponseRequest)(nil),  // 4: node.GetApiResponseRequest
-	(*GetApiResponseResponse)(nil), // 5: node.GetApiResponseResponse
-	(*Stat)(nil),                   // 6: node.Stat
-	(*GetLogDataRequest)(nil),      // 7: node.GetLogDataRequest
-	(*GetLogDataResponse)(nil),     // 8: node.GetLogDataResponse
-	(*UserLogData)(nil),            // 9: node.UserLogData
-	(*AddUserRequest)(nil),         // 10: node.AddUserRequest
-	(*AddUserResponse)(nil),        // 11: node.AddUserResponse
-	(*DeleteUserRequest)(nil),      // 12: node.DeleteUserRequest
-	(*DeleteUserResponse)(nil),     // 13: node.DeleteUserResponse
-	(*SetEnabledRequest)(nil),      // 14: node.SetEnabledRequest
-	(*SetEnabledResponse)(nil),     // 15: node.SetEnabledResponse
-	nil,                            // 16: node.GetLogDataResponse.UserLogDataEntry
-	nil,                            // 17: node.UserLogData.DnsStatsEntry
+	(*ListUsersRequest)(nil),      // 0: node.ListUsersRequest
+	(*IdInbound)(nil),             // 1: node.IdInbound
+	(*User)(nil),                  // 2: node.User
+	(*ListUsersResponse)(nil),     // 3: node.ListUsersResponse
+	(*GetApiStatsRequest)(nil),    // 4: node.GetApiStatsRequest
+	(*Stat)(nil),                  // 5: node.Stat
+	(*GetApiStatsResponse)(nil),   // 6: node.GetApiStatsResponse
+	(*GetLogDataRequest)(nil),     // 7: node.GetLogDataRequest
+	(*UserLogData)(nil),           // 8: node.UserLogData
+	(*GetLogDataResponse)(nil),    // 9: node.GetLogDataResponse
+	(*AddUserRequest)(nil),        // 10: node.AddUserRequest
+	(*AddUserResponse)(nil),       // 11: node.AddUserResponse
+	(*DeleteUserRequest)(nil),     // 12: node.DeleteUserRequest
+	(*OperationResponse)(nil),     // 13: node.OperationResponse
+	(*SetUserEnabledRequest)(nil), // 14: node.SetUserEnabledRequest
+	nil,                           // 15: node.UserLogData.DnsStatsEntry
+	nil,                           // 16: node.GetLogDataResponse.UserLogDataEntry
+	(*status.Status)(nil),         // 17: google.rpc.Status
 }
 var file_node_proto_depIdxs = []int32{
-	1,  // 0: node.User.uuid_inbounds:type_name -> node.UUIDInbound
-	2,  // 1: node.GetUsersResponse.users:type_name -> node.User
-	6,  // 2: node.GetApiResponseResponse.stats:type_name -> node.Stat
-	16, // 3: node.GetLogDataResponse.user_log_data:type_name -> node.GetLogDataResponse.UserLogDataEntry
-	17, // 4: node.UserLogData.dns_stats:type_name -> node.UserLogData.DnsStatsEntry
-	9,  // 5: node.GetLogDataResponse.UserLogDataEntry.value:type_name -> node.UserLogData
-	0,  // 6: node.NodeService.GetUsers:input_type -> node.GetUsersRequest
-	4,  // 7: node.NodeService.GetApiResponse:input_type -> node.GetApiResponseRequest
-	7,  // 8: node.NodeService.GetLogData:input_type -> node.GetLogDataRequest
-	10, // 9: node.NodeService.AddUser:input_type -> node.AddUserRequest
-	12, // 10: node.NodeService.DeleteUser:input_type -> node.DeleteUserRequest
-	14, // 11: node.NodeService.SetEnabled:input_type -> node.SetEnabledRequest
-	3,  // 12: node.NodeService.GetUsers:output_type -> node.GetUsersResponse
-	5,  // 13: node.NodeService.GetApiResponse:output_type -> node.GetApiResponseResponse
-	8,  // 14: node.NodeService.GetLogData:output_type -> node.GetLogDataResponse
-	11, // 15: node.NodeService.AddUser:output_type -> node.AddUserResponse
-	13, // 16: node.NodeService.DeleteUser:output_type -> node.DeleteUserResponse
-	15, // 17: node.NodeService.SetEnabled:output_type -> node.SetEnabledResponse
-	12, // [12:18] is the sub-list for method output_type
-	6,  // [6:12] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	1,  // 0: node.User.id_inbounds:type_name -> node.IdInbound
+	2,  // 1: node.ListUsersResponse.users:type_name -> node.User
+	5,  // 2: node.GetApiStatsResponse.stats:type_name -> node.Stat
+	15, // 3: node.UserLogData.dns_stats:type_name -> node.UserLogData.DnsStatsEntry
+	16, // 4: node.GetLogDataResponse.user_log_data:type_name -> node.GetLogDataResponse.UserLogDataEntry
+	17, // 5: node.AddUserResponse.status:type_name -> google.rpc.Status
+	17, // 6: node.OperationResponse.status:type_name -> google.rpc.Status
+	8,  // 7: node.GetLogDataResponse.UserLogDataEntry.value:type_name -> node.UserLogData
+	0,  // 8: node.NodeService.ListUsers:input_type -> node.ListUsersRequest
+	4,  // 9: node.NodeService.GetApiStats:input_type -> node.GetApiStatsRequest
+	7,  // 10: node.NodeService.GetLogData:input_type -> node.GetLogDataRequest
+	10, // 11: node.NodeService.AddUser:input_type -> node.AddUserRequest
+	12, // 12: node.NodeService.DeleteUser:input_type -> node.DeleteUserRequest
+	14, // 13: node.NodeService.SetUserEnabled:input_type -> node.SetUserEnabledRequest
+	3,  // 14: node.NodeService.ListUsers:output_type -> node.ListUsersResponse
+	6,  // 15: node.NodeService.GetApiStats:output_type -> node.GetApiStatsResponse
+	9,  // 16: node.NodeService.GetLogData:output_type -> node.GetLogDataResponse
+	11, // 17: node.NodeService.AddUser:output_type -> node.AddUserResponse
+	13, // 18: node.NodeService.DeleteUser:output_type -> node.OperationResponse
+	13, // 19: node.NodeService.SetUserEnabled:output_type -> node.OperationResponse
+	14, // [14:20] is the sub-list for method output_type
+	8,  // [8:14] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_node_proto_init() }
@@ -911,7 +883,7 @@ func file_node_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_node_proto_rawDesc), len(file_node_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   18,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

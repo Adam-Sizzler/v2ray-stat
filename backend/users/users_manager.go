@@ -13,7 +13,7 @@ import (
 	"v2ray-stat/node/proto"
 )
 
-// SyncUsersWithNode синхронизирует пользователей с нод с базой данных (параллельно).
+// SyncUsersWithNode synchronizes users from nodes with the database in parallel.
 func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, nodeClients []*db.NodeClient, cfg *config.Config) error {
 	var (
 		wg   sync.WaitGroup
@@ -27,7 +27,7 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 		go func(nc *db.NodeClient) {
 			defer wg.Done()
 
-			// Проверка существования ноды
+			// Check node existence
 			err := manager.ExecuteHighPriority(func(db *sql.DB) error {
 				var count int
 				err := db.QueryRow("SELECT COUNT(*) FROM nodes WHERE node_name = ?", nc.NodeName).Scan(&count)
@@ -47,11 +47,11 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 				return
 			}
 
-			// Получение пользователей с ноды
+			// Fetch users from node
 			grpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
 
-			resp, err := nc.Client.GetUsers(grpcCtx, &proto.GetUsersRequest{})
+			resp, err := nc.Client.ListUsers(grpcCtx, &proto.ListUsersRequest{})
 			if err != nil {
 				cfg.Logger.Error("Failed to get users from node", "node_name", nc.NodeName, "error", err)
 				mu.Lock()
@@ -66,7 +66,7 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 			}
 			cfg.Logger.Debug("Fetched users from node", "node_name", nc.NodeName, "user_count", len(nodeUsers))
 
-			// Получение пользователей из базы данных
+			// Fetch users from database
 			var dbUsers []string
 			err = manager.ExecuteHighPriority(func(db *sql.DB) error {
 				rows, err := db.Query("SELECT user FROM user_traffic WHERE node_name = ?", nc.NodeName)
@@ -91,7 +91,7 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 				return
 			}
 
-			// Синхронизация пользователей
+			// Synchronize users
 			addedUsers, addedIDs, updatedUsers, deletedUsers := 0, 0, 0, 0
 			err = manager.ExecuteHighPriority(func(db *sql.DB) error {
 				tx, err := db.BeginTx(ctx, nil)
@@ -104,8 +104,8 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 					INSERT INTO user_traffic (node_name, user, rate, created, enabled)
 					VALUES (?, ?, 0, ?, ?)
 					ON CONFLICT(node_name, user) DO UPDATE SET
-					    enabled = excluded.enabled,
-					    created = excluded.created`)
+						enabled = excluded.enabled,
+						created = excluded.created`)
 				if err != nil {
 					return fmt.Errorf("prepare upsert user statement: %w", err)
 				}
@@ -149,14 +149,14 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 						}
 					}
 
-					for _, ui := range user.UuidInbounds {
-						result, err := stmtInsertID.Exec(nc.NodeName, user.Username, ui.Uuid, ui.InboundTag)
+					for _, ui := range user.IdInbounds {
+						result, err := stmtInsertID.Exec(nc.NodeName, user.Username, ui.Id, ui.InboundTag)
 						if err != nil {
-							return fmt.Errorf("insert id %s for user %s: %w", ui.Uuid, user.Username, err)
+							return fmt.Errorf("insert id %s for user %s: %w", ui.Id, user.Username, err)
 						}
 						rowsAffected, err := result.RowsAffected()
 						if err != nil {
-							return fmt.Errorf("check rows affected for id %s: %w", ui.Uuid, err)
+							return fmt.Errorf("check rows affected for id %s: %w", ui.Id, err)
 						}
 						if rowsAffected > 0 {
 							addedIDs++
@@ -228,7 +228,7 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 	return nil
 }
 
-// MonitorUsers периодически синхронизирует пользователей с нод с базой данных.
+// MonitorUsers periodically synchronizes users from nodes with the database.
 func MonitorUsers(ctx context.Context, manager *manager.DatabaseManager, nodeClients []*db.NodeClient, cfg *config.Config, wg *sync.WaitGroup) {
 	wg.Add(1)
 	go func() {

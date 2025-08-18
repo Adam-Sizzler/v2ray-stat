@@ -7,35 +7,32 @@ import (
 	"os"
 	"path/filepath"
 
-	"v2ray-stat/node/api"
+	// Import for google.rpc.Status
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status" // Alias to avoid conflict
+
 	"v2ray-stat/node/config"
-	"v2ray-stat/node/logprocessor"
 	"v2ray-stat/node/proto"
 )
 
-type NodeServer struct {
-	proto.UnimplementedNodeServiceServer
-	Cfg          *config.NodeConfig
-	logProcessor *logprocessor.LogProcessor
-}
-
-// makeUserKey создаёт ключ уникальности для пользователя
+// makeUserKey creates a unique key for a user based on their username.
 func makeUserKey(username string) string {
-	return username // Уникальность по username, так как uuid и tag хранятся в UuidInbounds
+	return username // Username is used as the unique key since id and tag are stored in IdInbounds.
 }
 
-// processUsers обрабатывает пользователей из конфигурации и добавляет их в userMap.
-func processUsers[T any](data []byte, userMap map[string]*proto.User, cfg *config.NodeConfig, isDisabled bool, process func(cfg T, userMap map[string]*proto.User)) error {
+// processUsers processes users from configuration and adds them to userMap.
+func processUsers[T any](data []byte, userMap map[string]*proto.User, cfg *config.NodeConfig, isDisabled bool, process func(cfg T, userMap map[string]*proto.User, isDisabled bool)) error {
 	var config T
 	if err := json.Unmarshal(data, &config); err != nil {
 		cfg.Logger.Error("Failed to parse config", "error", err)
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
-	process(config, userMap)
+	process(config, userMap, isDisabled)
 	return nil
 }
 
-func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (*proto.GetUsersResponse, error) {
+// ListUsers retrieves a list of users from the node configuration.
+func (s *NodeServer) ListUsers(ctx context.Context, req *proto.ListUsersRequest) (*proto.ListUsersResponse, error) {
 	userMap := make(map[string]*proto.User)
 
 	mainConfigPath := s.Cfg.Core.Config
@@ -47,9 +44,9 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 		data, err := os.ReadFile(mainConfigPath)
 		if err != nil {
 			s.Cfg.Logger.Error("Failed to read Xray main config", "path", mainConfigPath, "error", err)
-			return nil, fmt.Errorf("read main config: %w", err)
+			return nil, grpcstatus.Errorf(codes.Internal, "read main config: %v", err)
 		}
-		err = processUsers(data, userMap, s.Cfg, false, func(cfg config.ConfigXray, userMap map[string]*proto.User) {
+		err = processUsers(data, userMap, s.Cfg, false, func(cfg config.ConfigXray, userMap map[string]*proto.User, isDisabled bool) {
 			for _, inbound := range cfg.Inbounds {
 				if inbound.Protocol != "vless" && inbound.Protocol != "trojan" {
 					s.Cfg.Logger.Debug("Skipping inbound with unsupported protocol", "protocol", inbound.Protocol, "tag", inbound.Tag)
@@ -59,26 +56,26 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 					key := makeUserKey(client.Email)
 					if _, exists := userMap[key]; !exists {
 						userMap[key] = &proto.User{
-							Username:     client.Email,
-							UuidInbounds: []*proto.UUIDInbound{},
-							Enabled:      true,
+							Username:   client.Email,
+							IdInbounds: []*proto.IdInbound{},
+							Enabled:    !isDisabled, // Use isDisabled to set Enabled
 						}
 					}
-					userMap[key].UuidInbounds = append(userMap[key].UuidInbounds, &proto.UUIDInbound{
-						Uuid:       client.ID,
+					userMap[key].IdInbounds = append(userMap[key].IdInbounds, &proto.IdInbound{
+						Id:         client.ID,
 						InboundTag: inbound.Tag,
 					})
 				}
 			}
 		})
 		if err != nil {
-			return nil, fmt.Errorf("process Xray main config: %w", err)
+			return nil, grpcstatus.Errorf(codes.Internal, "process Xray main config: %v", err)
 		}
 
 		// Process disabled users
 		disabledData, err := os.ReadFile(disabledUsersPath)
 		if err == nil && len(disabledData) > 0 {
-			err = processUsers(disabledData, userMap, s.Cfg, true, func(cfg config.DisabledUsersConfigXray, userMap map[string]*proto.User) {
+			err = processUsers(disabledData, userMap, s.Cfg, true, func(cfg config.DisabledUsersConfigXray, userMap map[string]*proto.User, isDisabled bool) {
 				for _, inbound := range cfg.Inbounds {
 					if inbound.Protocol != "vless" && inbound.Protocol != "trojan" {
 						s.Cfg.Logger.Debug("Skipping disabled inbound with unsupported protocol", "protocol", inbound.Protocol, "tag", inbound.Tag)
@@ -88,25 +85,25 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 						key := makeUserKey(client.Email)
 						if _, exists := userMap[key]; !exists {
 							userMap[key] = &proto.User{
-								Username:     client.Email,
-								UuidInbounds: []*proto.UUIDInbound{},
-								Enabled:      false,
+								Username:   client.Email,
+								IdInbounds: []*proto.IdInbound{},
+								Enabled:    !isDisabled, // Use isDisabled to set Enabled
 							}
 						}
-						userMap[key].UuidInbounds = append(userMap[key].UuidInbounds, &proto.UUIDInbound{
-							Uuid:       client.ID,
+						userMap[key].IdInbounds = append(userMap[key].IdInbounds, &proto.IdInbound{
+							Id:         client.ID,
 							InboundTag: inbound.Tag,
 						})
-						userMap[key].Enabled = false // Disabled users перезаписывают Enabled
+						userMap[key].Enabled = !isDisabled // Update Enabled for existing users
 					}
 				}
 			})
 			if err != nil {
-				return nil, fmt.Errorf("process Xray disabled users: %w", err)
+				return nil, grpcstatus.Errorf(codes.Internal, "process Xray disabled users: %v", err)
 			}
 		} else if err != nil && !os.IsNotExist(err) {
 			s.Cfg.Logger.Error("Failed to read Xray disabled users", "path", disabledUsersPath, "error", err)
-			return nil, fmt.Errorf("read disabled users: %w", err)
+			return nil, grpcstatus.Errorf(codes.Internal, "read disabled users: %v", err)
 		}
 
 	case "singbox":
@@ -114,21 +111,21 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 		data, err := os.ReadFile(mainConfigPath)
 		if err != nil {
 			s.Cfg.Logger.Error("Failed to read Singbox main config", "path", mainConfigPath, "error", err)
-			return nil, fmt.Errorf("read main config: %w", err)
+			return nil, grpcstatus.Errorf(codes.Internal, "read main config: %v", err)
 		}
-		err = processUsers(data, userMap, s.Cfg, false, func(cfg config.ConfigSingbox, userMap map[string]*proto.User) {
+		err = processUsers(data, userMap, s.Cfg, false, func(cfg config.ConfigSingbox, userMap map[string]*proto.User, isDisabled bool) {
 			for _, inbound := range cfg.Inbounds {
 				if inbound.Type != "vless" && inbound.Type != "trojan" {
 					s.Cfg.Logger.Debug("Skipping inbound with unsupported type", "type", inbound.Type, "tag", inbound.Tag)
 					continue
 				}
 				for _, user := range inbound.Users {
-					var uuid string
+					var id string
 					switch inbound.Type {
 					case "vless":
-						uuid = user.UUID
+						id = user.UUID
 					case "trojan":
-						uuid = user.Password
+						id = user.Password
 					default:
 						s.Cfg.Logger.Warn("Unexpected protocol in inbound", "type", inbound.Type, "tag", inbound.Tag)
 						continue
@@ -136,38 +133,38 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 					key := makeUserKey(user.Name)
 					if _, exists := userMap[key]; !exists {
 						userMap[key] = &proto.User{
-							Username:     user.Name,
-							UuidInbounds: []*proto.UUIDInbound{},
-							Enabled:      true,
+							Username:   user.Name,
+							IdInbounds: []*proto.IdInbound{},
+							Enabled:    !isDisabled, // Use isDisabled to set Enabled
 						}
 					}
-					userMap[key].UuidInbounds = append(userMap[key].UuidInbounds, &proto.UUIDInbound{
-						Uuid:       uuid,
+					userMap[key].IdInbounds = append(userMap[key].IdInbounds, &proto.IdInbound{
+						Id:         id,
 						InboundTag: inbound.Tag,
 					})
 				}
 			}
 		})
 		if err != nil {
-			return nil, fmt.Errorf("process Singbox main config: %w", err)
+			return nil, grpcstatus.Errorf(codes.Internal, "process Singbox main config: %v", err)
 		}
 
 		// Process disabled users
 		disabledData, err := os.ReadFile(disabledUsersPath)
 		if err == nil && len(disabledData) > 0 {
-			err = processUsers(disabledData, userMap, s.Cfg, true, func(cfg config.DisabledUsersConfigSingbox, userMap map[string]*proto.User) {
+			err = processUsers(disabledData, userMap, s.Cfg, true, func(cfg config.DisabledUsersConfigSingbox, userMap map[string]*proto.User, isDisabled bool) {
 				for _, inbound := range cfg.Inbounds {
 					if inbound.Type != "vless" && inbound.Type != "trojan" {
 						s.Cfg.Logger.Debug("Skipping disabled inbound with unsupported type", "type", inbound.Type, "tag", inbound.Tag)
 						continue
 					}
 					for _, user := range inbound.Users {
-						var uuid string
+						var id string
 						switch inbound.Type {
 						case "vless":
-							uuid = user.UUID
+							id = user.UUID
 						case "trojan":
-							uuid = user.Password
+							id = user.Password
 						default:
 							s.Cfg.Logger.Warn("Unexpected protocol in disabled inbound", "type", inbound.Type, "tag", inbound.Tag)
 							continue
@@ -175,33 +172,33 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 						key := makeUserKey(user.Name)
 						if _, exists := userMap[key]; !exists {
 							userMap[key] = &proto.User{
-								Username:     user.Name,
-								UuidInbounds: []*proto.UUIDInbound{},
-								Enabled:      false,
+								Username:   user.Name,
+								IdInbounds: []*proto.IdInbound{},
+								Enabled:    !isDisabled, // Use isDisabled to set Enabled
 							}
 						}
-						userMap[key].UuidInbounds = append(userMap[key].UuidInbounds, &proto.UUIDInbound{
-							Uuid:       uuid,
+						userMap[key].IdInbounds = append(userMap[key].IdInbounds, &proto.IdInbound{
+							Id:         id,
 							InboundTag: inbound.Tag,
 						})
-						userMap[key].Enabled = false // Disabled users перезаписывают Enabled
+						userMap[key].Enabled = !isDisabled // Update Enabled for existing users
 					}
 				}
 			})
 			if err != nil {
-				return nil, fmt.Errorf("process Singbox disabled users: %w", err)
+				return nil, grpcstatus.Errorf(codes.Internal, "process Singbox disabled users: %v", err)
 			}
 		} else if err != nil && !os.IsNotExist(err) {
 			s.Cfg.Logger.Error("Failed to read Singbox disabled users", "path", disabledUsersPath, "error", err)
-			return nil, fmt.Errorf("read disabled users: %w", err)
+			return nil, grpcstatus.Errorf(codes.Internal, "read disabled users: %v", err)
 		}
 
 	default:
 		s.Cfg.Logger.Error("Unsupported core type", "type", s.Cfg.V2rayStat.Type)
-		return nil, fmt.Errorf("unsupported core type: %s", s.Cfg.V2rayStat.Type)
+		return nil, grpcstatus.Errorf(codes.InvalidArgument, "unsupported core type: %s", s.Cfg.V2rayStat.Type)
 	}
 
-	resp := &proto.GetUsersResponse{
+	resp := &proto.ListUsersResponse{
 		Users: make([]*proto.User, 0, len(userMap)),
 	}
 	for _, user := range userMap {
@@ -209,49 +206,4 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 	}
 	s.Cfg.Logger.Debug("Returning users", "count", len(resp.Users))
 	return resp, nil
-}
-
-func (s *NodeServer) GetApiResponse(ctx context.Context, req *proto.GetApiResponseRequest) (*proto.GetApiResponseResponse, error) {
-	s.Cfg.Logger.Debug("Received GetApiResponse request")
-	apiData, err := api.GetApiResponse(s.Cfg)
-	if err != nil {
-		s.Cfg.Logger.Error("Failed to get API response", "error", err)
-		return nil, fmt.Errorf("failed to get API response: %w", err)
-	}
-
-	response := &proto.GetApiResponseResponse{}
-	for _, stat := range apiData.Stat {
-		response.Stats = append(response.Stats, &proto.Stat{
-			Name:  stat.Name,
-			Value: stat.Value,
-		})
-	}
-
-	s.Cfg.Logger.Debug("Returning API response", "stats_count", len(response.Stats))
-	return response, nil
-}
-
-// NewNodeServer создаёт новый сервер ноды.
-func NewNodeServer(cfg *config.NodeConfig) (*NodeServer, error) {
-	processor, err := logprocessor.NewLogProcessor(cfg)
-	if err != nil {
-		cfg.Logger.Error("Failed to create log processor", "error", err)
-		return nil, fmt.Errorf("create log processor: %w", err)
-	}
-	server := &NodeServer{
-		Cfg:          cfg,
-		logProcessor: processor,
-	}
-	return server, nil
-}
-
-// GetLogData возвращает обработанные данные логов.
-func (s *NodeServer) GetLogData(ctx context.Context, req *proto.GetLogDataRequest) (*proto.GetLogDataResponse, error) {
-	response, err := s.logProcessor.ReadNewLines()
-	if err != nil {
-		s.Cfg.Logger.Error("Failed to read log data", "error", err)
-		return nil, fmt.Errorf("read log data: %w", err)
-	}
-	s.Cfg.Logger.Debug("Returning log data via gRPC", "users", len(response.UserLogData))
-	return response, nil
 }

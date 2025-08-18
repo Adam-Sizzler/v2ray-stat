@@ -22,14 +22,14 @@ var (
 	userActivityTimestamps   = make(map[string]map[string]time.Time) // node_name -> user -> timestamp
 	userActivityMutex        sync.Mutex
 	previousStats            = make(map[string]string) // node_name -> stats
-	previousStatsMutex       sync.Mutex                // Глобальный мьютекс для previousStats
+	previousStatsMutex       sync.Mutex                // Global mutex for previousStats
 	clientPreviousStats      = make(map[string]string) // node_name -> stats
-	clientPreviousStatsMutex sync.Mutex                // Глобальный мьютекс для clientPreviousStats
+	clientPreviousStatsMutex sync.Mutex                // Global mutex for clientPreviousStats
 	isInactive               = make(map[string]bool)   // node_name:user -> status
 	isInactiveMutex          sync.Mutex
 )
 
-// LoadIsInactiveFromLastSeen загружает статус неактивности пользователей из last_seen.
+// LoadIsInactiveFromLastSeen loads user inactivity status from the last_seen field.
 func LoadIsInactiveFromLastSeen(manager *manager.DatabaseManager, cfg *config.Config) error {
 	cfg.Logger.Debug("Loading user inactivity status from last_seen")
 	isInactiveLocal := make(map[string]bool)
@@ -69,8 +69,8 @@ func LoadIsInactiveFromLastSeen(manager *manager.DatabaseManager, cfg *config.Co
 	return nil
 }
 
-// convertProtoToApiResponse преобразует proto.GetApiResponseResponse в api.ApiResponse.
-func convertProtoToApiResponse(protoData *proto.GetApiResponseResponse) *api.ApiResponse {
+// convertProtoToApiResponse converts proto.GetApiStatsResponse to api.ApiResponse.
+func convertProtoToApiResponse(protoData *proto.GetApiStatsResponse) *api.ApiResponse {
 	apiData := &api.ApiResponse{}
 	for _, s := range protoData.Stats {
 		apiData.Stat = append(apiData.Stat, api.Stat{
@@ -81,7 +81,7 @@ func convertProtoToApiResponse(protoData *proto.GetApiResponseResponse) *api.Api
 	return apiData
 }
 
-// updateProxyStats обновляет статистику трафика для inbound-тегов в базе данных.
+// updateProxyStats updates traffic statistics for inbound tags in the database.
 func updateProxyStats(manager *manager.DatabaseManager, nodeName string, apiData *api.ApiResponse, cfg *config.Config) error {
 	cfg.Logger.Debug("Starting proxy stats update", "node_name", nodeName)
 
@@ -106,7 +106,7 @@ func updateProxyStats(manager *manager.DatabaseManager, nodeName string, apiData
 	currentValues := make(map[string]int)
 	previousValues := make(map[string]int)
 
-	// Парсим текущие данные
+	// Parse current stats
 	for _, line := range currentStats {
 		parts := strings.Fields(line)
 		if len(parts) == 3 {
@@ -117,7 +117,7 @@ func updateProxyStats(manager *manager.DatabaseManager, nodeName string, apiData
 		}
 	}
 
-	// Парсим предыдущие данные
+	// Parse previous stats
 	for _, line := range strings.Split(previous, "\n") {
 		parts := strings.Fields(line)
 		if len(parts) == 3 {
@@ -209,7 +209,7 @@ func updateProxyStats(manager *manager.DatabaseManager, nodeName string, apiData
 	return nil
 }
 
-// updateUserStats обновляет статистику трафика пользователей в базе данных.
+// updateUserStats updates traffic statistics for users in the database.
 func updateUserStats(manager *manager.DatabaseManager, nodeName string, apiData *api.ApiResponse, cfg *config.Config) error {
 	cfg.Logger.Debug("Starting user stats update", "node_name", nodeName)
 
@@ -234,7 +234,7 @@ func updateUserStats(manager *manager.DatabaseManager, nodeName string, apiData 
 	currentValues := make(map[string]int)
 	previousValues := make(map[string]int)
 
-	// Парсим текущие данные
+	// Parse current stats
 	for _, line := range currentStats {
 		parts := strings.Fields(line)
 		if len(parts) == 3 {
@@ -245,7 +245,7 @@ func updateUserStats(manager *manager.DatabaseManager, nodeName string, apiData 
 		}
 	}
 
-	// Парсим предыдущие данные
+	// Parse previous stats
 	for _, line := range strings.Split(previous, "\n") {
 		parts := strings.Fields(line)
 		if len(parts) == 3 {
@@ -402,7 +402,7 @@ func updateUserStats(manager *manager.DatabaseManager, nodeName string, apiData 
 	return nil
 }
 
-// extractProxyTraffic фильтрует и форматирует статистику трафика для inbound-тегов.
+// extractProxyTraffic extracts and formats traffic statistics for inbound tags.
 func extractProxyTraffic(apiData *api.ApiResponse) []string {
 	var result []string
 	for _, stat := range apiData.Stat {
@@ -417,7 +417,7 @@ func extractProxyTraffic(apiData *api.ApiResponse) []string {
 	return result
 }
 
-// extractUserTraffic фильтрует и форматирует статистику трафика пользователей.
+// extractUserTraffic extracts and formats user traffic statistics.
 func extractUserTraffic(apiData *api.ApiResponse) []string {
 	var result []string
 	for _, stat := range apiData.Stat {
@@ -431,7 +431,7 @@ func extractUserTraffic(apiData *api.ApiResponse) []string {
 	return result
 }
 
-// splitAndCleanName разделяет имя статистики и возвращает компоненты.
+// splitAndCleanName splits a stat name and returns its components.
 func splitAndCleanName(name string) []string {
 	parts := strings.Split(name, ">>>")
 	if len(parts) == 4 {
@@ -440,7 +440,7 @@ func splitAndCleanName(name string) []string {
 	return nil
 }
 
-// stringToInt конвертирует строку в целое число.
+// stringToInt converts a string to an integer.
 func stringToInt(cfg *config.Config, s string) int {
 	result, err := strconv.Atoi(s)
 	if err != nil {
@@ -450,7 +450,7 @@ func stringToInt(cfg *config.Config, s string) int {
 	return result
 }
 
-// max возвращает максимум из двух чисел.
+// max returns the maximum of two numbers.
 func max(a, b int) int {
 	if a > b {
 		return a
@@ -458,13 +458,13 @@ func max(a, b int) int {
 	return b
 }
 
-// MonitorTrafficStats периодически собирает статистику трафика с нод.
+// MonitorTrafficStats periodically collects traffic statistics from nodes.
 func MonitorTrafficStats(ctx context.Context, manager *manager.DatabaseManager, nodeClients []*db.NodeClient, cfg *config.Config, wg *sync.WaitGroup) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
-		// Загружаем начальный статус неактивности
+		// Load initial user inactivity status
 		if err := LoadIsInactiveFromLastSeen(manager, cfg); err != nil {
 			cfg.Logger.Error("Failed to load initial user inactivity status", "error", err)
 		}
@@ -475,11 +475,11 @@ func MonitorTrafficStats(ctx context.Context, manager *manager.DatabaseManager, 
 		for {
 			select {
 			case <-ticker.C:
-				// Создаем WaitGroup для синхронизации горутин
+				// Create WaitGroup for node processing
 				var nodeWG sync.WaitGroup
 				nodeWG.Add(len(nodeClients))
 
-				// Обрабатываем каждую ноду в отдельной горутине
+				// Process each node in a separate goroutine
 				for _, nc := range nodeClients {
 					go func(nc *db.NodeClient) {
 						defer nodeWG.Done()
@@ -487,7 +487,7 @@ func MonitorTrafficStats(ctx context.Context, manager *manager.DatabaseManager, 
 						grpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 						defer cancel()
 
-						protoData, err := nc.Client.GetApiResponse(grpcCtx, &proto.GetApiResponseRequest{})
+						protoData, err := nc.Client.GetApiStats(grpcCtx, &proto.GetApiStatsRequest{})
 						if err != nil {
 							cfg.Logger.Error("Failed to retrieve API data from node", "node_name", nc.NodeName, "error", err)
 							return
@@ -503,7 +503,7 @@ func MonitorTrafficStats(ctx context.Context, manager *manager.DatabaseManager, 
 					}(nc)
 				}
 
-				// Ожидаем завершения всех горутин для текущего тика
+				// Wait for all node goroutines to complete
 				nodeWG.Wait()
 
 			case <-ctx.Done():

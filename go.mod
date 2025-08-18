@@ -7,6 +7,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.30
 	github.com/v2ray/v2ray-core v4.15.0+incompatible
 	github.com/xtls/xray-core v1.250803.0
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250811230008-5f3141c8851a
 	google.golang.org/grpc v1.74.2
 	google.golang.org/protobuf v1.36.7
 	gopkg.in/yaml.v3 v3.0.1
@@ -19,7 +20,6 @@ require (
 	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect
 	golang.org/x/text v0.27.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250528174236-200df99c418a // indirect
 	v2ray.com/core v4.19.1+incompatible // indirect
 	v2ray.com/ext v4.15.0+incompatible // indirect
 )

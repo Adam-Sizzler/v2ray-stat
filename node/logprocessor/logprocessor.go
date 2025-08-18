@@ -12,7 +12,7 @@ import (
 	"v2ray-stat/node/proto"
 )
 
-// ProcessLogLine обрабатывает строку лога и возвращает данные для пользователя.
+// ProcessLogLine processes a log line and extracts user data.
 func ProcessLogLine(line string, dnsStats map[string]map[string]int, cfg *config.NodeConfig) (string, []string, bool) {
 	matches := regexp.MustCompile(cfg.Core.AccessLogRegex).FindStringSubmatch(line)
 	if len(matches) != 3 && len(matches) != 4 {
@@ -30,7 +30,7 @@ func ProcessLogLine(line string, dnsStats map[string]map[string]int, cfg *config
 		domain = ""
 	}
 
-	// Собираем IP без временных меток
+	// Collect IPs without timestamps
 	validIPs := []string{ip}
 
 	if dnsStats[user] == nil {
@@ -43,7 +43,7 @@ func ProcessLogLine(line string, dnsStats map[string]map[string]int, cfg *config
 	return user, validIPs, true
 }
 
-// LogProcessor управляет чтением и обработкой логов на ноде.
+// LogProcessor manages reading and processing of log files on the node.
 type LogProcessor struct {
 	cfg           *config.NodeConfig
 	file          *os.File
@@ -52,14 +52,14 @@ type LogProcessor struct {
 	accessLogPath string
 }
 
-// NewLogProcessor создаёт новый процессор логов.
+// NewLogProcessor creates a new LogProcessor instance.
 func NewLogProcessor(cfg *config.NodeConfig) (*LogProcessor, error) {
 	accessLog, err := os.OpenFile(cfg.Core.AccessLog, os.O_RDONLY|os.O_CREATE, 0644)
 	if err != nil {
 		cfg.Logger.Error("Failed to open log file", "file", cfg.Core.AccessLog, "error", err)
 		return nil, err
 	}
-	offset, err := accessLog.Seek(0, 2) // Перейти в конец файла
+	offset, err := accessLog.Seek(0, 2) // Move to end of file
 	if err != nil {
 		cfg.Logger.Error("Error getting log file position", "error", err)
 		accessLog.Close()
@@ -75,13 +75,13 @@ func NewLogProcessor(cfg *config.NodeConfig) (*LogProcessor, error) {
 		accessLogPath: cfg.Core.AccessLog,
 	}
 
-	// Запускаем ежедневную очистку лог-файла
+	// Start daily log file cleanup
 	go processor.runDailyCleanup()
 
 	return processor, nil
 }
 
-// ReadNewLines читает новые строки из лог-файла и возвращает обработанные данные.
+// ReadNewLines reads new log lines and returns processed data.
 func (lp *LogProcessor) ReadNewLines() (*proto.GetLogDataResponse, error) {
 	lp.file.Seek(lp.offset, 0)
 	scanner := bufio.NewScanner(lp.file)
@@ -135,7 +135,7 @@ func (lp *LogProcessor) ReadNewLines() (*proto.GetLogDataResponse, error) {
 	return response, nil
 }
 
-// runDailyCleanup очищает лог-файл раз в сутки.
+// runDailyCleanup truncates the log file daily.
 func (lp *LogProcessor) runDailyCleanup() {
 	dailyTicker := time.NewTicker(24 * time.Hour)
 	defer dailyTicker.Stop()

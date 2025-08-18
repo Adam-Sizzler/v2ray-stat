@@ -8,22 +8,21 @@ import (
 	"v2ray-stat/node/config"
 	"v2ray-stat/node/lua"
 	"v2ray-stat/node/proto"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
-// DeleteUser удаляет пользователя на ноде
-func (s *NodeServer) DeleteUser(ctx context.Context, req *proto.DeleteUserRequest) (*proto.DeleteUserResponse, error) {
-	user := req.User
-	inboundTag := req.InboundTag
-
-	// Удаление пользователя из конфигурации
-	err := DeleteUserFromConfig(s.Cfg, user, inboundTag)
+// DeleteUser deletes a user from the node configuration.
+func (s *NodeServer) DeleteUser(ctx context.Context, req *proto.DeleteUserRequest) (*proto.OperationResponse, error) {
+	err := DeleteUserFromConfig(s.Cfg, req.Username, req.InboundTag)
 	if err != nil {
 		s.Cfg.Logger.Error("Failed to delete user from config", "error", err)
-		return &proto.DeleteUserResponse{Error: err.Error()}, nil
+		return nil, status.Errorf(codes.FailedPrecondition, "failed to delete user: %v", err)
 	}
 
-	s.Cfg.Logger.Info("User deleted successfully", "user", user, "inbound_tag", inboundTag)
-	return &proto.DeleteUserResponse{}, nil
+	s.Cfg.Logger.Info("User deleted successfully", "user", req.Username, "inbound_tag", req.InboundTag)
+	return &proto.OperationResponse{}, nil
 }
 
 // DeleteUserFromConfig removes a user from the configuration file.

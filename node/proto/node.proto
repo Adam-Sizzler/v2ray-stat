@@ -4,77 +4,98 @@ package node;
 
 option go_package = "./proto";
 
-service NodeService {
-  rpc GetUsers(GetUsersRequest) returns (GetUsersResponse) {}
-  rpc GetApiResponse(GetApiResponseRequest) returns (GetApiResponseResponse) {}
-  rpc GetLogData(GetLogDataRequest) returns (GetLogDataResponse) {}
+import "google/rpc/status.proto";
 
+// NodeService provides methods for managing node users and data.
+service NodeService {
+  // ListUsers retrieves a list of users on the node.
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse) {}
+  // GetApiStats retrieves API statistics for the node.
+  rpc GetApiStats(GetApiStatsRequest) returns (GetApiStatsResponse) {}
+  // GetLogData retrieves processed log data from the node.
+  rpc GetLogData(GetLogDataRequest) returns (GetLogDataResponse) {}
+  // AddUser adds a new user to the node.
   rpc AddUser(AddUserRequest) returns (AddUserResponse) {}
-  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse) {}
-  rpc SetEnabled(SetEnabledRequest) returns (SetEnabledResponse) {}
+  // DeleteUser deletes a user from the node.
+  rpc DeleteUser(DeleteUserRequest) returns (OperationResponse) {}
+  // SetUserEnabled enables or disables a user on the node.
+  rpc SetUserEnabled(SetUserEnabledRequest) returns (OperationResponse) {}
 }
 
-message GetUsersRequest {}
+// ListUsersRequest is an empty request for listing users.
+message ListUsersRequest {}
 
-message UUIDInbound {
-  string uuid = 1;
+// IdInbound represents an ID and inbound tag pair for a user.
+message IdInbound {
+  string id = 1;
   string inbound_tag = 2;
 }
 
+// User represents a user on the node.
 message User {
   string username = 1;
-  repeated UUIDInbound uuid_inbounds = 2;
+  repeated IdInbound id_inbounds = 2;
   bool enabled = 3;
 }
 
-message GetUsersResponse {
+// ListUsersResponse contains a list of users.
+message ListUsersResponse {
   repeated User users = 1;
 }
 
-message GetApiResponseRequest {}
+// GetApiStatsRequest is an empty request for retrieving API statistics.
+message GetApiStatsRequest {}
 
-message GetApiResponseResponse {
-  repeated Stat stats = 1;
-}
-
+// Stat represents a single statistic entry.
 message Stat {
   string name = 1;
   string value = 2;
 }
 
-message GetLogDataRequest {}
-
-message GetLogDataResponse {
-  map<string, UserLogData> user_log_data = 1;
+// GetApiStatsResponse contains API statistics.
+message GetApiStatsResponse {
+  repeated Stat stats = 1;
 }
 
+// GetLogDataRequest is an empty request for retrieving log data.
+message GetLogDataRequest {}
+
+// UserLogData contains log data for a specific user.
 message UserLogData {
   repeated string valid_ips = 1;
   map<string, int32> dns_stats = 2;
 }
 
+// GetLogDataResponse contains log data for multiple users.
+message GetLogDataResponse {
+  map<string, UserLogData> user_log_data = 1;
+}
+
+// AddUserRequest specifies a user to add to the node.
 message AddUserRequest {
-  string user = 1;
+  string username = 1;
   string inbound_tag = 2;
 }
+
+// AddUserResponse contains the generated credential for the new user.
 message AddUserResponse {
   string credential = 1;
-  string error = 2;
+  google.rpc.Status status = 2;
 }
 
+// DeleteUserRequest specifies a user to delete from the node.
 message DeleteUserRequest {
-  string user = 1;
+  string username = 1;
   string inbound_tag = 2;
 }
-message DeleteUserResponse {
-  string error = 1;
+
+// OperationResponse represents the result of an operation.
+message OperationResponse {
+  google.rpc.Status status = 1;
 }
 
-message SetEnabledRequest {
-  string user = 1;
+// SetUserEnabledRequest specifies a user to enable or disable.
+message SetUserEnabledRequest {
+  string username = 1;
   bool enabled = 2;
-}
-
-message SetEnabledResponse {
-  string error = 1;
 }

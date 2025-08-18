@@ -9,14 +9,18 @@ import (
 	"math/rand"
 	"os"
 
+	"google.golang.org/genproto/googleapis/rpc/status" // Import for google.rpc.Status
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status" // Alias to avoid conflict
+
+	"github.com/google/uuid"
+
 	"v2ray-stat/node/config"
 	"v2ray-stat/node/lua"
 	"v2ray-stat/node/proto"
-
-	"github.com/google/uuid"
 )
 
-// Генерация случайного пароля (для trojan)
+// generateRandomPassword generates a random password of the specified length.
 func generateRandomPassword(length int) (string, error) {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, length)
@@ -26,24 +30,24 @@ func generateRandomPassword(length int) (string, error) {
 	return string(b), nil
 }
 
-// AddUser добавляет пользователя на ноду и возвращает сгенерированный credential
+// AddUser adds a new user to the node and returns the generated credential.
 func (s *NodeServer) AddUser(ctx context.Context, req *proto.AddUserRequest) (*proto.AddUserResponse, error) {
-	user := req.User
+	user := req.Username
 	inboundTag := req.InboundTag
 
-	// Определяем протокол на основе конфигурации (примерная логика)
+	// Determine protocol based on configuration
 	var protocol string
 	switch s.Cfg.V2rayStat.Type {
 	case "xray":
 		data, err := os.ReadFile(s.Cfg.Core.Config)
 		if err != nil {
 			s.Cfg.Logger.Error("Failed to read Xray config", "error", err)
-			return &proto.AddUserResponse{Error: err.Error()}, nil
+			return nil, grpcstatus.Errorf(codes.Internal, "failed to read Xray config: %v", err)
 		}
 		var cfgXray config.ConfigXray
 		if err := json.Unmarshal(data, &cfgXray); err != nil {
 			s.Cfg.Logger.Error("Failed to parse Xray config", "error", err)
-			return &proto.AddUserResponse{Error: err.Error()}, nil
+			return nil, grpcstatus.Errorf(codes.Internal, "failed to parse Xray config: %v", err)
 		}
 		for _, inbound := range cfgXray.Inbounds {
 			if inbound.Tag == inboundTag {
@@ -55,12 +59,12 @@ func (s *NodeServer) AddUser(ctx context.Context, req *proto.AddUserRequest) (*p
 		data, err := os.ReadFile(s.Cfg.Core.Config)
 		if err != nil {
 			s.Cfg.Logger.Error("Failed to read Singbox config", "error", err)
-			return &proto.AddUserResponse{Error: err.Error()}, nil
+			return nil, grpcstatus.Errorf(codes.Internal, "failed to read Singbox config: %v", err)
 		}
 		var cfgSingbox config.ConfigSingbox
 		if err := json.Unmarshal(data, &cfgSingbox); err != nil {
 			s.Cfg.Logger.Error("Failed to parse Singbox config", "error", err)
-			return &proto.AddUserResponse{Error: err.Error()}, nil
+			return nil, grpcstatus.Errorf(codes.Internal, "failed to parse Singbox config: %v", err)
 		}
 		for _, inbound := range cfgSingbox.Inbounds {
 			if inbound.Tag == inboundTag {
@@ -69,33 +73,36 @@ func (s *NodeServer) AddUser(ctx context.Context, req *proto.AddUserRequest) (*p
 			}
 		}
 	default:
-		return &proto.AddUserResponse{Error: "Unsupported core type"}, nil
+		return nil, grpcstatus.Errorf(codes.InvalidArgument, "unsupported core type: %s", s.Cfg.V2rayStat.Type)
 	}
 
-	// Генерация credential в зависимости от протокола
+	// Generate credential based on protocol
 	var credential string
+	var err error
 	switch protocol {
 	case "vless":
 		credential = uuid.New().String()
 	case "trojan":
-		var err error
 		credential, err = generateRandomPassword(16)
 		if err != nil {
-			return &proto.AddUserResponse{Error: err.Error()}, nil
+			return nil, grpcstatus.Errorf(codes.Internal, "failed to generate password: %v", err)
 		}
 	default:
-		return &proto.AddUserResponse{Error: fmt.Sprintf("Unsupported protocol: %s", protocol)}, nil
+		return nil, grpcstatus.Errorf(codes.InvalidArgument, "unsupported protocol: %s", protocol)
 	}
 
-	// Добавление пользователя в конфигурацию (логика зависит от ядра)
-	err := AddUserToConfig(s.Cfg, user, credential, inboundTag)
+	// Add user to configuration
+	err = AddUserToConfig(s.Cfg, user, credential, inboundTag)
 	if err != nil {
 		s.Cfg.Logger.Error("Failed to add user to config", "error", err)
-		return &proto.AddUserResponse{Error: err.Error()}, nil
+		return nil, grpcstatus.Errorf(codes.FailedPrecondition, "failed to add user: %v", err)
 	}
 
 	s.Cfg.Logger.Info("User added successfully", "user", user, "inbound_tag", inboundTag, "credential", credential)
-	return &proto.AddUserResponse{Credential: credential}, nil
+	return &proto.AddUserResponse{
+		Credential: credential,
+		Status:     &status.Status{Code: int32(codes.OK)},
+	}, nil
 }
 
 // AddUserToConfig adds a user to the configuration file.

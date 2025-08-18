@@ -10,84 +10,87 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/grpc/codes"
+
 	"v2ray-stat/backend/config"
 	"v2ray-stat/backend/db"
 	"v2ray-stat/backend/db/manager"
 	"v2ray-stat/node/proto"
 )
 
-// UserEnabledRequest представляет тело JSON-запроса для эндпоинта /api/v1/user/enabled
+// UserEnabledRequest represents the JSON request structure for enabling/disabling a user.
 type UserEnabledRequest struct {
-	User    string   `json:"user"`
-	Enabled bool     `json:"enabled"`
-	Nodes   []string `json:"nodes,omitempty"`
+	Username string   `json:"username"`
+	Enabled  bool     `json:"enabled"`
+	Nodes    []string `json:"nodes,omitempty"` // Nodes field is optional
 }
 
-// UserEnabledResponse представляет JSON-ответ эндпоинта
+// UserEnabledResponse represents the JSON response structure for enabling/disabling a user.
 type UserEnabledResponse struct {
 	Message      string   `json:"message"`
 	SuccessNodes []string `json:"success_nodes,omitempty"`
 	Errors       []string `json:"errors,omitempty"`
 }
 
-// UserEnabledHandler обрабатывает запросы на включение/выключение пользователя на указанных нодах.
+// UserEnabledHandler handles HTTP requests to enable or disable a user on specified nodes.
 func UserEnabledHandler(manager *manager.DatabaseManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cfg.Logger.Debug("Начало обработки запроса UserEnabledHandler")
+		cfg.Logger.Debug("Received UserEnabled HTTP request", "method", r.Method)
 
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
+		// Check HTTP method
 		if r.Method != http.MethodPatch {
-			cfg.Logger.Warn("Неверный метод HTTP", "method", r.Method)
-			http.Error(w, `{"error": "Неверный метод. Используйте PATCH"}`, http.StatusMethodNotAllowed)
+			cfg.Logger.Warn("Invalid HTTP method", "method", r.Method)
+			http.Error(w, `{"error": "method not allowed, use PATCH"}`, http.StatusMethodNotAllowed)
 			return
 		}
 
-		// Декодируем JSON-тело запроса
+		// Decode JSON request body
 		var req UserEnabledRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			cfg.Logger.Warn("Ошибка разбора JSON", "error", err)
-			http.Error(w, `{"error": "Ошибка разбора JSON"}`, http.StatusBadRequest)
+			cfg.Logger.Warn("Failed to parse JSON request", "error", err)
+			http.Error(w, fmt.Sprintf(`{"error": "failed to parse JSON: %v"}`, err), http.StatusBadRequest)
 			return
 		}
 
-		// Валидация параметров
-		if req.User == "" {
-			cfg.Logger.Warn("Пустой идентификатор пользователя")
-			http.Error(w, `{"error": "Поле user обязательно"}`, http.StatusBadRequest)
+		// Validate parameters
+		if req.Username == "" {
+			cfg.Logger.Warn("Missing username field")
+			http.Error(w, `{"error": "username is required"}`, http.StatusBadRequest)
 			return
 		}
-		if len(req.User) > 40 {
-			cfg.Logger.Warn("Идентификатор пользователя слишком длинный", "length", len(req.User))
-			http.Error(w, `{"error": "Идентификатор пользователя слишком длинный (макс. 40 символов)"}`, http.StatusBadRequest)
+		if len(req.Username) > 40 {
+			cfg.Logger.Warn("Username too long", "length", len(req.Username))
+			http.Error(w, `{"error": "username too long (max 40 characters)"}`, http.StatusBadRequest)
 			return
 		}
 
-		cfg.Logger.Debug("Получены параметры запроса", "user", req.User, "enabled", req.Enabled, "nodes", req.Nodes)
+		cfg.Logger.Debug("Request parameters", "username", req.Username, "enabled", req.Enabled, "nodes", req.Nodes)
 
-		// Проверка существования пользователя в user_traffic
+		// Check user existence in user_traffic
 		err := manager.ExecuteHighPriority(func(db *sql.DB) error {
 			var count int
-			err := db.QueryRow("SELECT COUNT(*) FROM user_traffic WHERE user = ?", req.User).Scan(&count)
+			err := db.QueryRow("SELECT COUNT(*) FROM user_traffic WHERE user = ?", req.Username).Scan(&count)
 			if err != nil {
-				return fmt.Errorf("failed to check user existence: %v", err)
+				return fmt.Errorf("failed to check user existence: %w", err)
 			}
 			if count == 0 {
-				return fmt.Errorf("user %s not found in user_traffic", req.User)
+				return fmt.Errorf("user %s not found in user_traffic", req.Username)
 			}
 			return nil
 		})
 		if err != nil {
-			cfg.Logger.Warn("User check failed", "error", err)
+			cfg.Logger.Warn("User check failed", "username", req.Username, "error", err)
 			http.Error(w, fmt.Sprintf(`{"error": "%s"}`, err.Error()), http.StatusBadRequest)
 			return
 		}
 
-		// Определяем целевые ноды
+		// Determine target nodes
 		var targetNodes []config.NodeConfig
 		if len(req.Nodes) == 0 {
 			targetNodes = GetNodesFromConfig(cfg)
-			cfg.Logger.Debug("Nodes не указаны, применяем ко всем нодам", "nodes", targetNodes)
+			cfg.Logger.Debug("No nodes specified, applying to all nodes", "node_count", len(targetNodes))
 		} else {
 			for _, nodeName := range req.Nodes {
 				for _, node := range cfg.V2rayStat.Nodes {
@@ -98,13 +101,14 @@ func UserEnabledHandler(manager *manager.DatabaseManager, cfg *config.Config) ht
 				}
 			}
 			if len(targetNodes) == 0 {
-				cfg.Logger.Warn("No valid nodes found for the provided names", "nodes", req.Nodes)
+				cfg.Logger.Warn("No valid nodes found", "requested_nodes", req.Nodes)
 				http.Error(w, `{"error": "no valid nodes found for the provided names"}`, http.StatusBadRequest)
 				return
 			}
-			cfg.Logger.Debug("Указаны nodes", "nodes", targetNodes)
+			cfg.Logger.Debug("Selected nodes", "node_count", len(targetNodes), "nodes", req.Nodes)
 		}
 
+		// Parallel gRPC requests
 		var (
 			errors       []string
 			successNodes []string
@@ -112,7 +116,7 @@ func UserEnabledHandler(manager *manager.DatabaseManager, cfg *config.Config) ht
 			wg           sync.WaitGroup
 		)
 
-		// Запускаем параллельно gRPC-запросы
+		ctx := r.Context()
 		for _, node := range targetNodes {
 			wg.Add(1)
 			go func(node config.NodeConfig) {
@@ -129,20 +133,23 @@ func UserEnabledHandler(manager *manager.DatabaseManager, cfg *config.Config) ht
 				}
 				defer func() { nodeClient.Client = nil }()
 
-				grpcCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				grpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 				defer cancel()
 
-				resp, err := nodeClient.Client.SetEnabled(grpcCtx, &proto.SetEnabledRequest{User: req.User, Enabled: req.Enabled})
+				resp, err := nodeClient.Client.SetUserEnabled(grpcCtx, &proto.SetUserEnabledRequest{
+					Username: req.Username,
+					Enabled:  req.Enabled,
+				})
 				if err != nil {
-					errMsg := fmt.Sprintf("Ошибка gRPC на ноде %s: %v", node.NodeName, err)
+					errMsg := fmt.Sprintf("failed to set enabled status on node %s: %v", node.NodeName, err)
 					cfg.Logger.Error(errMsg)
 					mu.Lock()
 					errors = append(errors, errMsg)
 					mu.Unlock()
 					return
 				}
-				if resp.Error != "" {
-					errMsg := fmt.Sprintf("Ошибка на ноде %s: %s", node.NodeName, resp.Error)
+				if resp.Status.Code != int32(codes.OK) {
+					errMsg := fmt.Sprintf("node %s returned error: %s", node.NodeName, resp.Status.Message)
 					cfg.Logger.Warn(errMsg)
 					mu.Lock()
 					errors = append(errors, errMsg)
@@ -150,6 +157,7 @@ func UserEnabledHandler(manager *manager.DatabaseManager, cfg *config.Config) ht
 					return
 				}
 
+				cfg.Logger.Info("User enabled status updated on node", "node_name", node.NodeName, "username", req.Username, "enabled", req.Enabled)
 				mu.Lock()
 				successNodes = append(successNodes, node.NodeName)
 				mu.Unlock()
@@ -158,12 +166,12 @@ func UserEnabledHandler(manager *manager.DatabaseManager, cfg *config.Config) ht
 
 		wg.Wait()
 
-		// Обновление статуса в БД для успешных нод
+		// Update database for successful nodes
 		if len(successNodes) > 0 {
 			err := manager.ExecuteHighPriority(func(db *sql.DB) error {
 				tx, err := db.Begin()
 				if err != nil {
-					return fmt.Errorf("не удалось начать транзакцию: %v", err)
+					return fmt.Errorf("failed to begin transaction: %w", err)
 				}
 				defer tx.Rollback()
 
@@ -172,45 +180,44 @@ func UserEnabledHandler(manager *manager.DatabaseManager, cfg *config.Config) ht
 					enabledStr = "true"
 				}
 				for _, nodeName := range successNodes {
-					_, err := tx.Exec("UPDATE user_traffic SET enabled = ? WHERE node_name = ? AND user = ?", enabledStr, nodeName, req.User)
+					_, err := tx.Exec("UPDATE user_traffic SET enabled = ? WHERE node_name = ? AND user = ?", enabledStr, nodeName, req.Username)
 					if err != nil {
-						return fmt.Errorf("не удалось обновить статус для %s на ноде %s: %v", req.User, nodeName, err)
+						return fmt.Errorf("failed to update status for %s on node %s: %w", req.Username, nodeName, err)
 					}
 				}
 
 				return tx.Commit()
 			})
 			if err != nil {
-				cfg.Logger.Error("Ошибка обновления статуса в БД", "error", err)
-				http.Error(w, fmt.Sprintf(`{"error": "Ошибка обновления статуса в БД: %v"}`, err), http.StatusInternalServerError)
+				cfg.Logger.Error("Failed to update database status", "username", req.Username, "error", err)
+				http.Error(w, fmt.Sprintf(`{"error": "failed to update database status: %v"}`, err), http.StatusInternalServerError)
 				return
 			}
 		}
 
-		// Формируем ответ
+		// Form response
 		resp := UserEnabledResponse{
 			SuccessNodes: successNodes,
 		}
 		if len(errors) > 0 {
 			resp.Errors = errors
 			if len(successNodes) > 0 {
-				resp.Message = fmt.Sprintf("Частичный успех: обновлены ноды %v", successNodes)
+				resp.Message = fmt.Sprintf("partial success: updated nodes %v", successNodes)
 				w.WriteHeader(http.StatusMultiStatus)
-				cfg.Logger.Info("Partial success", "success_nodes", successNodes, "errors", errors)
+				cfg.Logger.Info("Partial success", "username", req.Username, "enabled", req.Enabled, "success_nodes", successNodes, "errors", errors)
 			} else {
-				resp.Message = fmt.Sprintf("Ошибки при обновлении статуса: %s", strings.Join(errors, "; "))
-				cfg.Logger.Error(resp.Message)
+				resp.Message = fmt.Sprintf("errors occurred: %s", strings.Join(errors, "; "))
+				cfg.Logger.Error("Failed to update user status", "username", req.Username, "errors", errors)
 				w.WriteHeader(http.StatusInternalServerError)
 			}
 		} else {
-			resp.Message = "Статус пользователя обновлён успешно"
-			w.WriteHeader(http.StatusOK)
-			cfg.Logger.Info("Статус пользователя обновлён успешно", "user", req.User, "enabled", req.Enabled, "nodes", targetNodes)
+			resp.Message = "user status updated successfully"
+			cfg.Logger.Info("User status updated successfully", "username", req.Username, "enabled", req.Enabled, "node_count", len(successNodes))
 		}
 
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			cfg.Logger.Error("Ошибка сериализации ответа", "error", err)
-			http.Error(w, `{"error": "Внутренняя ошибка сервера"}`, http.StatusInternalServerError)
+			cfg.Logger.Error("Failed to encode JSON response", "error", err)
+			http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
 			return
 		}
 	}
