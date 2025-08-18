@@ -207,7 +207,7 @@ func (s *NodeServer) GetUsers(ctx context.Context, req *proto.GetUsersRequest) (
 	for _, user := range userMap {
 		resp.Users = append(resp.Users, user)
 	}
-	s.Cfg.Logger.Info("Returning users", "count", len(resp.Users))
+	s.Cfg.Logger.Debug("Returning users", "count", len(resp.Users))
 	return resp, nil
 }
 
@@ -252,6 +252,6 @@ func (s *NodeServer) GetLogData(ctx context.Context, req *proto.GetLogDataReques
 		s.Cfg.Logger.Error("Failed to read log data", "error", err)
 		return nil, fmt.Errorf("read log data: %w", err)
 	}
-	s.Cfg.Logger.Info("Returning log data via gRPC", "users", len(response.UserLogData))
+	s.Cfg.Logger.Debug("Returning log data via gRPC", "users", len(response.UserLogData))
 	return response, nil
 }

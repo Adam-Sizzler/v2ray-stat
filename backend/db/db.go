@@ -173,13 +173,13 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 			FOREIGN KEY (user) REFERENCES user_data(user) ON DELETE CASCADE
 		);
 
-		-- Таблица для UUID пользователей
-		CREATE TABLE IF NOT EXISTS user_uuids (
+		-- Таблица для ID пользователей
+		CREATE TABLE IF NOT EXISTS user_ids (
 			node_name TEXT,
 			user TEXT,
-			uuid TEXT,
+			id TEXT,
 			inbound_tag TEXT,
-			PRIMARY KEY (node_name, user, uuid, inbound_tag),
+			PRIMARY KEY (node_name, user, id, inbound_tag),
 			FOREIGN KEY (node_name, user) REFERENCES user_traffic(node_name, user) ON DELETE CASCADE,
 			FOREIGN KEY (node_name) REFERENCES nodes(node_name) ON DELETE CASCADE
 		);

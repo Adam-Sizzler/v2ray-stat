@@ -34,12 +34,12 @@ func StatsHandler(manager *manager.DatabaseManager, cfg *config.Config) http.Han
 		// Валидация sort_by
 		validSortColumns := []string{
 			"node_name", "user", "last_seen", "rate", "uplink", "downlink", "sess_uplink", "sess_downlink", "created",
-			"inbound_tag", "uuid", // Добавляем новые колонки для сортировки
+			"inbound_tag", "id", // Добавляем новые колонки для сортировки
 		}
 		if aggregate {
 			validSortColumns = []string{
 				"user", "last_seen", "rate", "uplink", "downlink", "sess_uplink", "sess_downlink", "created",
-				"inbound_tag", "uuid", // Добавляем новые колонки для агрегированной сортировки
+				"inbound_tag", "id", // Добавляем новые колонки для агрегированной сортировки
 			}
 		}
 		if sortBy != "" && !util.Contains(validSortColumns, sortBy) {
@@ -191,7 +191,7 @@ func buildCustomServerStats(builder *strings.Builder, manager *manager.DatabaseM
 	return nil
 }
 
-// buildCustomClientStats collects client statistics with node, user, inbound_tag, and uuid.
+// buildCustomClientStats collects client statistics with node, user, inbound_tag, and id.
 func buildCustomClientStats(builder *strings.Builder, manager *manager.DatabaseManager, cfg *config.Config, nodeParam, userParam, sortBy, sortOrder string, aggregate bool) error {
 	cfg.Logger.Debug("Collecting client statistics", "node", nodeParam, "user", userParam, "aggregate", aggregate)
 
@@ -211,7 +211,7 @@ func buildCustomClientStats(builder *strings.Builder, manager *manager.DatabaseM
 		"created":       "Created",
 		"enabled":       "Enabled",
 		"inbound_tag":   "Inbound Tag",
-		"uuid":          "UUID",
+		"id":            "ID",
 	}
 	clientAliases := []string{
 		"Rate",
@@ -251,7 +251,7 @@ func buildCustomClientStats(builder *strings.Builder, manager *manager.DatabaseM
 					} else {
 						clientCols = append(clientCols, fmt.Sprintf("ut.%s AS \"%s\"", col, alias))
 					}
-				case "inbound_tag", "uuid":
+				case "inbound_tag", "id":
 					if aggregate {
 						clientCols = append(clientCols, fmt.Sprintf("MIN(uu.%s) AS \"%s\"", col, alias))
 					} else {
@@ -283,8 +283,8 @@ func buildCustomClientStats(builder *strings.Builder, manager *manager.DatabaseM
 			clientSortOrder = sortOrder
 		}
 
-		// Формируем запрос с LEFT JOIN на user_uuids
-		clientQuery := fmt.Sprintf("SELECT %s FROM user_traffic ut LEFT JOIN user_data ud ON ut.user = ud.user LEFT JOIN user_uuids uu ON ut.user = uu.user AND ut.node_name = uu.node_name", strings.Join(clientCols, ", "))
+		// Формируем запрос с LEFT JOIN на user_ids
+		clientQuery := fmt.Sprintf("SELECT %s FROM user_traffic ut LEFT JOIN user_data ud ON ut.user = ud.user LEFT JOIN user_ids uu ON ut.user = uu.user AND ut.node_name = uu.node_name", strings.Join(clientCols, ", "))
 		var whereClauses []string
 		if nodeParam != "" {
 			nodes := strings.Split(nodeParam, ",")

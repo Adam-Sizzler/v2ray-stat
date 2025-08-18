@@ -189,7 +189,7 @@ func LoadConfig(configFile string) (Config, error) {
 
 	// Validate columns
 	validServerColumns := []string{"node_name", "source", "rate", "uplink", "downlink", "sess_uplink", "sess_downlink"}
-	validClientColumns := []string{"node_name", "user", "last_seen", "rate", "uplink", "downlink", "sess_uplink", "sess_downlink", "enabled", "sub_end", "renew", "lim_ip", "ips", "created", "uuid", "inbound_tag"}
+	validClientColumns := []string{"node_name", "user", "last_seen", "rate", "uplink", "downlink", "sess_uplink", "sess_downlink", "enabled", "sub_end", "renew", "lim_ip", "ips", "created", "id", "inbound_tag"}
 
 	var filteredServer []string
 	for _, col := range cfg.StatsColumns.Server.Columns {

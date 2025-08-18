@@ -92,7 +92,7 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 			}
 
 			// Синхронизация пользователей
-			addedUsers, addedUUIDs, updatedUsers, deletedUsers := 0, 0, 0, 0
+			addedUsers, addedIDs, updatedUsers, deletedUsers := 0, 0, 0, 0
 			err = manager.ExecuteHighPriority(func(db *sql.DB) error {
 				tx, err := db.BeginTx(ctx, nil)
 				if err != nil {
@@ -111,13 +111,13 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 				}
 				defer stmtUpsertUser.Close()
 
-				stmtInsertUUID, err := tx.Prepare(`
-					INSERT OR IGNORE INTO user_uuids (node_name, user, uuid, inbound_tag)
+				stmtInsertID, err := tx.Prepare(`
+					INSERT OR IGNORE INTO user_ids (node_name, user, id, inbound_tag)
 					VALUES (?, ?, ?, ?)`)
 				if err != nil {
-					return fmt.Errorf("prepare insert uuid statement: %w", err)
+					return fmt.Errorf("prepare insert id statement: %w", err)
 				}
-				defer stmtInsertUUID.Close()
+				defer stmtInsertID.Close()
 
 				currentTime := time.Now().Format("2006-01-02-15")
 				for _, user := range resp.Users {
@@ -150,16 +150,16 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 					}
 
 					for _, ui := range user.UuidInbounds {
-						result, err := stmtInsertUUID.Exec(nc.NodeName, user.Username, ui.Uuid, ui.InboundTag)
+						result, err := stmtInsertID.Exec(nc.NodeName, user.Username, ui.Uuid, ui.InboundTag)
 						if err != nil {
-							return fmt.Errorf("insert uuid %s for user %s: %w", ui.Uuid, user.Username, err)
+							return fmt.Errorf("insert id %s for user %s: %w", ui.Uuid, user.Username, err)
 						}
 						rowsAffected, err := result.RowsAffected()
 						if err != nil {
-							return fmt.Errorf("check rows affected for uuid %s: %w", ui.Uuid, err)
+							return fmt.Errorf("check rows affected for id %s: %w", ui.Uuid, err)
 						}
 						if rowsAffected > 0 {
-							addedUUIDs++
+							addedIDs++
 						}
 					}
 				}
@@ -170,11 +170,11 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 				}
 				defer stmtDeleteUser.Close()
 
-				stmtDeleteUUID, err := tx.Prepare("DELETE FROM user_uuids WHERE node_name = ? AND user = ?")
+				stmtDeleteID, err := tx.Prepare("DELETE FROM user_ids WHERE node_name = ? AND user = ?")
 				if err != nil {
-					return fmt.Errorf("prepare delete uuid statement: %w", err)
+					return fmt.Errorf("prepare delete id statement: %w", err)
 				}
-				defer stmtDeleteUUID.Close()
+				defer stmtDeleteID.Close()
 
 				for _, user := range dbUsers {
 					if !nodeUsers[user] {
@@ -190,9 +190,9 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 							deletedUsers++
 						}
 
-						_, err = stmtDeleteUUID.Exec(nc.NodeName, user)
+						_, err = stmtDeleteID.Exec(nc.NodeName, user)
 						if err != nil {
-							return fmt.Errorf("delete user %s from user_uuids: %w", user, err)
+							return fmt.Errorf("delete user %s from user_ids: %w", user, err)
 						}
 					}
 				}
@@ -211,7 +211,7 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 				"node_name", nc.NodeName,
 				"added_users", addedUsers,
 				"updated_users", updatedUsers,
-				"added_uuids", addedUUIDs,
+				"added_ids", addedIDs,
 				"deleted_users", deletedUsers)
 
 		}(nc)
