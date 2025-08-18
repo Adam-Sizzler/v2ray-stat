@@ -21,6 +21,7 @@ timezone: Europe/Amsterdam
 # Features & Monitoring Options
 features:
   auth_lua: false                        # Enables dynamic updates to HAProxy's auth.lua file for credential management.
+  restart: true
 
 # Core Settings
 core:

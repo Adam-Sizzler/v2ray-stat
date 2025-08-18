@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"v2ray-stat/node/common"
 	"v2ray-stat/node/config"
 	"v2ray-stat/node/proto"
 
@@ -182,6 +183,12 @@ func toggleUserEnabled(cfg *config.NodeConfig, userIdentifier string, enabled bo
 			}
 		}
 
+		if cfg.Features["restart"] {
+			if err := common.RestartService("xray", cfg); err != nil {
+				return fmt.Errorf("failed to restart xray service: %v", err)
+			}
+		}
+
 	case "singbox":
 		mainConfigData, err := os.ReadFile(mainConfigPath)
 		if err != nil {
@@ -324,6 +331,12 @@ func toggleUserEnabled(cfg *config.NodeConfig, userIdentifier string, enabled bo
 		} else {
 			if err := os.Remove(disabledUsersPath); err != nil && !os.IsNotExist(err) {
 				cfg.Logger.Error("Failed to remove empty .disabled_users for Singbox", "error", err)
+			}
+		}
+
+		if cfg.Features["restart"] {
+			if err := common.RestartService("sing-box", cfg); err != nil {
+				return fmt.Errorf("failed to restart sing-box service: %v", err)
 			}
 		}
 	}

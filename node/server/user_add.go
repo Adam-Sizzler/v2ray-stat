@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"v2ray-stat/node/common"
 	"v2ray-stat/node/config"
 	"v2ray-stat/node/lua"
 	"v2ray-stat/node/proto"
@@ -213,6 +214,16 @@ func AddUserToConfig(cfg *config.NodeConfig, user, credential, inboundTag string
 
 	cfg.Logger.Debug("User added to configuration", "user", user, "inboundTag", inboundTag)
 
+	if cfg.Features["restart"] {
+		serviceName := "xray"
+		if proxyType == "singbox" {
+			serviceName = "sing-box"
+		}
+		if err := common.RestartService(serviceName, cfg); err != nil {
+			return fmt.Errorf("failed to restart core service: %v", err)
+		}
+	}
+
 	if cfg.Features["auth_lua"] {
 		cfg.Logger.Debug("Adding user to auth.lua", "user", user)
 		var credentialToAdd string
@@ -228,6 +239,11 @@ func AddUserToConfig(cfg *config.NodeConfig, user, credential, inboundTag string
 			cfg.Logger.Error("Failed to add user to auth.lua", "user", user, "error", err)
 		} else {
 			cfg.Logger.Debug("User added to auth.lua", "user", user)
+			if cfg.Features["restart"] {
+				if err := common.RestartService("haproxy", cfg); err != nil {
+					return fmt.Errorf("failed to restart haproxy: %v", err)
+				}
+			}
 		}
 	}
 

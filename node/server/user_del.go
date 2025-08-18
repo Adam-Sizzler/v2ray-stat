@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"v2ray-stat/node/common"
 	"v2ray-stat/node/config"
 	"v2ray-stat/node/lua"
 	"v2ray-stat/node/proto"
@@ -112,12 +113,27 @@ func DeleteUserFromConfig(cfg *config.NodeConfig, user, inboundTag string) error
 
 	cfg.Logger.Debug("User removed from configuration", "user", user, "inboundTag", inboundTag)
 
+	if cfg.Features["restart"] {
+		serviceName := "xray"
+		if proxyType == "singbox" {
+			serviceName = "sing-box"
+		}
+		if err := common.RestartService(serviceName, cfg); err != nil {
+			return fmt.Errorf("failed to restart core service: %v", err)
+		}
+	}
+
 	if cfg.Features["auth_lua"] {
 		cfg.Logger.Debug("Deleting user from auth.lua", "user", user)
 		if err := lua.DeleteUserFromAuthLua(cfg, user); err != nil {
 			cfg.Logger.Error("Failed to delete user from auth.lua", "user", user, "error", err)
 		} else {
 			cfg.Logger.Debug("User removed from auth.lua", "user", user)
+			if cfg.Features["restart"] {
+				if err := common.RestartService("haproxy", cfg); err != nil {
+					return fmt.Errorf("failed to restart haproxy: %v", err)
+				}
+			}
 		}
 	}
 
