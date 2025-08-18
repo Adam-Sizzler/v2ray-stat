@@ -36,6 +36,10 @@ func extractUsersXrayServer(cfg *config.Config) []config.XrayClient {
 		for _, inbound := range inbounds {
 			if inbound.Protocol == "vless" || inbound.Protocol == "trojan" {
 				for _, client := range inbound.Settings.Clients {
+					if client.ID == "" {
+						cfg.Logger.Warn("Skipping client with empty ID", "email", client.Email, "protocol", inbound.Protocol)
+						continue
+					}
 					cfg.Logger.Trace("Processing client", "email", client.Email, "protocol", inbound.Protocol)
 					clientMap[client.Email] = client
 				}
@@ -93,6 +97,10 @@ func extractUsersSingboxServer(cfg *config.Config) []config.XrayClient {
 		for _, inbound := range inbounds {
 			if inbound.Type == "vless" || inbound.Type == "trojan" {
 				for _, user := range inbound.Users {
+					if (inbound.Type == "vless" && user.UUID == "") || (inbound.Type == "trojan" && user.Password == "") {
+						cfg.Logger.Warn("Skipping Singbox user with empty ID", "name", user.Name, "type", inbound.Type)
+						continue
+					}
 					cfg.Logger.Trace("Processing Singbox user", "name", user.Name, "type", inbound.Type)
 					client := config.XrayClient{Email: user.Name}
 					switch inbound.Type {
@@ -1311,7 +1319,7 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 
         CREATE TABLE IF NOT EXISTS clients_stats (
             user TEXT PRIMARY KEY,
-            uuid TEXT,
+            uuid TEXT NOT NULL,
             last_seen TEXT DEFAULT '',
             rate INTEGER DEFAULT 0,
             enabled TEXT,
