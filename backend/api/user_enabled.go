@@ -20,7 +20,7 @@ import (
 
 // UserEnabledRequest represents the JSON request structure for enabling/disabling a user.
 type UserEnabledRequest struct {
-	Username string   `json:"username"`
+	Username string   `json:"user"`
 	Enabled  bool     `json:"enabled"`
 	Nodes    []string `json:"nodes,omitempty"` // Nodes field is optional
 }

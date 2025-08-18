@@ -18,7 +18,7 @@ import (
 
 // DeleteUserRequest represents the JSON request structure for deleting a user.
 type DeleteUserRequest struct {
-	Username   string   `json:"username"`
+	Username   string   `json:"user"`
 	InboundTag string   `json:"inbound_tag"`
 	Nodes      []string `json:"nodes,omitempty"` // Nodes field is optional
 }
@@ -44,6 +44,12 @@ func DeleteUserFromNode(ctx context.Context, node config.NodeConfig, username, i
 	if err != nil {
 		cfg.Logger.Error("Failed to delete user via gRPC", "node_name", node.NodeName, "username", username, "error", err)
 		return fmt.Errorf("failed to delete user from node %s: %w", node.NodeName, err)
+	}
+
+	// Проверка на nil resp или resp.Status
+	if resp == nil || resp.Status == nil {
+		cfg.Logger.Error("Node returned nil response or status", "node_name", node.NodeName, "username", username)
+		return fmt.Errorf("node %s returned nil response or status", node.NodeName)
 	}
 
 	if resp.Status.Code != int32(codes.OK) {
@@ -136,9 +142,9 @@ func DeleteUserHandler(manager *manager.DatabaseManager, cfg *config.Config) htt
 				cfg.Logger.Error("Error deleting user from node", "node_name", res.nodeName, "error", res.err)
 				errs = append(errs, fmt.Errorf("failed to delete user from %s: %w", res.nodeName, res.err))
 				results[res.nodeName] = res.err.Error()
-			} else {
-				results[res.nodeName] = "success"
+				continue
 			}
+			results[res.nodeName] = "success"
 		}
 
 		// Form JSON response

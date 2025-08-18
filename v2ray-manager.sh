@@ -762,7 +762,7 @@ extract_xray_users() {
 ###################################
 ### DELETE USER CONFIGURATION
 ###################################
-delete_user() {
+delete_user1() {
   while true; do
     mapfile -t clients < <(extract_xray_users)
     if [ ${#clients[@]} -eq 0 ]; then
@@ -959,45 +959,6 @@ adjust_subscription_date() {
   update_user_parameter_patch "sub_end" "http://127.0.0.1:9952/api/v1/adjust_date" "Введите значение sub_end (например, +1d, -1d3h, 0)"
 }
 
-###################################
-### RESET STATISTICS SUBMENU
-###################################
-reset_stats_menu() {
-  while true; do
-    clear
-    display_xcore_banner
-    tilda "|--------------------------------------------------------------------------|"
-    info " $(text 107) "    # 1. Clear DNS query statistics
-    info " $(text 108) "    # 2. Reset inbound traffic statistics
-    info " $(text 109) "    # 3. Reset client traffic statistics
-    info " $(text 110) "    # 4. Сброс трафика network
-    echo
-    warning " $(text 84) "  # 0. Previous menu
-    tilda "|--------------------------------------------------------------------------|"
-    echo
-    reading " $(text 1) " CHOICE_MENU
-    case $CHOICE_MENU in
-      1)
-        curl -s -X POST http://127.0.0.1:9952/api/v1/delete_dns_stats && info " $(text 111) " || warning " $(text 112) "
-        sleep 2
-        ;;
-      2)
-        curl -s -X POST http://127.0.0.1:9952/api/v1/reset_traffic_stats && info " $(text 111) " || warning " $(text 112) "
-        sleep 2
-        ;;
-      3)
-        curl -s -X POST http://127.0.0.1:9952/api/v1/reset_clients_stats && info " $(text 111) " || warning " $(text 112) "
-        sleep 2
-        ;;
-      4)
-        curl -s -X POST http://127.0.0.1:9952/api/v1/reset_traffic && info " $(text 111) " || warning " $(text 112) "
-        sleep 2
-        ;;
-      0) break ;;
-      *) warning " $(text 76) " ;;
-    esac
-  done
-}
 
 
 
@@ -1040,54 +1001,6 @@ display_node_list() {
 
   export node_map
   export nodes
-  return 0
-}
-
-###################################
-### DISPLAY USER LIST FROM API
-###################################
-display_user_list() {
-  local API_URL="http://127.0.0.1:9952/api/v1/users"
-  local selected_nodes="$1"  # Ожидаем строку нод, разделённых запятыми, или "all"
-  declare -gA user_map
-  local counter=0
-
-  # Получаем данные от API
-  response=$(curl -s -X GET "$API_URL")
-  if [ $? -ne 0 ]; then
-    warning "Ошибка: Не удалось подключиться к API"
-    return 1
-  fi
-
-  # Извлекаем уникальных пользователей
-  if [ "$selected_nodes" == "all" ]; then
-    mapfile -t users < <(echo "$response" | jq -r '.[].users[].user' | sort -u)
-  else
-    # Формируем фильтр для jq с использованием IN
-    nodes=$(echo "$selected_nodes" | sed 's/,/","/g; s/^/"/; s/$/"/')
-    mapfile -t users < <(echo "$response" | jq -r --argjson nodes "[${nodes}]" '.[] | select(.node_name | IN($nodes[])) | .users[].user' | sort -u)
-  fi
-
-  if [ ${#users[@]} -eq 0 ]; then
-    info "Нет пользователей для отображения"
-    return 1
-  fi
-
-  info " Список пользователей:"
-  echo
-  echo " 1. Все пользователи"
-  user_map[1]="all"
-  local counter=2
-  for user in "${users[@]}"; do
-    echo " $counter. $user"
-    user_map[$counter]="$user"
-    ((counter++))
-  done
-  echo
-  warning " $(text 84) " # 0. Previous menu
-
-  export user_map
-  export users
   return 0
 }
 
@@ -1478,6 +1391,161 @@ fetch_traffic_stats() {
 }
 
 ###################################
+### RESET STATISTICS SUBMENU
+###################################
+reset_stats_menu() {
+  while true; do
+    clear
+    display_xcore_banner
+    tilda "|--------------------------------------------------------------------------|"
+    info " $(text 107) "    # 1. Clear DNS query statistics
+    info " $(text 108) "    # 2. Reset bound traffic statistics
+    info " $(text 109) "    # 3. Reset user traffic statistics
+    echo
+    warning " $(text 84) "  # 0. Previous menu
+    tilda "|--------------------------------------------------------------------------|"
+    echo
+    reading " $(text 1) " CHOICE_MENU
+    case $CHOICE_MENU in
+      1|2|3)
+        # Определяем API-эндпоинт в зависимости от выбора
+        case $CHOICE_MENU in
+          1) API_URL="http://127.0.0.1:9952/api/v1/reset_dns_stats"; SUCCESS_MSG="DNS stats records deleted successfully"; ;;
+          2) API_URL="http://127.0.0.1:9952/api/v1/reset_bound_traffic"; SUCCESS_MSG="Traffic stats reset successfully"; ;;
+          3) API_URL="http://127.0.0.1:9952/api/v1/reset_user_traffic"; SUCCESS_MSG="Client traffic stats reset successfully"; ;;
+        esac
+
+        # Выбор нод
+        while true; do
+          clear
+          display_xcore_banner
+          tilda "|--------------------------------------------------------------------------|"
+          display_node_list
+          if [ $? -ne 0 ]; then
+            info " $(text 85) " # Нет нод для отображения
+            read -r
+            break
+          fi
+          tilda "|--------------------------------------------------------------------------|"
+          reading " Введите номера нод через запятую (или Enter для всех): " node_choice
+          if [ -z "$node_choice" ]; then
+            selected_nodes="all"
+            break
+          fi
+          case "$node_choice" in
+            0)
+              break 2 # Выход из обоих циклов
+              ;;
+            *)
+              IFS=',' read -r -a node_array <<< "$node_choice"
+              valid=true
+              selected_nodes=""
+              for node_num in "${node_array[@]}"; do
+                node_num=$(echo "$node_num" | xargs) # Удаляем пробелы
+                if [ "$node_num" == "1" ]; then
+                  selected_nodes="all"
+                  break
+                elif [ -n "${node_map[$node_num]}" ]; then
+                  selected_nodes="${selected_nodes},${node_map[$node_num]}"
+                else
+                  valid=false
+                  warning " Неверный номер ноды: $node_num"
+                fi
+              done
+              if [ "$valid" = true ]; then
+                selected_nodes="${selected_nodes#,}" # Удаляем начальную запятую
+                break
+              fi
+              sleep 2
+              ;;
+          esac
+        done
+
+        # Формируем и отправляем запрос
+        if [ "$selected_nodes" == "all" ]; then
+          query=""
+        else
+          query="nodes=$selected_nodes"
+        fi
+        # URL-кодирование параметров
+        encoded_query=$(echo "$query" | sed 's/,/%2C/g')
+        response=$(curl -s -X POST "$API_URL${encoded_query:+?$encoded_query}")
+        if [ $? -eq 0 ]; then
+          rows_affected=$(echo "$response" | jq -r '.rows_affected')
+          message=$(echo "$response" | jq -r '.message')
+          if [ "$message" == "$SUCCESS_MSG" ]; then
+            info " $message, затронуто строк: $rows_affected "
+          else
+            warning " Неожиданный ответ API: $message "
+          fi
+        else
+          warning " $(text 112) " # Ошибка при выполнении запроса
+        fi
+        sleep 2
+        ;;
+      0) break ;;
+      *) warning " $(text 76) " ;; # Неверный выбор
+    esac
+  done
+}
+
+###################################
+### DISPLAY USER LIST FROM API
+###################################
+display_user_list() {
+  local API_URL="http://127.0.0.1:9952/api/v1/users"
+  local selected_nodes="$1"  # Ожидаем строку нод, разделённых запятыми, или "all"
+  local selected_inbound_tag="$2"  # Ожидаем inbound_tag или пустую строку
+  declare -gA user_map
+  local counter=0
+
+  # Получаем данные от API
+  response=$(curl -s -X GET "$API_URL")
+  if [ $? -ne 0 ]; then
+    warning "Ошибка: Не удалось подключиться к API"
+    return 1
+  fi
+
+  # Извлекаем уникальных пользователей с фильтрацией по нодам и inbound_tag
+  if [ "$selected_nodes" == "all" ]; then
+    if [ -z "$selected_inbound_tag" ]; then
+      mapfile -t users < <(echo "$response" | jq -r '.[].users[].user' | sort -u)
+    else
+      mapfile -t users < <(echo "$response" | jq -r --arg tag "$selected_inbound_tag" '.[].users[] | select(.inbounds[].inbound_tag == $tag) | .user' | sort -u)
+    fi
+  else
+    nodes=$(echo "$selected_nodes" | sed 's/,/","/g; s/^/"/; s/$/"/')
+    if [ -z "$selected_inbound_tag" ]; then
+      mapfile -t users < <(echo "$response" | jq -r --argjson nodes "[${nodes}]" '.[] | select(.node_name | IN($nodes[])) | .users[].user' | sort -u)
+    else
+      mapfile -t users < <(echo "$response" | jq -r --argjson nodes "[${nodes}]" --arg tag "$selected_inbound_tag" '.[] | select(.node_name | IN($nodes[])) | .users[] | select(.inbounds[].inbound_tag == $tag) | .user' | sort -u)
+    fi
+  fi
+
+  if [ ${#users[@]} -eq 0 ]; then
+    info "Нет пользователей для отображения"
+    return 1
+  fi
+
+  info " Список пользователей:"
+  echo
+  echo " 1. Все пользователи"
+  user_map[1]="all"
+  local counter=2
+  for user in "${users[@]}"; do
+    echo " $counter. $user"
+    user_map[$counter]="$user"
+    ((counter++))
+  done
+  echo
+  warning " $(text 84) " # 0. Previous menu
+
+  export user_map
+  export users
+  return 0
+}
+
+###################################
 ### DISPLAY INBOUND TAG LIST FROM API
 ###################################
 display_inbound_tag_list() {
@@ -1517,7 +1585,10 @@ display_inbound_tag_list() {
   return 0
 }
 
-select_inbound_tag() {
+###################################
+### SELECT INBOUND TAG AND ADD USER
+###################################
+add_user() {
   local API_URL="http://127.0.0.1:9952/api/v1/add_user"
   local selected_inbound_tags=""
   local selected_nodes=""
@@ -1564,6 +1635,7 @@ select_inbound_tag() {
           selected_inbound_tags="${selected_inbound_tags#,}" # Удаляем начальную запятую
           break
         fi
+        sleep 2
         ;;
     esac
   done
@@ -1609,6 +1681,7 @@ select_inbound_tag() {
           selected_nodes="${selected_nodes#,}" # Удаляем начальную запятую
           break
         fi
+        sleep 2
         ;;
     esac
   done
@@ -1629,66 +1702,284 @@ select_inbound_tag() {
     nodes_to_add=()
   fi
 
-  # Запрашиваем имя пользователя до входа в цикл
-  clear
-  display_xcore_banner
-  tilda "|--------------------------------------------------------------------------|"
-  info " Inbound_tag > ${selected_inbound_tags:-все} | Ноды > ${selected_nodes:-все}"
-  echo
-  reading " Введите имя пользователя (0 для выхода): " username
-  if [ "$username" == "0" ]; then
-    return 0
-  fi
-
   # Основной цикл для обработки имени пользователя
   while true; do
     clear
     display_xcore_banner
     tilda "|--------------------------------------------------------------------------|"
     info " Inbound_tag > ${selected_inbound_tags:-все} | Ноды > ${selected_nodes:-все}"
-    # Если имя пользователя введено и валидно, формируем и отправляем запросы
-    if [[ -n "$username" && "$username" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-      info " Отправлен запрос для добавления пользователя '$username':"
-      echo
-      for tag in "${tags_to_add[@]}"; do
-        if [ ${#nodes_to_add[@]} -eq 0 ]; then
-          json_body=$(printf '{"user":"%s","inbound_tag":"%s"}' "$username" "$tag")
-          info " POST $API_URL with body: $json_body"
-          curl -s -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body" > /dev/null
-        else
-          # Формируем JSON-массив nodes
-          nodes_json=$(printf '"%s"' "${nodes_to_add[0]}")
-          for node in "${nodes_to_add[@]:1}"; do
-            nodes_json="$nodes_json,\"$node\""
-          done
-          json_body=$(printf '{"user":"%s","inbound_tag":"%s","nodes":[%s]}' "$username" "$tag" "$nodes_json")
-          info " POST $API_URL with body: $json_body"
-          curl -s -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body" > /dev/null
-        fi
-      done
-      tilda "|--------------------------------------------------------------------------|"
-    elif [ -n "$username" ]; then
-      warning " Предыдущее имя пользователя '$username' содержит недопустимые символы"
+    echo
+    reading " Введите имя пользователя (0 для выхода): " username
+    if [ "$username" == "0" ]; then
+      return 0
     fi
 
-    # Запрашиваем новое имя пользователя
-    echo
-    reading " Введите имя пользователя (0 для выхода): " new_username
-    if [ "$new_username" == "0" ]; then
-      break
+    # Проверка имени пользователя
+    if [[ -z "$username" ]]; then
+      warning " Имя пользователя не может быть пустым"
+      sleep 3
+      continue
     fi
-    if [[ -n "$new_username" && "$new_username" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-      username="$new_username"
-    else
+    if [[ ! "$username" =~ ^[a-zA-Z0-9_-]+$ ]]; then
       warning " Имя пользователя должно содержать только буквы, цифры, дефис или подчеркивание"
-      username="$new_username"
+      sleep 3
+      continue
     fi
+
+    # Отправка запросов для добавления пользователя
+    info " Отправлен запрос для добавления пользователя '$username':"
+    echo
+    for tag in "${tags_to_add[@]}"; do
+      if [ ${#nodes_to_add[@]} -eq 0 ]; then
+        json_body=$(printf '{"user":"%s","inbound_tag":"%s"}' "$username" "$tag")
+        info " POST $API_URL with body: $json_body"
+        response=$(curl -s -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body")
+        if [ $? -eq 0 ]; then
+          info " Ответ: $response"
+        else
+          warning " Ошибка при добавлении пользователя на inbound_tag '$tag'"
+        fi
+      else
+        # Формируем JSON-массив nodes
+        nodes_json=$(printf '"%s"' "${nodes_to_add[0]}")
+        for node in "${nodes_to_add[@]:1}"; do
+          nodes_json="$nodes_json,\"$node\""
+        done
+        json_body=$(printf '{"user":"%s","inbound_tag":"%s","nodes":[%s]}' "$username" "$tag" "$nodes_json")
+        info " POST $API_URL with body: $json_body"
+        response=$(curl -s -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body")
+        if [ $? -eq 0 ]; then
+          info " Ответ: $response"
+        else
+          warning " Ошибка при добавлении пользователя на inbound_tag '$tag' для нод: ${nodes_to_add[*]}"
+        fi
+      fi
+    done
+    tilda "|--------------------------------------------------------------------------|"
+    info " Пользователь '$username' успешно добавлен. Введите новое имя пользователя или 0 для выхода."
+    sleep 3
   done
 
   return 0
 }
 
+###################################
+### DELETE USER
+###################################
+delete_user() {
+  local API_URL="http://127.0.0.1:9952/api/v1/delete_user"
+  local selected_inbound_tags=""
+  local selected_nodes=""
+  local selected_users=""
 
+  # Выбор inbound_tag
+  while true; do
+    clear
+    display_xcore_banner
+    tilda "|--------------------------------------------------------------------------|"
+    display_inbound_tag_list
+    if [ $? -ne 0 ]; then
+      info " $(text 85) " # Нет данных для отображения
+      read -r
+      return 1
+    fi
+    tilda "|--------------------------------------------------------------------------|"
+    reading " Введите номера inbound_tag через запятую (или Enter для всех): " tag_choice
+    if [ -z "$tag_choice" ]; then
+      selected_inbound_tags="all"
+      break
+    fi
+    case "$tag_choice" in
+      0)
+        return 0
+        ;;
+      *)
+        IFS=',' read -r -a tag_array <<< "$tag_choice"
+        valid=true
+        selected_inbound_tags=""
+        for tag_num in "${tag_array[@]}"; do
+          tag_num=$(echo "$tag_num" | xargs) # Удаляем пробелы
+          if [ "$tag_num" == "1" ]; then
+            selected_inbound_tags="all"
+            break
+          elif [ -n "${inbound_tag_map[$tag_num]}" ]; then
+            selected_inbound_tags="${selected_inbound_tags},${inbound_tag_map[$tag_num]}"
+          else
+            valid=false
+            warning " Неверный номер inbound_tag: $tag_num"
+          fi
+        done
+        if [ "$valid" = true ]; then
+          selected_inbound_tags="${selected_inbound_tags#,}" # Удаляем начальную запятую
+          break
+        fi
+        sleep 2
+        ;;
+    esac
+  done
+
+  # Выбор нод
+  while true; do
+    clear
+    display_xcore_banner
+    tilda "|--------------------------------------------------------------------------|"
+    display_node_list
+    if [ $? -ne 0 ]; then
+      info " $(text 85) " # Нет нод для отображения
+      read -r
+      return 1
+    fi
+    tilda "|--------------------------------------------------------------------------|"
+    reading " Введите номера нод через запятую (или Enter для всех): " node_choice
+    case "$node_choice" in
+      0)
+        return 0
+        ;;
+      *)
+        if [ -z "$node_choice" ]; then
+          selected_nodes="all"
+          break
+        fi
+        IFS=',' read -r -a node_array <<< "$node_choice"
+        valid=true
+        selected_nodes=""
+        for node_num in "${node_array[@]}"; do
+          node_num=$(echo "$node_num" | xargs) # Удаляем пробелы
+          if [ "$node_num" == "1" ]; then
+            selected_nodes="all"
+            break
+          elif [ -n "${node_map[$node_num]}" ]; then
+            selected_nodes="${selected_nodes},${node_map[$node_num]}"
+          else
+            valid=false
+            warning " Неверный номер ноды: $node_num"
+          fi
+        done
+        if [ "$valid" = true ]; then
+          selected_nodes="${selected_nodes#,}" # Удаляем начальную запятую
+          break
+        fi
+        sleep 2
+        ;;
+    esac
+  done
+
+  # Формируем список inbound_tag
+  local tags_to_delete
+  if [ "$selected_inbound_tags" == "all" ]; then
+    tags_to_delete=("${inbound_tags[@]}")
+  else
+    IFS=',' read -r -a tags_to_delete <<< "$selected_inbound_tags"
+  fi
+
+  # Формируем список нод
+  local nodes_to_delete
+  if [ "$selected_nodes" == "all" ]; then
+    nodes_to_delete=()
+  else
+    IFS=',' read -r -a nodes_to_delete <<< "$selected_nodes"
+  fi
+
+  # Основной цикл для обработки пользователей
+  while true; do
+    clear
+    display_xcore_banner
+    tilda "|--------------------------------------------------------------------------|"
+    info " Inbound_tag > ${selected_inbound_tags:-все} | Ноды > ${selected_nodes:-все}"
+    echo
+    # Показываем пользователей, отфильтрованных по нодам и inbound_tag
+    if [ "$selected_inbound_tags" == "all" ]; then
+      # Если выбраны все inbound_tag, передаем пустой inbound_tag для отображения всех пользователей
+      display_user_list "$selected_nodes" ""
+    else
+      # Передаем первый inbound_tag для фильтрации (если выбрано несколько, берем первый)
+      display_user_list "$selected_nodes" "${tags_to_delete[0]}"
+    fi
+    if [ $? -ne 0 ]; then
+      info " $(text 85) " # Нет пользователей для отображения
+      read -r
+      return 1
+    fi
+    tilda "|--------------------------------------------------------------------------|"
+    reading " Введите номера пользователей через запятую (или Enter для всех, 0 для выхода): " user_choice
+    if [ "$user_choice" == "0" ]; then
+      return 0
+    fi
+    if [ -z "$user_choice" ]; then
+      selected_users="all"
+    else
+      IFS=',' read -r -a user_array <<< "$user_choice"
+      valid=true
+      selected_users=""
+      for user_num in "${user_array[@]}"; do
+        user_num=$(echo "$user_num" | xargs) # Удаляем пробелы
+        if [ "$user_num" == "1" ]; then
+          selected_users="all"
+          break
+        elif [ -n "${user_map[$user_num]}" ]; then
+          selected_users="${selected_users},${user_map[$user_num]}"
+        else
+          valid=false
+          warning " Неверный номер пользователя: $user_num"
+        fi
+      done
+      if [ ! "$valid" = true ]; then
+        sleep 2
+        continue
+      fi
+      selected_users="${selected_users#,}" # Удаляем начальную запятую
+    fi
+
+    # Формируем список пользователей
+    local users_to_delete
+    if [ "$selected_users" == "all" ]; then
+      users_to_delete=("${users[@]}")
+    else
+      IFS=',' read -r -a users_to_delete <<< "$selected_users"
+    fi
+
+    # Отправка запросов для удаления пользователей
+    for user in "${users_to_delete[@]}"; do
+      for tag in "${tags_to_delete[@]}"; do
+        info " Отправлен запрос для удаления пользователя '$user' на inbound_tag '$tag':"
+        echo
+        if [ ${#nodes_to_delete[@]} -eq 0 ]; then
+          json_body=$(printf '{"user":"%s","inbound_tag":"%s"}' "$user" "$tag")
+          info " POST $API_URL with body: $json_body"
+          response=$(curl -s -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body")
+        else
+          nodes_json=$(printf '"%s"' "${nodes_to_delete[0]}")
+          for node in "${nodes_to_delete[@]:1}"; do
+            nodes_json="$nodes_json,\"$node\""
+          done
+          json_body=$(printf '{"user":"%s","inbound_tag":"%s","nodes":[%s]}' "$user" "$tag" "$nodes_json")
+          info " POST $API_URL with body: $json_body"
+          response=$(curl -s -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body")
+        fi
+        if [ $? -eq 0 ]; then
+          message=$(echo "$response" | jq -r '.message // ""')
+          if [ -n "$message" ]; then
+            if [ "$message" == "User deleted successfully from all specified nodes" ]; then
+              info " Успех: $message"
+            else
+              warning " Ошибка API: $message"
+            fi
+          else
+            info " Ответ: $response"
+          fi
+        else
+          warning " Ошибка при удалении пользователя '$user' на inbound_tag '$tag'"
+        fi
+        echo
+      done
+    done
+    tilda "|--------------------------------------------------------------------------|"
+    info " Выбранные пользователи успешно удалены. Выберите других пользователей или введите 0 для выхода."
+    sleep 2
+  done
+
+  return 0
+}
 
 
 ###################################
@@ -1702,7 +1993,7 @@ manage_xray_core() {
     tilda "|--------------------------------------------------------------------------|"
     info " $(text 120) "    # 1. Show server statistics
     info " $(text 121) "    # 2. View client DNS queries
-    info " $(text 122) "    # 3. Reset Xray server statistics
+    info " $(text 122) "    # 3. Reset server statistics
     echo
     info " $(text 123) "    # 4. Add new client
     info " $(text 124) "    # 5. Delete client
@@ -1722,7 +2013,7 @@ manage_xray_core() {
       1) fetch_traffic_stats ;;
       2) fetch_dns_stats ;;
       3) reset_stats_menu ;;
-      4) select_inbound_tag ;;
+      4) add_user ;;
       5) delete_user ;;
       6) toggle_user_status ;;
       7) set_user_lim_ip ;;

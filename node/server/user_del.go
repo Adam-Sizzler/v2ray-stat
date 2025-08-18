@@ -5,25 +5,31 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+
 	"v2ray-stat/node/common"
 	"v2ray-stat/node/config"
 	"v2ray-stat/node/lua"
 	"v2ray-stat/node/proto"
 
+	pbstatus "google.golang.org/genproto/googleapis/rpc/status" // protobuf
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	grpcstatus "google.golang.org/grpc/status" // grpc
 )
 
-// DeleteUser deletes a user from the node configuration.
 func (s *NodeServer) DeleteUser(ctx context.Context, req *proto.DeleteUserRequest) (*proto.OperationResponse, error) {
 	err := DeleteUserFromConfig(s.Cfg, req.Username, req.InboundTag)
 	if err != nil {
 		s.Cfg.Logger.Error("Failed to delete user from config", "error", err)
-		return nil, status.Errorf(codes.FailedPrecondition, "failed to delete user: %v", err)
+		return nil, grpcstatus.Errorf(codes.FailedPrecondition, "failed to delete user: %v", err)
 	}
 
 	s.Cfg.Logger.Info("User deleted successfully", "user", req.Username, "inbound_tag", req.InboundTag)
-	return &proto.OperationResponse{}, nil
+	return &proto.OperationResponse{
+		Status: &pbstatus.Status{
+			Code:    int32(codes.OK),
+			Message: "success",
+		},
+	}, nil
 }
 
 // DeleteUserFromConfig removes a user from the configuration file.

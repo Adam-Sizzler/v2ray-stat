@@ -18,7 +18,7 @@ import (
 
 // AddUserRequest represents the JSON request structure for adding a user.
 type AddUserRequest struct {
-	Username   string   `json:"username"`
+	Username   string   `json:"user"`
 	InboundTag string   `json:"inbound_tag"`
 	Nodes      []string `json:"nodes,omitempty"` // Nodes field is optional
 }
