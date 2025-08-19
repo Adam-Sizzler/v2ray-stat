@@ -193,6 +193,13 @@ func updateProxyStats(manager *manager.DatabaseManager, nodeName string, apiData
 					sess_downlink = ?`,
 				nodeName, source, rate, uplink, downlink, sessUplink, sessDownlink,
 				rate, uplink, downlink, sessUplink, sessDownlink)
+
+			// UPDATE bound_traffic
+			// SET rate = ?, uplink = uplink + ?, downlink = downlink + ?, sess_uplink = ?, sess_downlink = ?
+			// WHERE node_name = ? AND source = ? AND EXISTS (
+			// 	SELECT 1 FROM bound_traffic WHERE node_name = ? AND source = ?
+			// )`,
+			// rate, uplink, downlink, sessUplink, sessDownlink, nodeName, source, nodeName, source)
 			if err != nil {
 				return fmt.Errorf("update bound_traffic for %s: %w", source, err)
 			}
@@ -317,18 +324,6 @@ func updateUserStats(manager *manager.DatabaseManager, nodeName string, apiData 
 		defer isInactiveMutex.Unlock()
 
 		for user := range uplinkValues {
-			// Проверка наличия пользователя в базе данных
-			var count int
-			err := db.QueryRow("SELECT COUNT(*) FROM user_traffic WHERE node_name = ? AND user = ?", nodeName, user).Scan(&count)
-			if err != nil {
-				cfg.Logger.Warn("Failed to check user existence", "node_name", nodeName, "user", user, "error", err)
-				continue
-			}
-			if count == 0 {
-				cfg.Logger.Warn("User not found in database, skipping traffic update", "node_name", nodeName, "user", user)
-				continue
-			}
-
 			uplink := uplinkValues[user]
 			downlink := downlinkValues[user]
 			sessUplink := sessUplinkValues[user]
@@ -367,32 +362,23 @@ func updateUserStats(manager *manager.DatabaseManager, nodeName string, apiData 
 
 			if lastSeen != "" {
 				_, err := tx.Exec(`
-					INSERT INTO user_traffic (node_name, user, last_seen, rate, uplink, downlink, sess_uplink, sess_downlink)
-					VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-					ON CONFLICT(node_name, user) DO UPDATE SET
-						last_seen = ?,
-						rate = ?,
-						uplink = uplink + ?,
-						downlink = downlink + ?,
-						sess_uplink = ?,
-						sess_downlink = ?`,
-					nodeName, user, lastSeen, rate, uplink, downlink, sessUplink, sessDownlink,
-					lastSeen, rate, uplink, downlink, sessUplink, sessDownlink)
+					UPDATE user_traffic 
+					SET last_seen = ?, rate = ?, uplink = uplink + ?, downlink = downlink + ?, sess_uplink = ?, sess_downlink = ?
+					WHERE node_name = ? AND user = ? AND EXISTS (
+						SELECT 1 FROM user_traffic WHERE node_name = ? AND user = ?
+					)`,
+					lastSeen, rate, uplink, downlink, sessUplink, sessDownlink, nodeName, user, nodeName, user)
 				if err != nil {
 					return fmt.Errorf("update user_traffic for %s: %w", user, err)
 				}
 			} else {
 				_, err := tx.Exec(`
-					INSERT INTO user_traffic (node_name, user, rate, uplink, downlink, sess_uplink, sess_downlink)
-					VALUES (?, ?, ?, ?, ?, ?, ?)
-					ON CONFLICT(node_name, user) DO UPDATE SET
-						rate = ?,
-						uplink = uplink + ?,
-						downlink = downlink + ?,
-						sess_uplink = ?,
-						sess_downlink = ?`,
-					nodeName, user, rate, uplink, downlink, sessUplink, sessDownlink,
-					rate, uplink, downlink, sessUplink, sessDownlink)
+					UPDATE user_traffic 
+					SET rate = ?, uplink = uplink + ?, downlink = downlink + ?, sess_uplink = ?, sess_downlink = ?
+					WHERE node_name = ? AND user = ? AND EXISTS (
+						SELECT 1 FROM user_traffic WHERE node_name = ? AND user = ?
+					)`,
+					rate, uplink, downlink, sessUplink, sessDownlink, nodeName, user, nodeName, user)
 				if err != nil {
 					return fmt.Errorf("update user_traffic for %s: %w", user, err)
 				}
