@@ -14,10 +14,10 @@ service NodeService {
   rpc GetApiStats(GetApiStatsRequest) returns (GetApiStatsResponse) {}
   // GetLogData retrieves processed log data from the node.
   rpc GetLogData(GetLogDataRequest) returns (GetLogDataResponse) {}
-  // AddUser adds a new user to the node.
-  rpc AddUser(AddUserRequest) returns (AddUserResponse) {}
-  // DeleteUser deletes a user from the node.
-  rpc DeleteUser(DeleteUserRequest) returns (OperationResponse) {}
+  // AddUsers adds one or more users to the node in one operation.
+  rpc AddUsers(AddUsersRequest) returns (OperationResponse) {}
+  // DeleteUsers deletes one or more users from the node in one operation.
+  rpc DeleteUsers(DeleteUsersRequest) returns (OperationResponse) {}
   // SetUserEnabled enables or disables a user on the node.
   rpc SetUserEnabled(SetUserEnabledRequest) returns (OperationResponse) {}
 }
@@ -71,31 +71,26 @@ message GetLogDataResponse {
   map<string, UserLogData> user_log_data = 1;
 }
 
-// AddUserRequest specifies a user to add to the node.
-message AddUserRequest {
-  string username = 1;
+// AddUsersRequest specifies one or more users to add to the node.
+message AddUsersRequest {
+  repeated string usernames = 1;
   string inbound_tag = 2;
 }
 
-// AddUserResponse contains the generated credential for the new user.
-message AddUserResponse {
-  string credential = 1;
-  google.rpc.Status status = 2;
+// DeleteUsersRequest specifies one or more users to delete from the node.
+message DeleteUsersRequest {
+  repeated string usernames = 1;
+  string inbound_tag = 2;
 }
 
-// DeleteUserRequest specifies a user to delete from the node.
-message DeleteUserRequest {
-  string username = 1;
-  string inbound_tag = 2;
+// SetUserEnabledRequest specifies one or more users to enable or disable.
+message SetUserEnabledRequest {
+  repeated string usernames = 1; // Changed from single username to repeated
+  bool enabled = 2;
 }
 
 // OperationResponse represents the result of an operation.
 message OperationResponse {
   google.rpc.Status status = 1;
-}
-
-// SetUserEnabledRequest specifies a user to enable or disable.
-message SetUserEnabledRequest {
-  string username = 1;
-  bool enabled = 2;
+  repeated string usernames = 2; // List of affected usernames
 }

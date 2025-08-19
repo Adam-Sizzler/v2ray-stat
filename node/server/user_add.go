@@ -31,9 +31,9 @@ func generateRandomPassword(length int) (string, error) {
 	return string(b), nil
 }
 
-// AddUser adds a new user to the node and returns the generated credential.
-func (s *NodeServer) AddUser(ctx context.Context, req *proto.AddUserRequest) (*proto.AddUserResponse, error) {
-	user := req.Username
+// AddUsers adds one or more users to the node.
+func (s *NodeServer) AddUsers(ctx context.Context, req *proto.AddUsersRequest) (*proto.OperationResponse, error) {
+	usernames := req.Usernames
 	inboundTag := req.InboundTag
 
 	// Determine protocol based on configuration
@@ -77,38 +77,42 @@ func (s *NodeServer) AddUser(ctx context.Context, req *proto.AddUserRequest) (*p
 		return nil, grpcstatus.Errorf(codes.InvalidArgument, "unsupported core type: %s", s.Cfg.V2rayStat.Type)
 	}
 
-	// Generate credential based on protocol
-	var credential string
-	var err error
-	switch protocol {
-	case "vless":
-		credential = uuid.New().String()
-	case "trojan":
-		credential, err = generateRandomPassword(16)
-		if err != nil {
-			return nil, grpcstatus.Errorf(codes.Internal, "failed to generate password: %v", err)
+	// Generate credentials for each user
+	credentials := make(map[string]string)
+	for _, user := range usernames {
+		var credential string
+		var err error
+		switch protocol {
+		case "vless":
+			credential = uuid.New().String()
+		case "trojan":
+			credential, err = generateRandomPassword(16)
+			if err != nil {
+				return nil, grpcstatus.Errorf(codes.Internal, "failed to generate password for %s: %v", user, err)
+			}
+		default:
+			return nil, grpcstatus.Errorf(codes.InvalidArgument, "unsupported protocol: %s", protocol)
 		}
-	default:
-		return nil, grpcstatus.Errorf(codes.InvalidArgument, "unsupported protocol: %s", protocol)
+		credentials[user] = credential
 	}
 
-	// Add user to configuration
-	err = AddUserToConfig(s.Cfg, user, credential, inboundTag)
+	// Add users to configuration
+	err := AddUsersToConfig(s.Cfg, credentials, inboundTag)
 	if err != nil {
-		s.Cfg.Logger.Error("Failed to add user to config", "error", err)
-		return nil, grpcstatus.Errorf(codes.FailedPrecondition, "failed to add user: %v", err)
+		s.Cfg.Logger.Error("Failed to add users to config", "error", err)
+		return nil, grpcstatus.Errorf(codes.FailedPrecondition, "failed to add users: %v", err)
 	}
 
-	s.Cfg.Logger.Info("User added successfully", "user", user, "inbound_tag", inboundTag, "credential", credential)
-	return &proto.AddUserResponse{
-		Credential: credential,
-		Status:     &status.Status{Code: int32(codes.OK)},
+	s.Cfg.Logger.Info("Users added successfully", "users", usernames, "inbound_tag", inboundTag)
+	return &proto.OperationResponse{
+		Status:    &status.Status{Code: int32(codes.OK), Message: "success"},
+		Usernames: usernames,
 	}, nil
 }
 
-// AddUserToConfig adds a user to the configuration file.
-func AddUserToConfig(cfg *config.NodeConfig, user, credential, inboundTag string) error {
-	cfg.Logger.Debug("Starting user addition to configuration", "user", user, "inboundTag", inboundTag)
+// AddUsersToConfig adds multiple users to the configuration file in one operation.
+func AddUsersToConfig(cfg *config.NodeConfig, credentials map[string]string, inboundTag string) error {
+	cfg.Logger.Debug("Starting users addition to configuration", "users", credentials, "inboundTag", inboundTag)
 	configPath := cfg.Core.Config
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -119,6 +123,7 @@ func AddUserToConfig(cfg *config.NodeConfig, user, credential, inboundTag string
 	proxyType := cfg.V2rayStat.Type
 	var configData any
 	var protocol string
+	found := false
 
 	switch proxyType {
 	case "xray":
@@ -128,34 +133,38 @@ func AddUserToConfig(cfg *config.NodeConfig, user, credential, inboundTag string
 			return fmt.Errorf("failed to parse JSON: %v", err)
 		}
 
-		found := false
 		for i, inbound := range cfgXray.Inbounds {
 			if inbound.Tag == inboundTag {
 				protocol = inbound.Protocol
+				existingCredentials := make(map[string]bool)
 				for _, client := range inbound.Settings.Clients {
-					if protocol == "vless" && client.ID == credential {
-						cfg.Logger.Warn("User with this ID already exists", "credential", credential)
-						return fmt.Errorf("user with this id already exists")
-					} else if protocol == "trojan" && client.Password == credential {
-						cfg.Logger.Warn("User with this password already exists", "credential", credential)
-						return fmt.Errorf("user with this password already exists")
+					if protocol == "vless" {
+						existingCredentials[client.ID] = true
+					} else if protocol == "trojan" {
+						existingCredentials[client.Password] = true
+					}
+					if _, exists := credentials[client.Email]; exists {
+						cfg.Logger.Warn("User already exists", "user", client.Email)
+						return fmt.Errorf("user %s already exists", client.Email)
 					}
 				}
-				newClient := config.XrayClient{Email: user}
-				switch protocol {
-				case "vless":
-					newClient.ID = credential
-				case "trojan":
-					newClient.Password = credential
+				for user, credential := range credentials {
+					if existingCredentials[credential] {
+						cfg.Logger.Warn("Credential already exists", "credential", credential)
+						return fmt.Errorf("credential %s already exists", credential)
+					}
+					newClient := config.XrayClient{Email: user}
+					switch protocol {
+					case "vless":
+						newClient.ID = credential
+					case "trojan":
+						newClient.Password = credential
+					}
+					cfgXray.Inbounds[i].Settings.Clients = append(cfgXray.Inbounds[i].Settings.Clients, newClient)
 				}
-				cfgXray.Inbounds[i].Settings.Clients = append(cfgXray.Inbounds[i].Settings.Clients, newClient)
 				found = true
 				break
 			}
-		}
-		if !found {
-			cfg.Logger.Warn("Inbound not found", "inboundTag", inboundTag)
-			return fmt.Errorf("inbound with tag %s not found", inboundTag)
 		}
 		configData = cfgXray
 
@@ -166,40 +175,49 @@ func AddUserToConfig(cfg *config.NodeConfig, user, credential, inboundTag string
 			return fmt.Errorf("failed to parse JSON: %v", err)
 		}
 
-		found := false
 		for i, inbound := range cfgSingBox.Inbounds {
 			if inbound.Tag == inboundTag {
 				protocol = inbound.Type
+				existingCredentials := make(map[string]bool)
 				for _, user := range inbound.Users {
-					if protocol == "vless" && user.UUID == credential {
-						cfg.Logger.Warn("User with this UUID already exists", "credential", credential)
-						return fmt.Errorf("user with this uuid already exists")
-					} else if protocol == "trojan" && user.Password == credential {
-						cfg.Logger.Warn("User with this password already exists", "credential", credential)
-						return fmt.Errorf("user with this password already exists")
+					if protocol == "vless" {
+						existingCredentials[user.UUID] = true
+					} else if protocol == "trojan" {
+						existingCredentials[user.Password] = true
+					}
+					if _, exists := credentials[user.Name]; exists {
+						cfg.Logger.Warn("User already exists", "user", user.Name)
+						return fmt.Errorf("user %s already exists", user.Name)
 					}
 				}
-				newUser := config.SingboxClient{Name: user}
-				switch protocol {
-				case "vless":
-					newUser.UUID = credential
-				case "trojan":
-					newUser.Password = credential
+				for user, credential := range credentials {
+					if existingCredentials[credential] {
+						cfg.Logger.Warn("Credential already exists", "credential", credential)
+						return fmt.Errorf("credential %s already exists", credential)
+					}
+					newUser := config.SingboxClient{Name: user}
+					switch protocol {
+					case "vless":
+						newUser.UUID = credential
+					case "trojan":
+						newUser.Password = credential
+					}
+					cfgSingBox.Inbounds[i].Users = append(cfgSingBox.Inbounds[i].Users, newUser)
 				}
-				cfgSingBox.Inbounds[i].Users = append(cfgSingBox.Inbounds[i].Users, newUser)
 				found = true
 				break
 			}
-		}
-		if !found {
-			cfg.Logger.Warn("Inbound not found", "inboundTag", inboundTag)
-			return fmt.Errorf("inbound with tag %s not found", inboundTag)
 		}
 		configData = cfgSingBox
 
 	default:
 		cfg.Logger.Warn("Unsupported core type", "proxyType", proxyType)
 		return fmt.Errorf("unsupported core type: %s", proxyType)
+	}
+
+	if !found {
+		cfg.Logger.Warn("Inbound not found", "inboundTag", inboundTag)
+		return fmt.Errorf("inbound with tag %s not found", inboundTag)
 	}
 
 	updateData, err := json.MarshalIndent(configData, "", "  ")
@@ -212,7 +230,7 @@ func AddUserToConfig(cfg *config.NodeConfig, user, credential, inboundTag string
 		return fmt.Errorf("failed to write config.json: %v", err)
 	}
 
-	cfg.Logger.Debug("User added to configuration", "user", user, "inboundTag", inboundTag)
+	cfg.Logger.Debug("Users added to configuration", "users", credentials, "inboundTag", inboundTag)
 
 	if cfg.Features["restart"] {
 		serviceName := "xray"
@@ -225,24 +243,26 @@ func AddUserToConfig(cfg *config.NodeConfig, user, credential, inboundTag string
 	}
 
 	if cfg.Features["auth_lua"] {
-		cfg.Logger.Debug("Adding user to auth.lua", "user", user)
-		var credentialToAdd string
-		if protocol == "trojan" {
-			hash := sha256.Sum224([]byte(credential))
-			credentialToAdd = hex.EncodeToString(hash[:])
-			cfg.Logger.Trace("Hashed credential for trojan", "credential", credentialToAdd)
-		} else {
-			credentialToAdd = credential
-			cfg.Logger.Trace("Using raw credential for vless", "credential", credentialToAdd)
+		cfg.Logger.Debug("Adding users to auth.lua", "users", credentials)
+		for user, credential := range credentials {
+			var credentialToAdd string
+			if protocol == "trojan" {
+				hash := sha256.Sum224([]byte(credential))
+				credentialToAdd = hex.EncodeToString(hash[:])
+				cfg.Logger.Trace("Hashed credential for trojan", "credential", credentialToAdd)
+			} else {
+				credentialToAdd = credential
+				cfg.Logger.Trace("Using raw credential for vless", "credential", credentialToAdd)
+			}
+			if err := lua.AddUserToAuthLua(cfg, user, credentialToAdd); err != nil {
+				cfg.Logger.Error("Failed to add user to auth.lua", "user", user, "error", err)
+			} else {
+				cfg.Logger.Debug("User added to auth.lua", "user", user)
+			}
 		}
-		if err := lua.AddUserToAuthLua(cfg, user, credentialToAdd); err != nil {
-			cfg.Logger.Error("Failed to add user to auth.lua", "user", user, "error", err)
-		} else {
-			cfg.Logger.Debug("User added to auth.lua", "user", user)
-			if cfg.Features["restart"] {
-				if err := common.RestartService("haproxy", cfg); err != nil {
-					return fmt.Errorf("failed to restart haproxy: %v", err)
-				}
+		if cfg.Features["restart"] {
+			if err := common.RestartService("haproxy", cfg); err != nil {
+				return fmt.Errorf("failed to restart haproxy: %v", err)
 			}
 		}
 	}

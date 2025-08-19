@@ -47,7 +47,7 @@ func startAPIServer(ctx context.Context, manager *manager.DatabaseManager, cfg *
 	http.HandleFunc("/api/v1/stats", api.StatsHandler(manager, cfg))
 	http.HandleFunc("/api/v1/add_user", api.TokenAuthMiddleware(cfg, api.AddUserHandler(manager, cfg)))
 	http.HandleFunc("/api/v1/delete_user", api.TokenAuthMiddleware(cfg, api.DeleteUserHandler(manager, cfg)))
-	http.HandleFunc("/api/v1/enabled_user", api.TokenAuthMiddleware(cfg, api.UserEnabledHandler(manager, cfg)))
+	http.HandleFunc("/api/v1/enabled_user", api.TokenAuthMiddleware(cfg, api.SetUserEnabledHandler(manager, cfg)))
 	http.HandleFunc("/api/v1/update_ip_limit", api.TokenAuthMiddleware(cfg, api.UpdateIPLimitHandler(manager, cfg)))
 	http.HandleFunc("/api/v1/update_renew", api.TokenAuthMiddleware(cfg, api.UpdateRenewHandler(manager, cfg)))
 	http.HandleFunc("/api/v1/reset_dns_stats", api.TokenAuthMiddleware(cfg, reset_stats.DeleteDNSStatsHandler(manager, cfg)))

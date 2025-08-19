@@ -22,8 +22,8 @@ const (
 	NodeService_ListUsers_FullMethodName      = "/node.NodeService/ListUsers"
 	NodeService_GetApiStats_FullMethodName    = "/node.NodeService/GetApiStats"
 	NodeService_GetLogData_FullMethodName     = "/node.NodeService/GetLogData"
-	NodeService_AddUser_FullMethodName        = "/node.NodeService/AddUser"
-	NodeService_DeleteUser_FullMethodName     = "/node.NodeService/DeleteUser"
+	NodeService_AddUsers_FullMethodName       = "/node.NodeService/AddUsers"
+	NodeService_DeleteUsers_FullMethodName    = "/node.NodeService/DeleteUsers"
 	NodeService_SetUserEnabled_FullMethodName = "/node.NodeService/SetUserEnabled"
 )
 
@@ -39,10 +39,10 @@ type NodeServiceClient interface {
 	GetApiStats(ctx context.Context, in *GetApiStatsRequest, opts ...grpc.CallOption) (*GetApiStatsResponse, error)
 	// GetLogData retrieves processed log data from the node.
 	GetLogData(ctx context.Context, in *GetLogDataRequest, opts ...grpc.CallOption) (*GetLogDataResponse, error)
-	// AddUser adds a new user to the node.
-	AddUser(ctx context.Context, in *AddUserRequest, opts ...grpc.CallOption) (*AddUserResponse, error)
-	// DeleteUser deletes a user from the node.
-	DeleteUser(ctx context.Context, in *DeleteUserRequest, opts ...grpc.CallOption) (*OperationResponse, error)
+	// AddUsers adds one or more users to the node in one operation.
+	AddUsers(ctx context.Context, in *AddUsersRequest, opts ...grpc.CallOption) (*OperationResponse, error)
+	// DeleteUsers deletes one or more users from the node in one operation.
+	DeleteUsers(ctx context.Context, in *DeleteUsersRequest, opts ...grpc.CallOption) (*OperationResponse, error)
 	// SetUserEnabled enables or disables a user on the node.
 	SetUserEnabled(ctx context.Context, in *SetUserEnabledRequest, opts ...grpc.CallOption) (*OperationResponse, error)
 }
@@ -85,20 +85,20 @@ func (c *nodeServiceClient) GetLogData(ctx context.Context, in *GetLogDataReques
 	return out, nil
 }
 
-func (c *nodeServiceClient) AddUser(ctx context.Context, in *AddUserRequest, opts ...grpc.CallOption) (*AddUserResponse, error) {
+func (c *nodeServiceClient) AddUsers(ctx context.Context, in *AddUsersRequest, opts ...grpc.CallOption) (*OperationResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(AddUserResponse)
-	err := c.cc.Invoke(ctx, NodeService_AddUser_FullMethodName, in, out, cOpts...)
+	out := new(OperationResponse)
+	err := c.cc.Invoke(ctx, NodeService_AddUsers_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *nodeServiceClient) DeleteUser(ctx context.Context, in *DeleteUserRequest, opts ...grpc.CallOption) (*OperationResponse, error) {
+func (c *nodeServiceClient) DeleteUsers(ctx context.Context, in *DeleteUsersRequest, opts ...grpc.CallOption) (*OperationResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(OperationResponse)
-	err := c.cc.Invoke(ctx, NodeService_DeleteUser_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, NodeService_DeleteUsers_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -127,10 +127,10 @@ type NodeServiceServer interface {
 	GetApiStats(context.Context, *GetApiStatsRequest) (*GetApiStatsResponse, error)
 	// GetLogData retrieves processed log data from the node.
 	GetLogData(context.Context, *GetLogDataRequest) (*GetLogDataResponse, error)
-	// AddUser adds a new user to the node.
-	AddUser(context.Context, *AddUserRequest) (*AddUserResponse, error)
-	// DeleteUser deletes a user from the node.
-	DeleteUser(context.Context, *DeleteUserRequest) (*OperationResponse, error)
+	// AddUsers adds one or more users to the node in one operation.
+	AddUsers(context.Context, *AddUsersRequest) (*OperationResponse, error)
+	// DeleteUsers deletes one or more users from the node in one operation.
+	DeleteUsers(context.Context, *DeleteUsersRequest) (*OperationResponse, error)
 	// SetUserEnabled enables or disables a user on the node.
 	SetUserEnabled(context.Context, *SetUserEnabledRequest) (*OperationResponse, error)
 	mustEmbedUnimplementedNodeServiceServer()
@@ -152,11 +152,11 @@ func (UnimplementedNodeServiceServer) GetApiStats(context.Context, *GetApiStatsR
 func (UnimplementedNodeServiceServer) GetLogData(context.Context, *GetLogDataRequest) (*GetLogDataResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetLogData not implemented")
 }
-func (UnimplementedNodeServiceServer) AddUser(context.Context, *AddUserRequest) (*AddUserResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method AddUser not implemented")
+func (UnimplementedNodeServiceServer) AddUsers(context.Context, *AddUsersRequest) (*OperationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddUsers not implemented")
 }
-func (UnimplementedNodeServiceServer) DeleteUser(context.Context, *DeleteUserRequest) (*OperationResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method DeleteUser not implemented")
+func (UnimplementedNodeServiceServer) DeleteUsers(context.Context, *DeleteUsersRequest) (*OperationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteUsers not implemented")
 }
 func (UnimplementedNodeServiceServer) SetUserEnabled(context.Context, *SetUserEnabledRequest) (*OperationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetUserEnabled not implemented")
@@ -236,38 +236,38 @@ func _NodeService_GetLogData_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
-func _NodeService_AddUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(AddUserRequest)
+func _NodeService_AddUsers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddUsersRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(NodeServiceServer).AddUser(ctx, in)
+		return srv.(NodeServiceServer).AddUsers(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: NodeService_AddUser_FullMethodName,
+		FullMethod: NodeService_AddUsers_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NodeServiceServer).AddUser(ctx, req.(*AddUserRequest))
+		return srv.(NodeServiceServer).AddUsers(ctx, req.(*AddUsersRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _NodeService_DeleteUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeleteUserRequest)
+func _NodeService_DeleteUsers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteUsersRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(NodeServiceServer).DeleteUser(ctx, in)
+		return srv.(NodeServiceServer).DeleteUsers(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: NodeService_DeleteUser_FullMethodName,
+		FullMethod: NodeService_DeleteUsers_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NodeServiceServer).DeleteUser(ctx, req.(*DeleteUserRequest))
+		return srv.(NodeServiceServer).DeleteUsers(ctx, req.(*DeleteUsersRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -310,12 +310,12 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _NodeService_GetLogData_Handler,
 		},
 		{
-			MethodName: "AddUser",
-			Handler:    _NodeService_AddUser_Handler,
+			MethodName: "AddUsers",
+			Handler:    _NodeService_AddUsers_Handler,
 		},
 		{
-			MethodName: "DeleteUser",
-			Handler:    _NodeService_DeleteUser_Handler,
+			MethodName: "DeleteUsers",
+			Handler:    _NodeService_DeleteUsers_Handler,
 		},
 		{
 			MethodName: "SetUserEnabled",

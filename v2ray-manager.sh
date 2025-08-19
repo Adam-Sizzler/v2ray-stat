@@ -1924,7 +1924,7 @@ delete_user() {
         fi
       done
       if [ ! "$valid" = true ]; then
-        sleep 2
+        sleep 5
         continue
       fi
       selected_users="${selected_users#,}" # Удаляем начальную запятую
@@ -1959,7 +1959,7 @@ delete_user() {
         if [ $? -eq 0 ]; then
           message=$(echo "$response" | jq -r '.message // ""')
           if [ -n "$message" ]; then
-            if [ "$message" == "User deleted successfully from all specified nodes" ]; then
+            if [ "$message" == "user deleted successfully from all specified nodes" ]; then
               info " Успех: $message"
             else
               warning " Ошибка API: $message"
