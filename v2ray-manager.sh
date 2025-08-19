@@ -2207,7 +2207,8 @@ check_api_server() {
   local API_URL="http://127.0.0.1:9952/api/v1/"
   curl -s -X GET "$API_URL" > /dev/null
   if [ $? -ne 0 ]; then
-    error "Ошибка: API сервер не запущен. Запустите сервер и попробуйте снова."
+    warning "Ошибка: API сервер не запущен. Запустите сервер и попробуйте снова."
+    sleep 2
   fi
 }
 
