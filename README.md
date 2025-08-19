@@ -551,3 +551,84 @@ openssl rsa -in /usr/local/etc/v2ray-stat/certs/node.key -check
 
 - Используйте уникальные пары ключ/сертификат для каждой ноды или централизованно подпишите сертификаты CA.  
 - Храните приватные ключи в защищённом каталоге с ограниченным доступом.
+
+---
+
+## Руководство по обновлению v2ray-stat компонентов
+
+### Обновление Node
+
+#### 1. Остановка сервиса
+```bash
+systemctl stop v2ray-stat-node.service
+```
+
+#### 2. Обновление через менеджер
+```bash
+v2ray-manager --update node
+```
+
+Или вручную:
+```bash
+/usr/local/bin/v2ray-manager --update node
+```
+
+#### 3. Запуск сервиса
+```bash
+systemctl start v2ray-stat-node.service
+systemctl enable v2ray-stat-node.service
+```
+
+#### 4. Проверка статуса
+```bash
+systemctl status v2ray-stat-node.service
+journalctl -u v2ray-stat-node.service -f
+```
+
+### Обновление Backend
+
+#### 1. Остановка сервиса
+```bash
+systemctl stop v2ray-stat.service
+```
+
+#### 2. Обновление через менеджер
+```bash
+v2ray-manager --update backend
+```
+
+Или вручную:
+```bash
+/usr/local/bin/v2ray-manager --update backend
+```
+
+#### 3. Запуск сервиса
+```bash
+systemctl start v2ray-stat.service
+systemctl enable v2ray-stat.service
+```
+
+#### 4. Проверка статуса
+```bash
+systemctl status v2ray-stat.service
+journalctl -u v2ray-stat.service -f
+```
+
+### Обновление Manager
+
+#### 1. Обновление менеджера
+```bash
+v2ray-manager --update manager
+```
+
+Или вручную:
+```bash
+/usr/local/bin/v2ray-manager --update manager
+```
+
+### Запуск менеджера после обновления
+
+#### 1. Базовая команда:
+```bash
+v2ray-manager
+```
