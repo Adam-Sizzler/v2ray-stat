@@ -138,9 +138,10 @@ func AddUsersToConfig(cfg *config.NodeConfig, credentials map[string]string, inb
 				protocol = inbound.Protocol
 				existingCredentials := make(map[string]bool)
 				for _, client := range inbound.Settings.Clients {
-					if protocol == "vless" {
+					switch protocol {
+					case "vless":
 						existingCredentials[client.ID] = true
-					} else if protocol == "trojan" {
+					case "trojan":
 						existingCredentials[client.Password] = true
 					}
 					if _, exists := credentials[client.Email]; exists {
@@ -180,9 +181,10 @@ func AddUsersToConfig(cfg *config.NodeConfig, credentials map[string]string, inb
 				protocol = inbound.Type
 				existingCredentials := make(map[string]bool)
 				for _, user := range inbound.Users {
-					if protocol == "vless" {
+					switch protocol {
+					case "vless":
 						existingCredentials[user.UUID] = true
-					} else if protocol == "trojan" {
+					case "trojan":
 						existingCredentials[user.Password] = true
 					}
 					if _, exists := credentials[user.Name]; exists {

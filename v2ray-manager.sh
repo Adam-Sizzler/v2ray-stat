@@ -824,141 +824,6 @@ delete_user1() {
   done
 }
 
-###################################
-### DISPLAY USER LIST FROM API
-###################################
-display_user_list1() {
-  local API_URL="http://127.0.0.1:9952/api/v1/users"
-  local field="$1"  # Поле для извлечения, например "enabled", "lim_ip", "renew", "sub_end"
-
-  declare -gA user_map
-  local counter=0
-
-  # Получаем данные от API
-  response=$(curl -s -X GET "$API_URL")
-  if [ $? -ne 0 ]; then
-    warning "Ошибка: Не удалось подключиться к API"
-    return 1
-  fi
-
-  # Парсим JSON, извлекая email и указанное поле
-  mapfile -t users < <(echo "$response" | jq -r --arg field "$field" '.[] | [.user, .[$field]] | join("|")')
-
-  if [ ${#users[@]} -eq 0 ]; then
-    info "Нет пользователей для отображения"
-    return 1
-  fi
-
-  info " Список пользователей:"
-  for user in "${users[@]}"; do
-    IFS='|' read -r email value <<< "$user"
-    user_map[$counter]="$email"
-    echo " $((counter+1)). $email ($field: ${value:-не задано})"
-    ((counter++))
-  done
-
-  # Сохраняем user_map и users для использования в вызывающей функции
-  export user_map
-  export users
-  return 0
-}
-
-###################################
-### UPDATE USER PARAMETER VIA API
-###################################
-update_user_parameter_patch() {
-  local param_name="$1"  # Название параметра, например "lim_ip", "renew", "offset", "count"
-  local api_url="$2"     # URL для GET-запроса
-  local prompt="$3"      # Текст для запроса нового значения
-
-  last_selected_num=""
-  local param_value
-
-  # Запрос нового значения
-  read -p "$prompt: " param_value
-  clear
-
-  while true; do
-    # Получаем и отображаем список пользователей
-    display_user_list1 "$param_name"
-    if [ $? -ne 0 ]; then
-      return 1
-    fi
-
-    info " (Выбрано значение $param_name: $param_value)"
-    # Если последний выбранный номер существует, предлагаем его по умолчанию
-    if [ -n "$last_selected_num" ]; then
-      read -p " Введите номера пользователей (0 - выход, 'reset' - изменить $param_name): " choice
-    else
-      read -p " Введите номера пользователей (0 - выход, 'reset' - изменить $param_name): " choice
-    fi
-
-    # Если нажат Enter и есть последний выбор, используем его
-    if [ -z "$choice" ] && [ -n "$last_selected_num" ]; then
-      choice="$last_selected_num"
-    fi
-
-    if [[ "$choice" == "0" ]]; then
-      info "Выход..."
-      return
-    fi
-
-    if [[ "$choice" == "reset" ]]; then
-      clear
-      read -p "$prompt: " param_value
-      continue
-    fi
-
-    # Разбиваем ввод на массив номеров
-    choices=($(echo "$choice" | tr ',' ' ' | tr -s ' ' | tr ' ' '\n'))
-
-    # Проверяем каждый номер
-    for num in "${choices[@]}"; do
-      if [[ ! "$num" =~ ^[0-9]+$ ]] || (( num < 1 || num > ${#users[@]} )); then
-        warning "Некорректный номер пользователя: $num. Попробуйте снова."
-        continue 2
-      fi
-    done
-
-    clear
-    # Обновляем параметр для выбранных пользователей и запоминаем последний номер
-    for num in "${choices[@]}"; do
-      selected_email="${user_map[$((num-1))]}"
-      curl -s -X PATCH "${api_url}?user=${selected_email}&$param_name=${param_value}"
-      # Запоминаем последний выбранный номер
-      last_selected_num="$num"
-    done
-  done
-}
-
-###################################
-### TOGGLE USER STATUS VIA API
-###################################
-toggle_user_status() {
-  update_user_parameter_patch "enabled" "http://127.0.0.1:9952/api/v1/set_enabled" "Введите true для включения и false отключения клиента"
-}
-
-###################################
-### SET IP LIMIT FOR USER
-###################################
-set_user_lim_ip() {
-  update_user_parameter_patch "lim_ip" "http://127.0.0.1:9952/api/v1/update_lim_ip" "Введите лимит IP"
-}
-
-###################################
-### UPDATE USER RENEWAL STATUS
-###################################
-update_user_renewal() {
-  update_user_parameter_patch "renew" "http://127.0.0.1:9952/api/v1/update_renew" "Введите значение для продления подписки"
-}
-
-###################################
-### ADJUST USER SUBSCRIPTION END DATE
-###################################
-adjust_subscription_date() {
-  update_user_parameter_patch "sub_end" "http://127.0.0.1:9952/api/v1/adjust_date" "Введите значение sub_end (например, +1d, -1d3h, 0)"
-}
-
 
 
 
@@ -1589,10 +1454,10 @@ display_inbound_tag_list() {
 ### SELECT INBOUND TAG AND ADD USER
 ###################################
 add_user() {
-  local API_URL="http://127.0.0.1:9952/api/v1/add_user"
+  local API_URL="http://127.0.0.1:9952/api/v1/add_users"
   local selected_inbound_tags=""
   local selected_nodes=""
-  local username=""
+  local usernames=""
 
   # Выбор inbound_tag
   while true; do
@@ -1702,61 +1567,85 @@ add_user() {
     nodes_to_add=()
   fi
 
-  # Основной цикл для обработки имени пользователя
+  # Основной цикл для обработки имен пользователей
   while true; do
     clear
     display_xcore_banner
     tilda "|--------------------------------------------------------------------------|"
     info " Inbound_tag > ${selected_inbound_tags:-все} | Ноды > ${selected_nodes:-все}"
     echo
-    reading " Введите имя пользователя (0 для выхода): " username
-    if [ "$username" == "0" ]; then
+    reading " Введите имена пользователей через запятую (0 для выхода): " usernames
+    if [ "$usernames" == "0" ]; then
       return 0
     fi
 
-    # Проверка имени пользователя
-    if [[ -z "$username" ]]; then
-      warning " Имя пользователя не может быть пустым"
+    # Проверка имен пользователей
+    if [[ -z "$usernames" ]]; then
+      warning " Имена пользователей не могут быть пустыми"
       sleep 3
       continue
     fi
-    if [[ ! "$username" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-      warning " Имя пользователя должно содержать только буквы, цифры, дефис или подчеркивание"
+    IFS=',' read -r -a username_array <<< "$usernames"
+    valid=true
+    for username in "${username_array[@]}"; do
+      username=$(echo "$username" | xargs) # Удаляем пробелы
+      if [[ -z "$username" ]]; then
+        warning " Имя пользователя не может быть пустым"
+        valid=false
+      elif [[ ! "$username" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        warning " Имя пользователя '$username' должно содержать только буквы, цифры, дефис или подчеркивание"
+        valid=false
+      fi
+    done
+    if [ "$valid" = false ]; then
       sleep 3
       continue
     fi
 
-    # Отправка запросов для добавления пользователя
-    info " Отправлен запрос для добавления пользователя '$username':"
-    echo
+    # Формируем JSON-массив users
+    users_json=$(printf '"%s"' "${username_array[0]}")
+    for username in "${username_array[@]:1}"; do
+      username=$(echo "$username" | xargs)
+      users_json="$users_json,\"$username\""
+    done
+
+    # Отправка запросов для добавления пользователей
     for tag in "${tags_to_add[@]}"; do
       if [ ${#nodes_to_add[@]} -eq 0 ]; then
-        json_body=$(printf '{"user":"%s","inbound_tag":"%s"}' "$username" "$tag")
+        json_body=$(printf '{"users":[%s],"inbound_tag":"%s"}' "$users_json" "$tag")
         info " POST $API_URL with body: $json_body"
         response=$(curl -s -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body")
-        if [ $? -eq 0 ]; then
-          info " Ответ: $response"
-        else
-          warning " Ошибка при добавлении пользователя на inbound_tag '$tag'"
-        fi
       else
-        # Формируем JSON-массив nodes
         nodes_json=$(printf '"%s"' "${nodes_to_add[0]}")
         for node in "${nodes_to_add[@]:1}"; do
           nodes_json="$nodes_json,\"$node\""
         done
-        json_body=$(printf '{"user":"%s","inbound_tag":"%s","nodes":[%s]}' "$username" "$tag" "$nodes_json")
+        json_body=$(printf '{"users":[%s],"inbound_tag":"%s","nodes":[%s]}' "$users_json" "$tag" "$nodes_json")
         info " POST $API_URL with body: $json_body"
         response=$(curl -s -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body")
-        if [ $? -eq 0 ]; then
-          info " Ответ: $response"
-        else
-          warning " Ошибка при добавлении пользователя на inbound_tag '$tag' для нод: ${nodes_to_add[*]}"
-        fi
       fi
+
+      if [ $? -eq 0 ]; then
+        message=$(echo "$response" | jq -r '.message // ""')
+        if [ -n "$message" ]; then
+          if [ "$message" == "users added and synced successfully to all specified nodes" ]; then
+            info " Успех: $message"
+            info " Пользователи: $(echo "$response" | jq -r '.usernames | join(", ")')"
+            info " Результаты: $(echo "$response" | jq -r '.results | tostring')"
+          else
+            warning " Ошибка API: $message"
+            warning " Ошибки: $(echo "$response" | jq -r '.errors | tostring')"
+          fi
+        else
+          warning " Неожиданный ответ API: $response"
+        fi
+      else
+        warning " Ошибка при добавлении пользователей на inbound_tag '$tag'"
+      fi
+      echo
     done
     tilda "|--------------------------------------------------------------------------|"
-    info " Пользователь '$username' успешно добавлен. Введите новое имя пользователя или 0 для выхода."
+    info " Пользователи '$usernames' успешно добавлены. Введите новых пользователей или 0 для выхода."
     sleep 3
   done
 
@@ -1767,7 +1656,7 @@ add_user() {
 ### DELETE USER
 ###################################
 delete_user() {
-  local API_URL="http://127.0.0.1:9952/api/v1/delete_user"
+  local API_URL="http://127.0.0.1:9952/api/v1/delete_users"
   local selected_inbound_tags=""
   local selected_nodes=""
   local selected_users=""
@@ -1938,40 +1827,46 @@ delete_user() {
       IFS=',' read -r -a users_to_delete <<< "$selected_users"
     fi
 
+    # Формируем JSON-массив users
+    users_json=$(printf '"%s"' "${users_to_delete[0]}")
+    for user in "${users_to_delete[@]:1}"; do
+      users_json="$users_json,\"$user\""
+    done
+
     # Отправка запросов для удаления пользователей
-    for user in "${users_to_delete[@]}"; do
-      for tag in "${tags_to_delete[@]}"; do
-        info " Отправлен запрос для удаления пользователя '$user' на inbound_tag '$tag':"
-        echo
-        if [ ${#nodes_to_delete[@]} -eq 0 ]; then
-          json_body=$(printf '{"user":"%s","inbound_tag":"%s"}' "$user" "$tag")
-          info " POST $API_URL with body: $json_body"
-          response=$(curl -s -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body")
-        else
-          nodes_json=$(printf '"%s"' "${nodes_to_delete[0]}")
-          for node in "${nodes_to_delete[@]:1}"; do
-            nodes_json="$nodes_json,\"$node\""
-          done
-          json_body=$(printf '{"user":"%s","inbound_tag":"%s","nodes":[%s]}' "$user" "$tag" "$nodes_json")
-          info " POST $API_URL with body: $json_body"
-          response=$(curl -s -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body")
-        fi
-        if [ $? -eq 0 ]; then
-          message=$(echo "$response" | jq -r '.message // ""')
-          if [ -n "$message" ]; then
-            if [ "$message" == "user deleted successfully from all specified nodes" ]; then
-              info " Успех: $message"
-            else
-              warning " Ошибка API: $message"
-            fi
+    for tag in "${tags_to_delete[@]}"; do
+      if [ ${#nodes_to_delete[@]} -eq 0 ]; then
+        json_body=$(printf '{"users":[%s],"inbound_tag":"%s"}' "$users_json" "$tag")
+        info " POST $API_URL with body: $json_body"
+        response=$(curl -s -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body")
+      else
+        nodes_json=$(printf '"%s"' "${nodes_to_delete[0]}")
+        for node in "${nodes_to_delete[@]:1}"; do
+          nodes_json="$nodes_json,\"$node\""
+        done
+        json_body=$(printf '{"users":[%s],"inbound_tag":"%s","nodes":[%s]}' "$users_json" "$tag" "$nodes_json")
+        info " POST $API_URL with body: $json_body"
+        response=$(curl -s -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body")
+      fi
+
+      if [ $? -eq 0 ]; then
+        message=$(echo "$response" | jq -r '.message // ""')
+        if [ -n "$message" ]; then
+          if [ "$message" == "users deleted and synced successfully from all specified nodes" ]; then
+            info " Успех: $message"
+            info " Пользователи: $(echo "$response" | jq -r '.usernames | join(", ")')"
+            info " Результаты: $(echo "$response" | jq -r '.results | tostring')"
           else
-            info " Ответ: $response"
+            warning " Ошибка API: $message"
+            warning " Ошибки: $(echo "$response" | jq -r '.errors | tostring')"
           fi
         else
-          warning " Ошибка при удалении пользователя '$user' на inbound_tag '$tag'"
+          warning " Неожиданный ответ API: $response"
         fi
-        echo
-      done
+      else
+        warning " Ошибка при удалении пользователей на inbound_tag '$tag'"
+      fi
+      echo
     done
     tilda "|--------------------------------------------------------------------------|"
     info " Выбранные пользователи успешно удалены. Выберите других пользователей или введите 0 для выхода."
@@ -1980,6 +1875,7 @@ delete_user() {
 
   return 0
 }
+
 
 
 ###################################

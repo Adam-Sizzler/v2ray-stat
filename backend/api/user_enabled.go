@@ -64,7 +64,7 @@ func SetUsersEnabledToNode(ctx context.Context, node config.NodeConfig, username
 }
 
 // SetUsersEnabledHandler handles HTTP requests to enable or disable multiple users on specified nodes.
-func SetUsersEnabledHandler(manager *manager.DatabaseManager, cfg *config.Config) http.HandlerFunc {
+func SetUserEnabledHandler(manager *manager.DatabaseManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cfg.Logger.Debug("Received SetUsersEnabled HTTP request", "method", r.Method)
 
