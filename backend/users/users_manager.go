@@ -230,10 +230,13 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 
 // MonitorUsers periodically synchronizes users from nodes with the database.
 func MonitorUsers(ctx context.Context, manager *manager.DatabaseManager, nodeClients []*db.NodeClient, cfg *config.Config, wg *sync.WaitGroup) {
+	if err := SyncUsersWithNode(ctx, manager, nodeClients, cfg); err != nil {
+		cfg.Logger.Error("Failed to synchronize users", "error", err)
+	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		ticker := time.NewTicker(time.Duration(cfg.V2rayStat.Monitor.TickerInterval) * time.Second)
+		ticker := time.NewTicker(60 * time.Minute)
 		defer ticker.Stop()
 
 		for {

@@ -317,6 +317,18 @@ func updateUserStats(manager *manager.DatabaseManager, nodeName string, apiData 
 		defer isInactiveMutex.Unlock()
 
 		for user := range uplinkValues {
+			// Проверка наличия пользователя в базе данных
+			var count int
+			err := db.QueryRow("SELECT COUNT(*) FROM user_traffic WHERE node_name = ? AND user = ?", nodeName, user).Scan(&count)
+			if err != nil {
+				cfg.Logger.Warn("Failed to check user existence", "node_name", nodeName, "user", user, "error", err)
+				continue
+			}
+			if count == 0 {
+				cfg.Logger.Warn("User not found in database, skipping traffic update", "node_name", nodeName, "user", user)
+				continue
+			}
+
 			uplink := uplinkValues[user]
 			downlink := downlinkValues[user]
 			sessUplink := sessUplinkValues[user]

@@ -1362,6 +1362,7 @@ display_user_list() {
   local selected_nodes="$1"  # Ожидаем строку нод, разделённых запятыми, или "all"
   local selected_inbound_tag="$2"  # Ожидаем inbound_tag или пустую строку
   declare -gA user_map
+  declare -gA user_status_map  # Для хранения статуса enabled
   local counter=0
 
   # Получаем данные от API
@@ -1374,16 +1375,16 @@ display_user_list() {
   # Извлекаем уникальных пользователей с фильтрацией по нодам и inbound_tag
   if [ "$selected_nodes" == "all" ]; then
     if [ -z "$selected_inbound_tag" ]; then
-      mapfile -t users < <(echo "$response" | jq -r '.[].users[].user' | sort -u)
+      mapfile -t users < <(echo "$response" | jq -r '.[].users[] | "\(.user) \(.enabled)"' | sort -u)
     else
-      mapfile -t users < <(echo "$response" | jq -r --arg tag "$selected_inbound_tag" '.[].users[] | select(.inbounds[].inbound_tag == $tag) | .user' | sort -u)
+      mapfile -t users < <(echo "$response" | jq -r --arg tag "$selected_inbound_tag" '.[].users[] | select(.inbounds[].inbound_tag == $tag) | "\(.user) \(.enabled)"' | sort -u)
     fi
   else
     nodes=$(echo "$selected_nodes" | sed 's/,/","/g; s/^/"/; s/$/"/')
     if [ -z "$selected_inbound_tag" ]; then
-      mapfile -t users < <(echo "$response" | jq -r --argjson nodes "[${nodes}]" '.[] | select(.node_name | IN($nodes[])) | .users[].user' | sort -u)
+      mapfile -t users < <(echo "$response" | jq -r --argjson nodes "[${nodes}]" '.[] | select(.node_name | IN($nodes[])) | .users[] | "\(.user) \(.enabled)"' | sort -u)
     else
-      mapfile -t users < <(echo "$response" | jq -r --argjson nodes "[${nodes}]" --arg tag "$selected_inbound_tag" '.[] | select(.node_name | IN($nodes[])) | .users[] | select(.inbounds[].inbound_tag == $tag) | .user' | sort -u)
+      mapfile -t users < <(echo "$response" | jq -r --argjson nodes "[${nodes}]" --arg tag "$selected_inbound_tag" '.[] | select(.node_name | IN($nodes[])) | .users[] | select(.inbounds[].inbound_tag == $tag) | "\(.user) \(.enabled)"' | sort -u)
     fi
   fi
 
@@ -1397,15 +1398,19 @@ display_user_list() {
   echo " 1. Все пользователи"
   user_map[1]="all"
   local counter=2
-  for user in "${users[@]}"; do
-    echo " $counter. $user"
+  for user_entry in "${users[@]}"; do
+    user=$(echo "$user_entry" | awk '{print $1}')
+    enabled=$(echo "$user_entry" | awk '{print $2}')
+    echo " $counter. $user > $enabled"
     user_map[$counter]="$user"
+    user_status_map[$counter]="$enabled"
     ((counter++))
   done
   echo
   warning " $(text 84) " # 0. Previous menu
 
   export user_map
+  export user_status_map
   export users
   return 0
 }
@@ -1454,7 +1459,7 @@ display_inbound_tag_list() {
 ### SELECT INBOUND TAG AND ADD USER
 ###################################
 add_user() {
-  local API_URL="http://127.0.0.1:9952/api/v1/add_users"
+  local API_URL="http://127.0.0.1:9952/api/v1/add_user"
   local selected_inbound_tags=""
   local selected_nodes=""
   local usernames=""
@@ -1614,7 +1619,9 @@ add_user() {
       if [ ${#nodes_to_add[@]} -eq 0 ]; then
         json_body=$(printf '{"users":[%s],"inbound_tag":"%s"}' "$users_json" "$tag")
         info " POST $API_URL with body: $json_body"
-        response=$(curl -s -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body")
+        response=$(curl -s -w "%{http_code}" -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body")
+        http_code=${response: -3}
+        response=${response%???}
       else
         nodes_json=$(printf '"%s"' "${nodes_to_add[0]}")
         for node in "${nodes_to_add[@]:1}"; do
@@ -1622,25 +1629,32 @@ add_user() {
         done
         json_body=$(printf '{"users":[%s],"inbound_tag":"%s","nodes":[%s]}' "$users_json" "$tag" "$nodes_json")
         info " POST $API_URL with body: $json_body"
-        response=$(curl -s -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body")
+        response=$(curl -s -w "%{http_code}" -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body")
+        http_code=${response: -3}
+        response=${response%???}
       fi
 
-      if [ $? -eq 0 ]; then
-        message=$(echo "$response" | jq -r '.message // ""')
-        if [ -n "$message" ]; then
-          if [ "$message" == "users added and synced successfully to all specified nodes" ]; then
-            info " Успех: $message"
-            info " Пользователи: $(echo "$response" | jq -r '.usernames | join(", ")')"
-            info " Результаты: $(echo "$response" | jq -r '.results | tostring')"
+      if [ "$http_code" -eq 200 ]; then
+        # Проверяем, является ли ответ валидным JSON
+        if echo "$response" | jq -e . >/dev/null 2>&1; then
+          message=$(echo "$response" | jq -r '.message // ""')
+          if [ -n "$message" ]; then
+            if [ "$message" == "users added and synced successfully to all specified nodes" ]; then
+              info " Успех: $message"
+              info " Пользователи: $(echo "$response" | jq -r '.usernames | join(", ")')"
+              info " Результаты: $(echo "$response" | jq -r '.results | tostring')"
+            else
+              warning " Ошибка API: $message"
+              warning " Ошибки: $(echo "$response" | jq -r '.errors | tostring')"
+            fi
           else
-            warning " Ошибка API: $message"
-            warning " Ошибки: $(echo "$response" | jq -r '.errors | tostring')"
+            warning " Неожиданный ответ API (без message): $response"
           fi
         else
-          warning " Неожиданный ответ API: $response"
+          warning " Ответ API не является валидным JSON: $response"
         fi
       else
-        warning " Ошибка при добавлении пользователей на inbound_tag '$tag'"
+        warning " Ошибка HTTP $http_code при добавлении пользователей на inbound_tag '$tag': $response"
       fi
       echo
     done
@@ -1656,7 +1670,7 @@ add_user() {
 ### DELETE USER
 ###################################
 delete_user() {
-  local API_URL="http://127.0.0.1:9952/api/v1/delete_users"
+  local API_URL="http://127.0.0.1:9952/api/v1/delete_user"
   local selected_inbound_tags=""
   local selected_nodes=""
   local selected_users=""
@@ -1838,7 +1852,9 @@ delete_user() {
       if [ ${#nodes_to_delete[@]} -eq 0 ]; then
         json_body=$(printf '{"users":[%s],"inbound_tag":"%s"}' "$users_json" "$tag")
         info " POST $API_URL with body: $json_body"
-        response=$(curl -s -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body")
+        response=$(curl -s -w "%{http_code}" -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body")
+        http_code=${response: -3}
+        response=${response%???}
       else
         nodes_json=$(printf '"%s"' "${nodes_to_delete[0]}")
         for node in "${nodes_to_delete[@]:1}"; do
@@ -1846,25 +1862,32 @@ delete_user() {
         done
         json_body=$(printf '{"users":[%s],"inbound_tag":"%s","nodes":[%s]}' "$users_json" "$tag" "$nodes_json")
         info " POST $API_URL with body: $json_body"
-        response=$(curl -s -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body")
+        response=$(curl -s -w "%{http_code}" -X POST "$API_URL" -H "Content-Type: application/json" -d "$json_body")
+        http_code=${response: -3}
+        response=${response%???}
       fi
 
-      if [ $? -eq 0 ]; then
-        message=$(echo "$response" | jq -r '.message // ""')
-        if [ -n "$message" ]; then
-          if [ "$message" == "users deleted and synced successfully from all specified nodes" ]; then
-            info " Успех: $message"
-            info " Пользователи: $(echo "$response" | jq -r '.usernames | join(", ")')"
-            info " Результаты: $(echo "$response" | jq -r '.results | tostring')"
+      if [ "$http_code" -eq 200 ]; then
+        # Проверяем, является ли ответ валидным JSON
+        if echo "$response" | jq -e . >/dev/null 2>&1; then
+          message=$(echo "$response" | jq -r '.message // ""')
+          if [ -n "$message" ]; then
+            if [ "$message" == "users deleted and synced successfully from all specified nodes" ]; then
+              info " Успех: $message"
+              info " Пользователи: $(echo "$response" | jq -r '.usernames | join(", ")')"
+              info " Результаты: $(echo "$response" | jq -r '.results | tostring')"
+            else
+              warning " Ошибка API: $message"
+              warning " Ошибки: $(echo "$response" | jq -r '.errors | tostring')"
+            fi
           else
-            warning " Ошибка API: $message"
-            warning " Ошибки: $(echo "$response" | jq -r '.errors | tostring')"
+            warning " Неожиданный ответ API (без message): $response"
           fi
         else
-          warning " Неожиданный ответ API: $response"
+          warning " Ответ API не является валидным JSON: $response"
         fi
       else
-        warning " Ошибка при удалении пользователей на inbound_tag '$tag'"
+        warning " Ошибка HTTP $http_code при удалении пользователей на inbound_tag '$tag': $response"
       fi
       echo
     done
@@ -1876,6 +1899,248 @@ delete_user() {
   return 0
 }
 
+###################################
+### TOGGLE USER STATUS
+###################################
+toggle_user_status() {
+  local API_URL="http://127.0.0.1:9952/api/v1/enabled_user"
+  local selected_inbound_tags=""
+  local selected_nodes=""
+  local selected_users=""
+
+  # Выбор inbound_tag
+  while true; do
+    clear
+    display_xcore_banner
+    tilda "|--------------------------------------------------------------------------|"
+    display_inbound_tag_list
+    if [ $? -ne 0 ]; then
+      info " $(text 85) " # Нет данных для отображения
+      read -r
+      return 1
+    fi
+    tilda "|--------------------------------------------------------------------------|"
+    reading " Введите номера inbound_tag через запятую (или Enter для всех): " tag_choice
+    if [ -z "$tag_choice" ]; then
+      selected_inbound_tags="all"
+      break
+    fi
+    case "$tag_choice" in
+      0)
+        return 0
+        ;;
+      *)
+        IFS=',' read -r -a tag_array <<< "$tag_choice"
+        valid=true
+        selected_inbound_tags=""
+        for tag_num in "${tag_array[@]}"; do
+          tag_num=$(echo "$tag_num" | xargs) # Удаляем пробелы
+          if [ "$tag_num" == "1" ]; then
+            selected_inbound_tags="all"
+            break
+          elif [ -n "${inbound_tag_map[$tag_num]}" ]; then
+            selected_inbound_tags="${selected_inbound_tags},${inbound_tag_map[$tag_num]}"
+          else
+            valid=false
+            warning " Неверный номер inbound_tag: $tag_num"
+          fi
+        done
+        if [ "$valid" = true ]; then
+          selected_inbound_tags="${selected_inbound_tags#,}" # Удаляем начальную запятую
+          break
+        fi
+        sleep 2
+        ;;
+    esac
+  done
+
+  # Выбор нод
+  while true; do
+    clear
+    display_xcore_banner
+    tilda "|--------------------------------------------------------------------------|"
+    display_node_list
+    if [ $? -ne 0 ]; then
+      info " $(text 85) " # Нет нод для отображения
+      read -r
+      return 1
+    fi
+    tilda "|--------------------------------------------------------------------------|"
+    reading " Введите номера нод через запятую (или Enter для всех): " node_choice
+    case "$node_choice" in
+      0)
+        return 0
+        ;;
+      *)
+        if [ -z "$node_choice" ]; then
+          selected_nodes="all"
+          break
+        fi
+        IFS=',' read -r -a node_array <<< "$node_choice"
+        valid=true
+        selected_nodes=""
+        for node_num in "${node_array[@]}"; do
+          node_num=$(echo "$node_num" | xargs) # Удаляем пробелы
+          if [ "$node_num" == "1" ]; then
+            selected_nodes="all"
+            break
+          elif [ -n "${node_map[$node_num]}" ]; then
+            selected_nodes="${selected_nodes},${node_map[$node_num]}"
+          else
+            valid=false
+            warning " Неверный номер ноды: $node_num"
+          fi
+        done
+        if [ "$valid" = true ]; then
+          selected_nodes="${selected_nodes#,}" # Удаляем начальную запятую
+          break
+        fi
+        sleep 2
+        ;;
+    esac
+  done
+
+  # Формируем список inbound_tag
+  local tags_to_toggle
+  if [ "$selected_inbound_tags" == "all" ]; then
+    tags_to_toggle=("${inbound_tags[@]}")
+  else
+    IFS=',' read -r -a tags_to_toggle <<< "$selected_inbound_tags"
+  fi
+
+  # Формируем список нод
+  local nodes_to_toggle
+  if [ "$selected_nodes" == "all" ]; then
+    nodes_to_toggle=()
+  else
+    IFS=',' read -r -a nodes_to_toggle <<< "$selected_nodes"
+  fi
+
+  # Основной цикл для обработки пользователей
+  while true; do
+    clear
+    display_xcore_banner
+    tilda "|--------------------------------------------------------------------------|"
+    info " Inbound_tag > ${selected_inbound_tags:-все} | Ноды > ${selected_nodes:-все}"
+    echo
+    # Показываем пользователей, отфильтрованных по нодам и inbound_tag
+    if [ "$selected_inbound_tags" == "all" ]; then
+      display_user_list "$selected_nodes" ""
+    else
+      display_user_list "$selected_nodes" "${tags_to_toggle[0]}"
+    fi
+    if [ $? -ne 0 ]; then
+      info " $(text 85) " # Нет пользователей для отображения
+      read -r
+      return 1
+    fi
+    tilda "|--------------------------------------------------------------------------|"
+    reading " Введите номера пользователей через запятую (или Enter для всех, 0 для выхода): " user_choice
+    if [ "$user_choice" == "0" ]; then
+      return 0
+    fi
+    if [ -z "$user_choice" ]; then
+      selected_users="all"
+    else
+      IFS=',' read -r -a user_array <<< "$user_choice"
+      valid=true
+      selected_users=""
+      for user_num in "${user_array[@]}"; do
+        user_num=$(echo "$user_num" | xargs) # Удаляем пробелы
+        if [ "$user_num" == "1" ]; then
+          selected_users="all"
+          break
+        elif [ -n "${user_map[$user_num]}" ]; then
+          selected_users="${selected_users},${user_map[$user_num]}"
+        else
+          valid=false
+          warning " Неверный номер пользователя: $user_num"
+        fi
+      done
+      if [ ! "$valid" = true ]; then
+        sleep 5
+        continue
+      fi
+      selected_users="${selected_users#,}" # Удаляем начальную запятую
+    fi
+
+    # Формируем список пользователей
+    local users_to_toggle
+    if [ "$selected_users" == "all" ]; then
+      users_to_toggle=("${users[@]}")
+    else
+      IFS=',' read -r -a users_to_toggle <<< "$selected_users"
+    fi
+
+    # Формируем JSON-массив users
+    users_json=$(printf '"%s"' "${users_to_toggle[0]}")
+    for user in "${users_to_toggle[@]:1}"; do
+      users_json="$users_json,\"$user\""
+    done
+
+    # Определяем, какой статус установить (true/false) на основе текущего состояния
+    for tag in "${tags_to_toggle[@]}"; do
+      # Проверяем статус первого пользователя в списке (предполагаем, что все пользователи имеют одинаковый статус для простоты)
+      local first_user_num=2
+      if [ "$selected_users" != "all" ]; then
+        first_user_num="${user_array[0]}"
+      fi
+      local enabled_status="${user_status_map[$first_user_num]}"
+      local target_status="true"
+      if [ "$enabled_status" == "true" ]; then
+        target_status="false"
+      fi
+
+      # Отправка запросов для переключения статуса пользователей
+      if [ ${#nodes_to_toggle[@]} -eq 0 ]; then
+        json_body=$(printf '{"users":[%s],"inbound_tag":"%s","enabled":%s}' "$users_json" "$tag" "$target_status")
+        info " PATCH $API_URL with body: $json_body"
+        response=$(curl -s -w "%{http_code}" -X PATCH "$API_URL" -H "Content-Type: application/json" -d "$json_body")
+        http_code=${response: -3}
+        response=${response%???}
+      else
+        nodes_json=$(printf '"%s"' "${nodes_to_toggle[0]}")
+        for node in "${nodes_to_toggle[@]:1}"; do
+          nodes_json="$nodes_json,\"$node\""
+        done
+        json_body=$(printf '{"users":[%s],"inbound_tag":"%s","nodes":[%s],"enabled":%s}' "$users_json" "$tag" "$nodes_json" "$target_status")
+        info " PATCH $API_URL with body: $json_body"
+        response=$(curl -s -w "%{http_code}" -X PATCH "$API_URL" -H "Content-Type: application/json" -d "$json_body")
+        http_code=${response: -3}
+        response=${response%???}
+      fi
+
+      if [ "$http_code" -eq 200 ]; then
+        # Проверяем, является ли ответ валидным JSON
+        if echo "$response" | jq -e . >/dev/null 2>&1; then
+          message=$(echo "$response" | jq -r '.message // ""')
+          if [ -n "$message" ]; then
+            if [[ "$message" == *"status updated and synced successfully"* ]]; then
+              info " Успех: $message"
+              info " Пользователи: $(echo "$response" | jq -r '.usernames | join(", ")')"
+              info " Результаты: $(echo "$response" | jq -r '.results | tostring')"
+            else
+              warning " Ошибка API: $message"
+              warning " Ошибки: $(echo "$response" | jq -r '.errors | tostring')"
+            fi
+          else
+            warning " Неожиданный ответ API (без message): $response"
+          fi
+        else
+          warning " Ответ API не является валидным JSON: $response"
+        fi
+      else
+        warning " Ошибка HTTP $http_code при переключении статуса пользователей на inbound_tag '$tag': $response"
+      fi
+      echo
+    done
+    tilda "|--------------------------------------------------------------------------|"
+    info " Статус выбранных пользователей успешно переключён. Выберите других пользователей или введите 0 для выхода."
+    sleep 2
+  done
+
+  return 0
+}
 
 
 ###################################

@@ -98,9 +98,9 @@ func SetUserEnabledHandler(manager *manager.DatabaseManager, cfg *config.Config)
 		var validUsers []string
 		for _, user := range req.Users {
 			if user != "" {
-				if len(user) > 40 {
+				if len(user) > 255 {
 					cfg.Logger.Warn("Username too long", "username", user, "length", len(user))
-					http.Error(w, fmt.Sprintf(`{"error": "username %s too long (max 40 characters)"}`, user), http.StatusBadRequest)
+					http.Error(w, fmt.Sprintf(`{"error": "username %s too long (max 255 characters)"}`, user), http.StatusBadRequest)
 					return
 				}
 				validUsers = append(validUsers, user)
