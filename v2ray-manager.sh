@@ -3,7 +3,7 @@
 ###################################
 ### GLOBAL CONSTANTS AND VARIABLES
 ###################################
-DIR_XCORE="/opt/v2ray-stat"
+DIR_V2RAY_STAT="/opt/v2ray-stat"
 DIR_XRAY="/usr/local/etc/xray"
 DIR_HAPROXY="/etc/haproxy"
 
@@ -69,8 +69,8 @@ RU[10]="\n|---------------------------------------------------------------------
 EU[33]="Error: invalid choice, please try again."
 RU[33]="Ошибка: неверный выбор, попробуйте снова."
 
-EU[71]="Current operating system is \$SYS.\\\n The system lower than \$SYSTEM \${MAJOR[int]} is not supported. Feedback: [https://github.com/cortez24rus/xcore/issues]"
-RU[71]="Текущая операционная система: \$SYS.\\\n Система с версией ниже, чем \$SYSTEM \${MAJOR[int]}, не поддерживается. Обратная связь: [https://github.com/cortez24rus/xcore/issues]"
+EU[71]="Current operating system is \$SYS.\\\n The system lower than \$SYSTEM \${MAJOR[int]} is not supported. Feedback: [https://github.com/cortez24rus/v2ray-stat/issues]"
+RU[71]="Текущая операционная система: \$SYS.\\\n Система с версией ниже, чем \$SYSTEM \${MAJOR[int]}, не поддерживается. Обратная связь: [https://github.com/cortez24rus/v2ray-stat/issues]"
 EU[72]="Install dependence-list:"
 RU[72]="Список зависимостей для установки:"
 EU[73]="All dependencies already exist and do not need to be installed additionally."
@@ -130,7 +130,7 @@ RU[131]="Введите 0 для выхода (обновление каждые
 ###################################
 display_help_message() {
   echo
-  echo "Usage: xcore [-g|--generate <true|false>] [--update <node|backend|manager>] [-h|--help]"
+  echo "Usage: v2ray-stat [-g|--generate <true|false>] [--update <node|backend|manager>] [-h|--help]"
   echo
   echo "  -g, --generate <true|false>          Generate a random string for configuration       (default: ${defaults[generate]})"
   echo "                                       Генерация случайных путей для конфигурации"
@@ -149,7 +149,7 @@ update_v2ray_stat_node() {
   local REPO="Adam-Sizzler/v2ray-stat"
   local FILE="v2ray-stat-node-linux-amd64"
   local DEST_DIR="/usr/local/etc/v2ray-stat"
-  local LOG_FILE="${DIR_XCORE}/cron_jobs.log"
+  local LOG_FILE="${DIR_V2RAY_STAT}/cron_jobs.log"
   local SERVICE_FILE="/etc/systemd/system/v2ray-stat-node.service"
 
   # Проверка наличия jq
@@ -161,10 +161,10 @@ update_v2ray_stat_node() {
 
   # Создание директорий, если они не существуют
   echo "$(date): Creating directories if they don't exist" >> "$LOG_FILE"
-  mkdir -p "$DEST_DIR" "${DIR_XCORE}" || {
-    echo "$(date): Error: Failed to create directories $DEST_DIR or ${DIR_XCORE}" >> "$LOG_FILE"
+  mkdir -p "$DEST_DIR" "${DIR_V2RAY_STAT}" || {
+    echo "$(date): Error: Failed to create directories $DEST_DIR or ${DIR_V2RAY_STAT}" >> "$LOG_FILE"
     echo >> "$LOG_FILE"
-    error "Failed to create directories $DEST_DIR or ${DIR_XCORE}"
+    error "Failed to create directories $DEST_DIR or ${DIR_V2RAY_STAT}"
   }
 
   # Получение URL последнего релиза (включая пререлизы)
@@ -234,7 +234,7 @@ update_v2ray_stat_backend() {
   local REPO="Adam-Sizzler/v2ray-stat"
   local FILE="v2ray-stat-backend-linux-amd64"
   local DEST_DIR="/usr/local/etc/v2ray-stat"
-  local LOG_FILE="${DIR_XCORE}/cron_jobs.log"
+  local LOG_FILE="${DIR_V2RAY_STAT}/cron_jobs.log"
   local SERVICE_FILE="/etc/systemd/system/v2ray-stat.service"
 
   # Проверка наличия jq
@@ -246,10 +246,10 @@ update_v2ray_stat_backend() {
 
   # Создание директорий, если они не существуют
   echo "$(date): Creating directories if they don't exist" >> "$LOG_FILE"
-  mkdir -p "$DEST_DIR" "${DIR_XCORE}" || {
-    echo "$(date): Error: Failed to create directories $DEST_DIR or ${DIR_XCORE}" >> "$LOG_FILE"
+  mkdir -p "$DEST_DIR" "${DIR_V2RAY_STAT}" || {
+    echo "$(date): Error: Failed to create directories $DEST_DIR or ${DIR_V2RAY_STAT}" >> "$LOG_FILE"
     echo >> "$LOG_FILE"
-    error "Failed to create directories $DEST_DIR or ${DIR_XCORE}"
+    error "Failed to create directories $DEST_DIR or ${DIR_V2RAY_STAT}"
   }
 
   # Получение URL последнего релиза (включая пререлизы)
@@ -316,11 +316,11 @@ EOF
 ###################################
 ### UPDATE XCORE MANAGER
 ###################################
-update_xcore_manager() {
+update_v2ray-stat_manager() {
   local REPO="Adam-Sizzler/v2ray-stat"
   local FILE="v2ray-manager.sh"
-  local DEST_DIR="${DIR_XCORE}"
-  local LOG_FILE="${DIR_XCORE}/cron_jobs.log"
+  local DEST_DIR="${DIR_V2RAY_STAT}"
+  local LOG_FILE="${DIR_V2RAY_STAT}/cron_jobs.log"
 
   # Проверка наличия jq
   if ! command -v jq >/dev/null 2>&1; then
@@ -374,13 +374,13 @@ update_xcore_manager() {
 ### LOAD DEFAULTS FROM CONFIG FILE
 ###################################
 load_defaults_from_config() {
-  if [[ -f "${DIR_XCORE}/default.conf" ]]; then
+  if [[ -f "${DIR_V2RAY_STAT}/default.conf" ]]; then
     # Чтение и выполнение строк из файла
     while IFS= read -r line; do
       # Пропускаем пустые строки и комментарии
       [[ -z "$line" || "$line" =~ ^# ]] && continue
       eval "$line"
-    done < "${DIR_XCORE}/default.conf"
+    done < "${DIR_V2RAY_STAT}/default.conf"
   else
     # Если файл не найден, используем значения по умолчанию
     defaults[generate]=true
@@ -391,7 +391,7 @@ load_defaults_from_config() {
 ### SAVE DEFAULTS TO CONFIG FILE
 ###################################
 save_defaults_to_config() {
-  cat > "${DIR_XCORE}/default.conf"<<EOF
+  cat > "${DIR_V2RAY_STAT}/default.conf"<<EOF
 defaults[generate]=true
 EOF
 }
@@ -490,7 +490,7 @@ parse_command_line_args() {
         exit
         ;;
       manager)
-        update_xcore_manager
+        update_v2ray-stat_manager
         exit
         ;;
       *)
@@ -504,7 +504,7 @@ parse_command_line_args() {
 ### LANGUAGE SELECTION
 ###################################
 configure_language() {
-  CONF_FILE="${DIR_XCORE}/v2ray.conf"
+  CONF_FILE="${DIR_V2RAY_STAT}/v2ray.conf"
 
   hint " $(text 0) \n" 
   reading " $(text 1) " LANGUAGE_CHOISE
@@ -616,7 +616,7 @@ detect_external_ip() {
 ###################################
 ### BANNER DISPLAY
 ###################################
-display_xcore_banner() {
+display_v2ray-stat_banner() {
   echo
   echo " ░█░█░▀▀▄░█▀▄░█▀█░█░█░░░░░█▀▀░▀█▀░█▀█░▀█▀ "
   echo " ░▀▄▀░▄▀░░█▀▄░█▀█░░█░░▄▄▄░▀▀█░░█░░█▀█░░█░ "
@@ -671,9 +671,9 @@ add_user_to_xray() {
 configure_xray_client() {
   # Устанавливаем TEMPLATE_FILE в зависимости от значения CHAIN
   if [ "$CHAIN" = "false" ]; then
-    TEMPLATE_FILE="${DIR_XCORE}/repo/conf_template/client-vless-raw.json"
+    TEMPLATE_FILE="${DIR_V2RAY_STAT}/repo/conf_template/client-vless-raw.json"
   else
-    TEMPLATE_FILE="${DIR_XCORE}/repo/conf_template/client-vless-raw-chain.json"
+    TEMPLATE_FILE="${DIR_V2RAY_STAT}/repo/conf_template/client-vless-raw-chain.json"
   fi
 
   cp -r "$TEMPLATE_FILE" "/var/www/${SUB_JSON_PATH}/vless_raw/${USERNAME}.json"
@@ -881,7 +881,7 @@ fetch_dns_stats() {
   # Выбор нод
   while true; do
     clear
-    display_xcore_banner
+    display_v2ray-stat_banner
     tilda "|--------------------------------------------------------------------------|"
     display_node_list
     if [ $? -ne 0 ]; then
@@ -927,7 +927,7 @@ fetch_dns_stats() {
   # Выбор пользователей
   while true; do
     clear
-    display_xcore_banner
+    display_v2ray-stat_banner
     tilda "|--------------------------------------------------------------------------|"
     display_user_list "$selected_nodes"
     if [ $? -ne 0 ]; then
@@ -973,7 +973,7 @@ fetch_dns_stats() {
   # Выбор количества строк (count)
   while true; do
     clear
-    display_xcore_banner
+    display_v2ray-stat_banner
     tilda "|--------------------------------------------------------------------------|"
     info " Строки вывода на экран"
     echo
@@ -1051,7 +1051,7 @@ fetch_traffic_stats() {
   # Выбор сортировки
   while true; do
     clear
-    display_xcore_banner
+    display_v2ray-stat_banner
     tilda "|--------------------------------------------------------------------------|"
     info " Доступные колонки для сортировки:"
     echo
@@ -1091,7 +1091,7 @@ fetch_traffic_stats() {
   if [ -n "$sort_by" ]; then
     while true; do
       clear
-      display_xcore_banner
+      display_v2ray-stat_banner
       tilda "|--------------------------------------------------------------------------|"
       info " Выберите порядок сортировки:"
       echo
@@ -1117,7 +1117,7 @@ fetch_traffic_stats() {
   # Выбор агрегации
   while true; do
     clear
-    display_xcore_banner
+    display_v2ray-stat_banner
     tilda "|--------------------------------------------------------------------------|"
     info " Агрегировать статистику?"
     echo
@@ -1142,7 +1142,7 @@ fetch_traffic_stats() {
   # Выбор нод
   while true; do
     clear
-    display_xcore_banner
+    display_v2ray-stat_banner
     tilda "|--------------------------------------------------------------------------|"
     display_node_list
     if [ $? -ne 0 ]; then
@@ -1188,7 +1188,7 @@ fetch_traffic_stats() {
   # Выбор пользователей
   while true; do
     clear
-    display_xcore_banner
+    display_v2ray-stat_banner
     tilda "|--------------------------------------------------------------------------|"
     display_user_list "$selected_nodes"
     if [ $? -ne 0 ]; then
@@ -1261,7 +1261,7 @@ fetch_traffic_stats() {
 reset_stats_menu() {
   while true; do
     clear
-    display_xcore_banner
+    display_v2ray-stat_banner
     tilda "|--------------------------------------------------------------------------|"
     info " $(text 107) "    # 1. Clear DNS query statistics
     info " $(text 108) "    # 2. Reset bound traffic statistics
@@ -1283,7 +1283,7 @@ reset_stats_menu() {
         # Выбор нод
         while true; do
           clear
-          display_xcore_banner
+          display_v2ray-stat_banner
           tilda "|--------------------------------------------------------------------------|"
           display_node_list
           if [ $? -ne 0 ]; then
@@ -1467,7 +1467,7 @@ add_user() {
   # Выбор inbound_tag
   while true; do
     clear
-    display_xcore_banner
+    display_v2ray-stat_banner
     tilda "|--------------------------------------------------------------------------|"
     display_inbound_tag_list
     if [ $? -ne 0 ]; then
@@ -1513,7 +1513,7 @@ add_user() {
   # Выбор нод
   while true; do
     clear
-    display_xcore_banner
+    display_v2ray-stat_banner
     tilda "|--------------------------------------------------------------------------|"
     display_node_list
     if [ $? -ne 0 ]; then
@@ -1575,7 +1575,7 @@ add_user() {
   # Основной цикл для обработки имен пользователей
   while true; do
     clear
-    display_xcore_banner
+    display_v2ray-stat_banner
     tilda "|--------------------------------------------------------------------------|"
     info " Inbound_tag > ${selected_inbound_tags:-все} | Ноды > ${selected_nodes:-все}"
     echo
@@ -1678,7 +1678,7 @@ delete_user() {
   # Выбор inbound_tag
   while true; do
     clear
-    display_xcore_banner
+    display_v2ray-stat_banner
     tilda "|--------------------------------------------------------------------------|"
     display_inbound_tag_list
     if [ $? -ne 0 ]; then
@@ -1724,7 +1724,7 @@ delete_user() {
   # Выбор нод
   while true; do
     clear
-    display_xcore_banner
+    display_v2ray-stat_banner
     tilda "|--------------------------------------------------------------------------|"
     display_node_list
     if [ $? -ne 0 ]; then
@@ -1786,7 +1786,7 @@ delete_user() {
   # Основной цикл для обработки пользователей
   while true; do
     clear
-    display_xcore_banner
+    display_v2ray-stat_banner
     tilda "|--------------------------------------------------------------------------|"
     info " Inbound_tag > ${selected_inbound_tags:-все} | Ноды > ${selected_nodes:-все}"
     echo
@@ -1911,7 +1911,7 @@ toggle_user_status() {
   # Выбор inbound_tag
   while true; do
     clear
-    display_xcore_banner
+    display_v2ray-stat_banner
     tilda "|--------------------------------------------------------------------------|"
     display_inbound_tag_list
     if [ $? -ne 0 ]; then
@@ -1957,7 +1957,7 @@ toggle_user_status() {
   # Выбор нод
   while true; do
     clear
-    display_xcore_banner
+    display_v2ray-stat_banner
     tilda "|--------------------------------------------------------------------------|"
     display_node_list
     if [ $? -ne 0 ]; then
@@ -2019,7 +2019,7 @@ toggle_user_status() {
   # Основной цикл для обработки пользователей
   while true; do
     clear
-    display_xcore_banner
+    display_v2ray-stat_banner
     tilda "|--------------------------------------------------------------------------|"
     info " Inbound_tag > ${selected_inbound_tags:-все} | Ноды > ${selected_nodes:-все}"
     echo
@@ -2150,7 +2150,7 @@ manage_xray_core() {
   while true; do
     clear
     extract_data
-    display_xcore_banner
+    display_v2ray-stat_banner
     tilda "|--------------------------------------------------------------------------|"
     info " $(text 120) "    # 1. Show server statistics
     info " $(text 121) "    # 2. View client DNS queries
@@ -2191,9 +2191,9 @@ manage_xray_core() {
 ### FUNCTION INITIALIZE CONFIG
 ###################################
 init_file() {
-  if [ ! -f "${DIR_XCORE}/v2ray.conf" ]; then
-    mkdir -p ${DIR_XCORE}
-    cat > "${DIR_XCORE}/v2ray.conf" << EOF
+  if [ ! -f "${DIR_V2RAY_STAT}/v2ray.conf" ]; then
+    mkdir -p ${DIR_V2RAY_STAT}
+    cat > "${DIR_V2RAY_STAT}/v2ray.conf" << EOF
 LANGUAGE=EU
 CHAIN=false
 EOF
@@ -2217,7 +2217,7 @@ check_api_server() {
 ###################################
 main() {
   init_file
-  source "${DIR_XCORE}/v2ray.conf"
+  source "${DIR_V2RAY_STAT}/v2ray.conf"
   load_defaults_from_config
   parse_command_line_args "$@" || display_help_message
   check_api_server

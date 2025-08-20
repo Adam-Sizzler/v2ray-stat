@@ -210,7 +210,7 @@ func buildCustomClientStats(builder *strings.Builder, manager *manager.DatabaseM
 		"ips":           "Ips",
 		"created":       "Created",
 		"enabled":       "Enabled",
-		"inbound_tag":   "Inbound Tag",
+		"inbound_tag":   "Tag",
 		"id":            "ID",
 	}
 	clientAliases := []string{
