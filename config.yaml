@@ -2,7 +2,7 @@
 # This file specifies paths and settings for the v2ray-stat monitoring application.
 
 log:
-  loglevel: debug                                 # Logging level: none, error, warn, info, debug. NONE disables logging; each level includes messages from lower levels.
+  loglevel: info                                 # Logging level: none, error, warn, info, debug. NONE disables logging; each level includes messages from lower levels.
   logmode: inclusive                             # Log mode: inclusive = this and lower levels; exclusive = only this level  
         
 # v2ray-stat Settings        
@@ -11,38 +11,38 @@ v2ray-stat:
   port: 9952                                     # TCP port for v2ray-stat API server. Must be between 1 and 65535.
   monitor:        
     ticker_interval: 10                          # Interval (in seconds) for polling monitored services and users. Recommended: 5–60.
-    online_rate_threshold: 15                     # Minimum rate threshold in kilobits per second (kbps) to consider a user online. 0 means any non-zero rate is considered online.
+    online_rate_threshold: 0                     # Minimum rate threshold in kilobits per second (kbps) to consider a user online. 0 means any non-zero rate is considered online.
   nodes:                                         # List of monitored nodes and their API connection parameters.
     - node_name: swe                             # Display name of the node.
       url: "127.0.0.1:10000"                     # Node API endpoint address in host:port format.
-#    - node_name: nl
-#      url: "194.164.34.44:10000"
-#      mtls:                                      # mTLS (mutual TLS) configuration for secure connection to the node.
-#        cert: /usr/local/etc/v2ray-stat/certs/node.crt    # Path to the client's TLS certificate.
-#        key: /usr/local/etc/v2ray-stat/certs/node.key     # Path to the client's private key.
-#        ca_cert: /usr/local/etc/v2ray-stat/certs/node.crt # Path to the CA certificate for server verification.
-#    - node_name: rus
-#      url: "46.8.158.174:10000"
-#      mtls:
-#        cert: /usr/local/etc/v2ray-stat/certs/node.crt
-#        key: /usr/local/etc/v2ray-stat/certs/node.key
-#        ca_cert: /usr/local/etc/v2ray-stat/certs/node.crt
+    - node_name: nl
+      url: "example.com:443"
+      mtls:                                      # mTLS (mutual TLS) configuration for secure connection to the node.
+        cert: /usr/local/etc/v2ray-stat/certs/node.crt    # Path to the client's TLS certificate.
+        key: /usr/local/etc/v2ray-stat/certs/node.key     # Path to the client's private key.
+        ca_cert: /usr/local/etc/v2ray-stat/certs/node.crt # Path to the CA certificate for server verification.
+    - node_name: uk
+      url: "1.2.3.4:10000"
+      mtls:
+        cert: /usr/local/etc/v2ray-stat/certs/node.crt
+        key: /usr/local/etc/v2ray-stat/certs/node.key
+        ca_cert: /usr/local/etc/v2ray-stat/certs/node.crt
 
 # API Settings
 api:
   api_token: ""                                 # Token required to access the API endpoints. If empty, access is allowed without authorization. Format: Bearer <token>.
  
 # Timezone Settings 
-timezone: Asia/Tomsk                      # IANA timezone name (e.g., Europe/Amsterdam, Asia/Singapore). If empty, uses TZ environment variable or UTC.
+timezone: Europe/Amsterdam                      # IANA timezone name (e.g., Europe/Amsterdam, Asia/Singapore). If empty, uses TZ environment variable or UTC.
  
 # Paths & Logging 
 paths: 
-  database: /root/data.db   # Path to the SQLite database for tracking user sessions and usage.
+  database: /usr/local/etc/v2ray-stat/data.db   # Path to the SQLite database for tracking user sessions and usage.
  
 # Statistics Columns Configuration 
 stats_columns: 
   server: 
-    sort: rate DESC                             # Sorting rule for server statistics. Format: "<column> <ASC|DESC>". Default: "source ASC". Valid columns: source, rate, uplink, downlink, sess_uplink, sess_downlink.
+    sort: rate desc                             # Sorting rule for server statistics. Format: "<column> <asc|desc>". Default: "source asc". Valid columns: source, rate, uplink, downlink, sess_uplink, sess_downlink.
     columns:                                    # List of columns to display in server statistics. If empty, no server statistics are shown.
       - node_name                               # Node name where the traffic is measured.
       - source                                  # Source of traffic (e.g., IP or hostname).
@@ -52,7 +52,7 @@ stats_columns:
       # - sess_uplink                           # Session-based uploaded traffic in bytes (reset after reconnect).
       # - sess_downlink                         # Session-based downloaded traffic in bytes (reset after reconnect).
   client: 
-    sort: rate DESC                             # Sorting rule for client statistics. Same format and rules as for server stats.
+    sort: rate desc                             # Sorting rule for client statistics. Same format and rules as for server stats.
     columns:                                    # List of columns to display in client statistics. If empty, no client statistics are shown.
       - node_name                               # Node name where the client is connected.
       - user                                    # Client username or identifier.
@@ -63,10 +63,10 @@ stats_columns:
       # - sess_uplink                           # Session-based uploaded traffic in bytes (reset after reconnect).
       # - sess_downlink                         # Session-based downloaded traffic in bytes (reset after reconnect).
       # - created                               # Timestamp when the client was created.
-      - enabled                               # Whether the client is enabled (true/false).
+      # - enabled                               # Whether the client is enabled (true/false).
       # - sub_end                               # Subscription end date for the client.
       # - renew                                 # Renewal status or date for the client.
-      - id                                    # Unique client identifier (ID).
-      - inbound_tag                           # Inbound tag associated with the client.
+      # - uuid                                  # Unique client identifier (UUID).
+      # - inbound_tag                           # Inbound tag associated with the client.
       # - lim_ip                                # IP limit for the client (number of allowed IPs).
-      - ips                                   # List of IPs currently used by the client.
+      # - ips                                   # List of IPs currently used by the client.
