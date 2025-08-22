@@ -10,245 +10,237 @@ import (
 	"v2ray-stat/backend/config"
 	"v2ray-stat/backend/db"
 	"v2ray-stat/backend/db/manager"
-	"v2ray-stat/node/proto"
+	"v2ray-stat/proto"
 )
 
-// SyncUsersWithNode synchronizes users from nodes with the database in parallel.
+// SyncUsersWithNode synchronizes users from multiple nodes with the database.
 func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, nodeClients []*db.NodeClient, cfg *config.Config) error {
-	var (
-		wg   sync.WaitGroup
-		mu   sync.Mutex
-		errs []error
-	)
+	cfg.Logger.Debug("Starting user synchronization", "node_count", len(nodeClients))
 
+	var wg sync.WaitGroup
+	resultsCh := make(chan struct {
+		nodeName string
+		users    *proto.ListUsersResponse
+		err      error
+	}, len(nodeClients))
+
+	// Fetch users from each node
 	for _, nc := range nodeClients {
 		wg.Add(1)
-
 		go func(nc *db.NodeClient) {
 			defer wg.Done()
 
-			// Check node existence
-			err := manager.ExecuteHighPriority(func(db *sql.DB) error {
-				var count int
-				err := db.QueryRow("SELECT COUNT(*) FROM nodes WHERE node_name = ?", nc.NodeName).Scan(&count)
-				if err != nil {
-					return fmt.Errorf("check node existence: %w", err)
-				}
-				if count == 0 {
-					return fmt.Errorf("node %s not found in nodes table", nc.NodeName)
-				}
-				return nil
-			})
-			if err != nil {
-				cfg.Logger.Warn("Node check failed", "node_name", nc.NodeName, "error", err)
-				mu.Lock()
-				errs = append(errs, err)
-				mu.Unlock()
+			// Защита от nil client
+			if nc == nil || nc.Client == nil {
+				cfg.Logger.Error("Node client is nil", "node_name", nc.NodeName)
+				resultsCh <- struct {
+					nodeName string
+					users    *proto.ListUsersResponse
+					err      error
+				}{nc.NodeName, nil, fmt.Errorf("nil gRPC client for node %s", nc.NodeName)}
 				return
 			}
 
-			// Fetch users from node
-			grpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			grpcCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 			defer cancel()
 
-			resp, err := nc.Client.ListUsers(grpcCtx, &proto.ListUsersRequest{})
+			cfg.Logger.Debug("Requesting user list from node", "node_name", nc.NodeName)
+			users, err := nc.Client.ListUsers(grpcCtx, &proto.ListUsersRequest{})
 			if err != nil {
-				cfg.Logger.Error("Failed to get users from node", "node_name", nc.NodeName, "error", err)
-				mu.Lock()
-				errs = append(errs, fmt.Errorf("node %s: %w", nc.NodeName, err))
-				mu.Unlock()
+				cfg.Logger.Error("Failed to list users from node", "node_name", nc.NodeName, "error", err)
+				resultsCh <- struct {
+					nodeName string
+					users    *proto.ListUsersResponse
+					err      error
+				}{nc.NodeName, nil, err}
 				return
 			}
+			cfg.Logger.Debug("Received user list from node", "node_name", nc.NodeName, "user_count", len(users.Users))
+			resultsCh <- struct {
+				nodeName string
+				users    *proto.ListUsersResponse
+				err      error
+			}{nc.NodeName, users, nil}
+		}(nc)
+	}
 
-			nodeUsers := make(map[string]bool, len(resp.Users))
-			for _, user := range resp.Users {
-				nodeUsers[user.Username] = true
-			}
-			cfg.Logger.Debug("Fetched users from node", "node_name", nc.NodeName, "user_count", len(nodeUsers))
+	wg.Wait()
+	close(resultsCh)
 
-			// Fetch users from database
-			var dbUsers []string
-			err = manager.ExecuteHighPriority(func(db *sql.DB) error {
-				rows, err := db.Query("SELECT user FROM user_traffic WHERE node_name = ?", nc.NodeName)
-				if err != nil {
-					return fmt.Errorf("query users from user_traffic: %w", err)
-				}
-				defer rows.Close()
-				for rows.Next() {
-					var user string
-					if err := rows.Scan(&user); err != nil {
-						return fmt.Errorf("scan user: %w", err)
-					}
-					dbUsers = append(dbUsers, user)
-				}
-				return rows.Err()
-			})
+	// Process results
+	for res := range resultsCh {
+		if res.err != nil {
+			cfg.Logger.Error("Skipping node due to error", "node_name", res.nodeName, "error", res.err)
+			continue
+		}
+		if res.users == nil {
+			cfg.Logger.Error("No user data received from node", "node_name", res.nodeName)
+			continue
+		}
+
+		nodeUsers := make(map[string]bool, len(res.users.Users))
+		for _, user := range res.users.Users {
+			nodeUsers[user.Username] = true
+		}
+		cfg.Logger.Debug("Fetched users from node", "node_name", res.nodeName, "user_count", len(nodeUsers))
+
+		// Fetch users from database
+		var dbUsers []string
+		err := manager.ExecuteHighPriority(func(db *sql.DB) error {
+			rows, err := db.Query("SELECT user FROM user_traffic WHERE node_name = ?", res.nodeName)
 			if err != nil {
-				cfg.Logger.Error("Failed to get users from database", "node_name", nc.NodeName, "error", err)
-				mu.Lock()
-				errs = append(errs, fmt.Errorf("node %s: %w", nc.NodeName, err))
-				mu.Unlock()
-				return
+				return fmt.Errorf("query users from user_traffic: %w", err)
 			}
-
-			// Synchronize users
-			addedUsers, addedIDs, updatedUsers, deletedUsers := 0, 0, 0, 0
-			err = manager.ExecuteHighPriority(func(db *sql.DB) error {
-				tx, err := db.BeginTx(ctx, nil)
-				if err != nil {
-					return fmt.Errorf("start transaction for node %s: %w", nc.NodeName, err)
+			defer rows.Close()
+			for rows.Next() {
+				var user string
+				if err := rows.Scan(&user); err != nil {
+					return fmt.Errorf("scan user: %w", err)
 				}
-				defer tx.Rollback()
+				dbUsers = append(dbUsers, user)
+			}
+			return rows.Err()
+		})
+		if err != nil {
+			cfg.Logger.Error("Failed to get users from database", "node_name", res.nodeName, "error", err)
+			continue
+		}
+		cfg.Logger.Debug("Fetched users from database", "node_name", res.nodeName, "db_user_count", len(dbUsers))
 
-				stmtUpsertUser, err := tx.Prepare(`
-					INSERT INTO user_traffic (node_name, user, rate, created, enabled)
-					VALUES (?, ?, 0, ?, ?)
-					ON CONFLICT(node_name, user) DO UPDATE SET
-						enabled = excluded.enabled,
-						created = excluded.created`)
-				if err != nil {
-					return fmt.Errorf("prepare upsert user statement: %w", err)
+		// Synchronize users
+		addedUsers, addedIDs, updatedUsers, deletedUsers := 0, 0, 0, 0
+		err = manager.ExecuteHighPriority(func(db *sql.DB) error {
+			tx, err := db.BeginTx(ctx, nil)
+			if err != nil {
+				return fmt.Errorf("start transaction for node %s: %w", res.nodeName, err)
+			}
+			defer tx.Rollback()
+
+			stmtUpsertUser, err := tx.Prepare(`
+                INSERT INTO user_traffic (node_name, user, rate, created, enabled)
+                VALUES (?, ?, 0, ?, ?)
+                ON CONFLICT(node_name, user) DO UPDATE SET
+                    enabled = excluded.enabled,
+                    created = excluded.created`)
+			if err != nil {
+				return fmt.Errorf("prepare upsert user statement: %w", err)
+			}
+			defer stmtUpsertUser.Close()
+
+			stmtInsertID, err := tx.Prepare(`
+                INSERT OR IGNORE INTO user_ids (node_name, user, id, inbound_tag)
+                VALUES (?, ?, ?, ?)`)
+			if err != nil {
+				return fmt.Errorf("prepare insert id statement: %w", err)
+			}
+			defer stmtInsertID.Close()
+
+			stmtDeleteUser, err := tx.Prepare("DELETE FROM user_traffic WHERE node_name = ? AND user = ?")
+			if err != nil {
+				return fmt.Errorf("prepare delete user statement: %w", err)
+			}
+			defer stmtDeleteUser.Close()
+
+			stmtDeleteID, err := tx.Prepare("DELETE FROM user_ids WHERE node_name = ? AND user = ?")
+			if err != nil {
+				return fmt.Errorf("prepare delete id statement: %w", err)
+			}
+			defer stmtDeleteID.Close()
+
+			currentTime := time.Now().Format("2006-01-02-15")
+			for _, user := range res.users.Users {
+				enabledStr := "false"
+				if user.Enabled {
+					enabledStr = "true"
 				}
-				defer stmtUpsertUser.Close()
 
-				stmtInsertID, err := tx.Prepare(`
-					INSERT OR IGNORE INTO user_ids (node_name, user, id, inbound_tag)
-					VALUES (?, ?, ?, ?)`)
+				cfg.Logger.Debug("Upserting user", "node_name", res.nodeName, "user", user.Username, "enabled", enabledStr)
+				result, err := stmtUpsertUser.Exec(res.nodeName, user.Username, currentTime, enabledStr)
 				if err != nil {
-					return fmt.Errorf("prepare insert id statement: %w", err)
+					return fmt.Errorf("upsert user %s: %w", user.Username, err)
 				}
-				defer stmtInsertID.Close()
 
-				currentTime := time.Now().Format("2006-01-02-15")
-				for _, user := range resp.Users {
-					enabledStr := "false"
-					if user.Enabled {
-						enabledStr = "true"
-					}
-
-					_, err := stmtUpsertUser.Exec(nc.NodeName, user.Username, currentTime, enabledStr)
-					if err != nil {
-						return fmt.Errorf("upsert user %s: %w", user.Username, err)
-					}
-
+				rowsAffected, err := result.RowsAffected()
+				if err != nil {
+					return fmt.Errorf("check rows affected for upsert user %s: %w", user.Username, err)
+				}
+				if rowsAffected > 0 {
 					var exists int
-					err = tx.QueryRow(`SELECT COUNT(*) FROM user_traffic WHERE node_name=? AND user=?`, nc.NodeName, user.Username).Scan(&exists)
+					err = tx.QueryRow(`SELECT COUNT(*) FROM user_traffic WHERE node_name=? AND user=?`, res.nodeName, user.Username).Scan(&exists)
 					if err != nil {
 						return fmt.Errorf("check existence for user %s: %w", user.Username, err)
 					}
 					if exists == 1 {
 						var created string
-						err = tx.QueryRow(`SELECT created FROM user_traffic WHERE node_name=? AND user=?`, nc.NodeName, user.Username).Scan(&created)
+						err = tx.QueryRow(`SELECT created FROM user_traffic WHERE node_name=? AND user=?`, res.nodeName, user.Username).Scan(&created)
 						if err != nil {
 							return fmt.Errorf("get created for user %s: %w", user.Username, err)
 						}
 						if created == currentTime {
 							addedUsers++
+							cfg.Logger.Debug("User added", "node_name", res.nodeName, "user", user.Username)
 						} else {
 							updatedUsers++
-						}
-					}
-
-					for _, ui := range user.IdInbounds {
-						result, err := stmtInsertID.Exec(nc.NodeName, user.Username, ui.Id, ui.InboundTag)
-						if err != nil {
-							return fmt.Errorf("insert id %s for user %s: %w", ui.Id, user.Username, err)
-						}
-						rowsAffected, err := result.RowsAffected()
-						if err != nil {
-							return fmt.Errorf("check rows affected for id %s: %w", ui.Id, err)
-						}
-						if rowsAffected > 0 {
-							addedIDs++
+							cfg.Logger.Debug("User updated", "node_name", res.nodeName, "user", user.Username)
 						}
 					}
 				}
 
-				stmtDeleteUser, err := tx.Prepare("DELETE FROM user_traffic WHERE node_name = ? AND user = ?")
-				if err != nil {
-					return fmt.Errorf("prepare delete user statement: %w", err)
-				}
-				defer stmtDeleteUser.Close()
-
-				stmtDeleteID, err := tx.Prepare("DELETE FROM user_ids WHERE node_name = ? AND user = ?")
-				if err != nil {
-					return fmt.Errorf("prepare delete id statement: %w", err)
-				}
-				defer stmtDeleteID.Close()
-
-				for _, user := range dbUsers {
-					if !nodeUsers[user] {
-						result, err := stmtDeleteUser.Exec(nc.NodeName, user)
-						if err != nil {
-							return fmt.Errorf("delete user %s from user_traffic: %w", user, err)
-						}
-						rowsAffected, err := result.RowsAffected()
-						if err != nil {
-							return fmt.Errorf("check rows affected for user deletion %s: %w", user, err)
-						}
-						if rowsAffected > 0 {
-							deletedUsers++
-						}
-
-						_, err = stmtDeleteID.Exec(nc.NodeName, user)
-						if err != nil {
-							return fmt.Errorf("delete user %s from user_ids: %w", user, err)
-						}
+				for _, ui := range user.IdInbounds {
+					cfg.Logger.Debug("Inserting ID for user", "node_name", res.nodeName, "user", user.Username, "id", ui.Id, "inbound_tag", ui.InboundTag)
+					result, err := stmtInsertID.Exec(res.nodeName, user.Username, ui.Id, ui.InboundTag)
+					if err != nil {
+						return fmt.Errorf("insert id %s for user %s: %w", ui.Id, user.Username, err)
+					}
+					rowsAffected, err := result.RowsAffected()
+					if err != nil {
+						return fmt.Errorf("check rows affected for id %s: %w", ui.Id, err)
+					}
+					if rowsAffected > 0 {
+						addedIDs++
+						cfg.Logger.Debug("ID added for user", "node_name", res.nodeName, "user", user.Username, "id", ui.Id)
 					}
 				}
-
-				return tx.Commit()
-			})
-			if err != nil {
-				cfg.Logger.Error("Failed to sync users for node", "node_name", nc.NodeName, "error", err)
-				mu.Lock()
-				errs = append(errs, fmt.Errorf("node %s: %w", nc.NodeName, err))
-				mu.Unlock()
-				return
 			}
 
-			cfg.Logger.Debug("Successfully synced users for node",
-				"node_name", nc.NodeName,
-				"added_users", addedUsers,
-				"updated_users", updatedUsers,
-				"added_ids", addedIDs,
-				"deleted_users", deletedUsers)
+			for _, user := range dbUsers {
+				if !nodeUsers[user] {
+					cfg.Logger.Debug("Deleting user", "node_name", res.nodeName, "user", user)
+					result, err := stmtDeleteUser.Exec(res.nodeName, user)
+					if err != nil {
+						return fmt.Errorf("delete user %s from user_traffic: %w", user, err)
+					}
+					rowsAffected, err := result.RowsAffected()
+					if err != nil {
+						return fmt.Errorf("check rows affected for user deletion %s: %w", user, err)
+					}
+					if rowsAffected > 0 {
+						deletedUsers++
+						cfg.Logger.Debug("User deleted", "node_name", res.nodeName, "user", user)
+					}
 
-		}(nc)
-	}
+					_, err = stmtDeleteID.Exec(res.nodeName, user)
+					if err != nil {
+						return fmt.Errorf("delete user %s from user_ids: %w", user, err)
+					}
+				}
+			}
 
-	wg.Wait()
-
-	if len(errs) > 0 {
-		for i, err := range errs {
-			cfg.Logger.Error("Synchronization error", "index", i, "error", err)
+			cfg.Logger.Debug("Committing transaction for node", "node_name", res.nodeName)
+			return tx.Commit()
+		})
+		if err != nil {
+			cfg.Logger.Error("Failed to sync users for node", "node_name", res.nodeName, "error", err)
+			continue
 		}
-		return fmt.Errorf("synchronization failed with %d errors", len(errs))
+
+		cfg.Logger.Debug("Successfully synced users for node",
+			"node_name", res.nodeName,
+			"added_users", addedUsers,
+			"updated_users", updatedUsers,
+			"added_ids", addedIDs,
+			"deleted_users", deletedUsers)
 	}
+
 	return nil
-}
-
-// MonitorUsers periodically synchronizes users from nodes with the database.
-func MonitorUsers(ctx context.Context, manager *manager.DatabaseManager, nodeClients []*db.NodeClient, cfg *config.Config, wg *sync.WaitGroup) {
-	if err := SyncUsersWithNode(ctx, manager, nodeClients, cfg); err != nil {
-		cfg.Logger.Error("Failed to synchronize users", "error", err)
-	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		ticker := time.NewTicker(60 * time.Minute)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				if err := SyncUsersWithNode(ctx, manager, nodeClients, cfg); err != nil {
-					cfg.Logger.Error("Failed to synchronize users", "error", err)
-				}
-			case <-ctx.Done():
-				cfg.Logger.Debug("User monitoring stopped")
-				return
-			}
-		}
-	}()
 }

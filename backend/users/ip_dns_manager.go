@@ -1,7 +1,6 @@
 package users
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -9,25 +8,23 @@ import (
 	"time"
 
 	"v2ray-stat/backend/config"
-	"v2ray-stat/backend/db"
 	"v2ray-stat/backend/db/manager"
-	"v2ray-stat/node/proto"
 )
 
-// IPStore хранит IP-адреса и их временные метки с мьютексом для потокобезопасности.
+// IPStore stores IP addresses and their timestamps with mutex for thread safety.
 type IPStore struct {
 	timestamps map[string]map[string]time.Time // user -> ip -> timestamp
 	mutex      sync.RWMutex
 }
 
-// NewIPStore создаёт новый экземпляр IPStore.
+// NewIPStore creates a new IPStore instance.
 func NewIPStore() *IPStore {
 	return &IPStore{
 		timestamps: make(map[string]map[string]time.Time),
 	}
 }
 
-// AddIPs добавляет/обновляет IP для пользователя с меткой времени.
+// AddIPs adds/updates IPs for a user with timestamps.
 func (s *IPStore) AddIPs(user string, ips []string) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -40,7 +37,7 @@ func (s *IPStore) AddIPs(user string, ips []string) {
 	}
 }
 
-// CollectAndCleanup возвращает актуальные IP для обновления в БД и чистит старые.
+// CollectAndCleanup returns valid IPs for database update and cleans up old ones.
 func (s *IPStore) CollectAndCleanup(ttl time.Duration) map[string][]string {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -54,21 +51,21 @@ func (s *IPStore) CollectAndCleanup(ttl time.Duration) map[string][]string {
 			if now.Sub(timestamp) <= ttl {
 				validIPs = append(validIPs, ip)
 			} else {
-				delete(ipMap, ip) // удаляем устаревший
+				delete(ipMap, ip) // Remove outdated IPs
 			}
 		}
 		if len(validIPs) > 0 {
 			ipUpdates[user] = validIPs
 		}
 		if len(ipMap) == 0 {
-			delete(s.timestamps, user) // чистим пустых
+			delete(s.timestamps, user) // Clean up empty users
 		}
 	}
 
 	return ipUpdates
 }
 
-// UpdateIPsBatch обновляет IP-адреса для нескольких пользователей одной транзакцией.
+// UpdateIPsBatch updates IP addresses for multiple users in a single transaction.
 func UpdateIPsBatch(manager *manager.DatabaseManager, ipUpdates map[string][]string, cfg *config.Config) error {
 	cfg.Logger.Debug("Starting batch IP updates", "users_count", len(ipUpdates))
 	if len(ipUpdates) == 0 {
@@ -114,7 +111,7 @@ func UpdateIPsBatch(manager *manager.DatabaseManager, ipUpdates map[string][]str
 	return nil
 }
 
-// UpsertDNSRecordsBatch выполняет пакетное обновление или вставку DNS-записей.
+// UpsertDNSRecordsBatch performs batch updates or inserts for DNS records.
 func UpsertDNSRecordsBatch(manager *manager.DatabaseManager, dnsStats map[string]map[string]int, nodeName string, cfg *config.Config) error {
 	cfg.Logger.Debug("Starting batch DNS records update", "node_name", nodeName, "records_count", len(dnsStats))
 	if len(dnsStats) == 0 {
@@ -160,73 +157,4 @@ func UpsertDNSRecordsBatch(manager *manager.DatabaseManager, dnsStats map[string
 
 	cfg.Logger.Debug("DNS records updated successfully", "node_name", nodeName, "records_count", len(dnsStats))
 	return nil
-}
-
-// ProcessLogData обрабатывает данные логов с нод, обновляя IP-адреса и DNS-статистику.
-func ProcessLogData(ctx context.Context, manager *manager.DatabaseManager, nodeClients []*db.NodeClient, store *IPStore, cfg *config.Config) error {
-	for _, nc := range nodeClients {
-		grpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-
-		response, err := nc.Client.GetLogData(grpcCtx, &proto.GetLogDataRequest{})
-		if err != nil {
-			cfg.Logger.Error("Failed to retrieve log data from node", "node_name", nc.NodeName, "error", err)
-			continue
-		}
-
-		// Собираем DNS-статистику
-		dnsStats := make(map[string]map[string]int)
-		for user, data := range response.UserLogData {
-			store.AddIPs(user, data.ValidIps)
-			dnsStats[user] = make(map[string]int)
-			for domain, count := range data.DnsStats {
-				dnsStats[user][domain] = int(count)
-			}
-		}
-
-		if len(dnsStats) > 0 {
-			if err := UpsertDNSRecordsBatch(manager, dnsStats, nc.NodeName, cfg); err != nil {
-				cfg.Logger.Error("Failed to update user_dns", "node_name", nc.NodeName, "error", err)
-				continue
-			}
-		} else {
-			cfg.Logger.Debug("No DNS records to update from node", "node_name", nc.NodeName)
-		}
-	}
-
-	ipUpdates := store.CollectAndCleanup(66 * time.Second)
-	if len(ipUpdates) > 0 {
-		if err := UpdateIPsBatch(manager, ipUpdates, cfg); err != nil {
-			cfg.Logger.Error("Failed to update IPs in database", "error", err)
-			return err
-		}
-	}
-
-	return nil
-}
-
-// MonitorLogData периодически запрашивает данные логов с нод через gRPC.
-func MonitorLogData(ctx context.Context, manager *manager.DatabaseManager, nodeClients []*db.NodeClient, cfg *config.Config, wg *sync.WaitGroup) {
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		// Создаём IPStore для хранения состояния между тиками
-		store := NewIPStore()
-
-		ticker := time.NewTicker(time.Duration(cfg.V2rayStat.Monitor.TickerInterval) * time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				if err := ProcessLogData(ctx, manager, nodeClients, store, cfg); err != nil {
-					cfg.Logger.Error("Failed to process log data", "error", err)
-				}
-			case <-ctx.Done():
-				cfg.Logger.Debug("Log data monitoring stopped")
-				return
-			}
-		}
-	}()
 }

@@ -19,12 +19,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	NodeService_ListUsers_FullMethodName      = "/node.NodeService/ListUsers"
-	NodeService_GetApiStats_FullMethodName    = "/node.NodeService/GetApiStats"
-	NodeService_GetLogData_FullMethodName     = "/node.NodeService/GetLogData"
-	NodeService_AddUsers_FullMethodName       = "/node.NodeService/AddUsers"
-	NodeService_DeleteUsers_FullMethodName    = "/node.NodeService/DeleteUsers"
-	NodeService_SetUserEnabled_FullMethodName = "/node.NodeService/SetUserEnabled"
+	NodeService_ListUsers_FullMethodName      = "/proto.NodeService/ListUsers"
+	NodeService_GetApiStats_FullMethodName    = "/proto.NodeService/GetApiStats"
+	NodeService_GetLogData_FullMethodName     = "/proto.NodeService/GetLogData"
+	NodeService_StreamNodeData_FullMethodName = "/proto.NodeService/StreamNodeData"
+	NodeService_AddUsers_FullMethodName       = "/proto.NodeService/AddUsers"
+	NodeService_DeleteUsers_FullMethodName    = "/proto.NodeService/DeleteUsers"
+	NodeService_SetUserEnabled_FullMethodName = "/proto.NodeService/SetUserEnabled"
 )
 
 // NodeServiceClient is the client API for NodeService service.
@@ -33,17 +34,19 @@ const (
 //
 // NodeService provides methods for managing node users and data.
 type NodeServiceClient interface {
-	// ListUsers retrieves a list of users on the node.
+	// ListUsers retrieves a list of users from the node.
 	ListUsers(ctx context.Context, in *ListUsersRequest, opts ...grpc.CallOption) (*ListUsersResponse, error)
-	// GetApiStats retrieves API statistics for the node.
+	// GetApiStats retrieves API statistics from the node.
 	GetApiStats(ctx context.Context, in *GetApiStatsRequest, opts ...grpc.CallOption) (*GetApiStatsResponse, error)
 	// GetLogData retrieves processed log data from the node.
 	GetLogData(ctx context.Context, in *GetLogDataRequest, opts ...grpc.CallOption) (*GetLogDataResponse, error)
+	// StreamNodeData is a bidirectional streaming RPC for node data.
+	StreamNodeData(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[NodeDataRequest, NodeDataResponse], error)
 	// AddUsers adds one or more users to the node in one operation.
 	AddUsers(ctx context.Context, in *AddUsersRequest, opts ...grpc.CallOption) (*OperationResponse, error)
 	// DeleteUsers deletes one or more users from the node in one operation.
 	DeleteUsers(ctx context.Context, in *DeleteUsersRequest, opts ...grpc.CallOption) (*OperationResponse, error)
-	// SetUserEnabled enables or disables a user on the node.
+	// SetUserEnabled enables or disables users on the node.
 	SetUserEnabled(ctx context.Context, in *SetUserEnabledRequest, opts ...grpc.CallOption) (*OperationResponse, error)
 }
 
@@ -85,6 +88,19 @@ func (c *nodeServiceClient) GetLogData(ctx context.Context, in *GetLogDataReques
 	return out, nil
 }
 
+func (c *nodeServiceClient) StreamNodeData(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[NodeDataRequest, NodeDataResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &NodeService_ServiceDesc.Streams[0], NodeService_StreamNodeData_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[NodeDataRequest, NodeDataResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type NodeService_StreamNodeDataClient = grpc.BidiStreamingClient[NodeDataRequest, NodeDataResponse]
+
 func (c *nodeServiceClient) AddUsers(ctx context.Context, in *AddUsersRequest, opts ...grpc.CallOption) (*OperationResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(OperationResponse)
@@ -121,17 +137,19 @@ func (c *nodeServiceClient) SetUserEnabled(ctx context.Context, in *SetUserEnabl
 //
 // NodeService provides methods for managing node users and data.
 type NodeServiceServer interface {
-	// ListUsers retrieves a list of users on the node.
+	// ListUsers retrieves a list of users from the node.
 	ListUsers(context.Context, *ListUsersRequest) (*ListUsersResponse, error)
-	// GetApiStats retrieves API statistics for the node.
+	// GetApiStats retrieves API statistics from the node.
 	GetApiStats(context.Context, *GetApiStatsRequest) (*GetApiStatsResponse, error)
 	// GetLogData retrieves processed log data from the node.
 	GetLogData(context.Context, *GetLogDataRequest) (*GetLogDataResponse, error)
+	// StreamNodeData is a bidirectional streaming RPC for node data.
+	StreamNodeData(grpc.BidiStreamingServer[NodeDataRequest, NodeDataResponse]) error
 	// AddUsers adds one or more users to the node in one operation.
 	AddUsers(context.Context, *AddUsersRequest) (*OperationResponse, error)
 	// DeleteUsers deletes one or more users from the node in one operation.
 	DeleteUsers(context.Context, *DeleteUsersRequest) (*OperationResponse, error)
-	// SetUserEnabled enables or disables a user on the node.
+	// SetUserEnabled enables or disables users on the node.
 	SetUserEnabled(context.Context, *SetUserEnabledRequest) (*OperationResponse, error)
 	mustEmbedUnimplementedNodeServiceServer()
 }
@@ -151,6 +169,9 @@ func (UnimplementedNodeServiceServer) GetApiStats(context.Context, *GetApiStatsR
 }
 func (UnimplementedNodeServiceServer) GetLogData(context.Context, *GetLogDataRequest) (*GetLogDataResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetLogData not implemented")
+}
+func (UnimplementedNodeServiceServer) StreamNodeData(grpc.BidiStreamingServer[NodeDataRequest, NodeDataResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method StreamNodeData not implemented")
 }
 func (UnimplementedNodeServiceServer) AddUsers(context.Context, *AddUsersRequest) (*OperationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddUsers not implemented")
@@ -236,6 +257,13 @@ func _NodeService_GetLogData_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NodeService_StreamNodeData_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(NodeServiceServer).StreamNodeData(&grpc.GenericServerStream[NodeDataRequest, NodeDataResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type NodeService_StreamNodeDataServer = grpc.BidiStreamingServer[NodeDataRequest, NodeDataResponse]
+
 func _NodeService_AddUsers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AddUsersRequest)
 	if err := dec(in); err != nil {
@@ -294,7 +322,7 @@ func _NodeService_SetUserEnabled_Handler(srv interface{}, ctx context.Context, d
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var NodeService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "node.NodeService",
+	ServiceName: "proto.NodeService",
 	HandlerType: (*NodeServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -322,6 +350,13 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _NodeService_SetUserEnabled_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "StreamNodeData",
+			Handler:       _NodeService_StreamNodeData_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+	},
 	Metadata: "node.proto",
 }

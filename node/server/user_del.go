@@ -9,7 +9,7 @@ import (
 	"v2ray-stat/node/common"
 	"v2ray-stat/node/config"
 	"v2ray-stat/node/lua"
-	"v2ray-stat/node/proto"
+	"v2ray-stat/proto"
 
 	// protobuf
 	"google.golang.org/genproto/googleapis/rpc/status"
@@ -25,10 +25,18 @@ func (s *NodeServer) DeleteUsers(ctx context.Context, req *proto.DeleteUsersRequ
 		return nil, grpcstatus.Errorf(codes.FailedPrecondition, "failed to delete users: %v", err)
 	}
 
+	// Fetch updated user list
+	users, err := s.ListUsers(ctx, &proto.ListUsersRequest{})
+	if err != nil {
+		s.Cfg.Logger.Error("Failed to fetch updated user list", "error", err)
+		return nil, grpcstatus.Errorf(codes.Internal, "failed to fetch updated user list: %v", err)
+	}
+
 	s.Cfg.Logger.Info("Users deleted successfully", "users", req.Usernames, "inbound_tag", req.InboundTag)
 	return &proto.OperationResponse{
 		Status:    &status.Status{Code: int32(codes.OK), Message: "success"},
 		Usernames: req.Usernames,
+		Users:     users,
 	}, nil
 }
 
@@ -85,7 +93,7 @@ func DeleteUsersFromConfig(cfg *config.NodeConfig, usernames []string, inboundTa
 
 		for i, inbound := range cfgSingbox.Inbounds {
 			if inbound.Tag == inboundTag {
-				updatedUsers := make([]config.SingboxClient, 0, len(inbound.Users))
+				updatedUsers := make([]config.SingboxUser, 0, len(inbound.Users))
 				userSet := make(map[string]bool)
 				for _, u := range usernames {
 					userSet[u] = true

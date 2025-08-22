@@ -9,16 +9,16 @@ import (
 	"math/rand"
 	"os"
 
-	"google.golang.org/genproto/googleapis/rpc/status" // Import for google.rpc.Status
+	"google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
-	grpcstatus "google.golang.org/grpc/status" // Alias to avoid conflict
+	grpcstatus "google.golang.org/grpc/status"
 
 	"github.com/google/uuid"
 
 	"v2ray-stat/node/common"
 	"v2ray-stat/node/config"
 	"v2ray-stat/node/lua"
-	"v2ray-stat/node/proto"
+	"v2ray-stat/proto"
 )
 
 // generateRandomPassword generates a random password of the specified length.
@@ -103,10 +103,18 @@ func (s *NodeServer) AddUsers(ctx context.Context, req *proto.AddUsersRequest) (
 		return nil, grpcstatus.Errorf(codes.FailedPrecondition, "failed to add users: %v", err)
 	}
 
+	// Fetch updated user list
+	users, err := s.ListUsers(ctx, &proto.ListUsersRequest{})
+	if err != nil {
+		s.Cfg.Logger.Error("Failed to fetch updated user list", "error", err)
+		return nil, grpcstatus.Errorf(codes.Internal, "failed to fetch updated user list: %v", err)
+	}
+
 	s.Cfg.Logger.Info("Users added successfully", "users", usernames, "inbound_tag", inboundTag)
 	return &proto.OperationResponse{
 		Status:    &status.Status{Code: int32(codes.OK), Message: "success"},
 		Usernames: usernames,
+		Users:     users,
 	}, nil
 }
 
@@ -164,19 +172,17 @@ func AddUsersToConfig(cfg *config.NodeConfig, credentials map[string]string, inb
 					cfgXray.Inbounds[i].Settings.Clients = append(cfgXray.Inbounds[i].Settings.Clients, newClient)
 				}
 				found = true
-				break
+				configData = cfgXray
 			}
 		}
-		configData = cfgXray
-
 	case "singbox":
-		var cfgSingBox config.ConfigSingbox
-		if err := json.Unmarshal(data, &cfgSingBox); err != nil {
+		var cfgSingbox config.ConfigSingbox
+		if err := json.Unmarshal(data, &cfgSingbox); err != nil {
 			cfg.Logger.Error("Failed to parse JSON", "error", err)
 			return fmt.Errorf("failed to parse JSON: %v", err)
 		}
 
-		for i, inbound := range cfgSingBox.Inbounds {
+		for i, inbound := range cfgSingbox.Inbounds {
 			if inbound.Tag == inboundTag {
 				protocol = inbound.Type
 				existingCredentials := make(map[string]bool)
@@ -197,21 +203,19 @@ func AddUsersToConfig(cfg *config.NodeConfig, credentials map[string]string, inb
 						cfg.Logger.Warn("Credential already exists", "credential", credential)
 						return fmt.Errorf("credential %s already exists", credential)
 					}
-					newUser := config.SingboxClient{Name: user}
+					newUser := config.SingboxUser{Name: user}
 					switch protocol {
 					case "vless":
 						newUser.UUID = credential
 					case "trojan":
 						newUser.Password = credential
 					}
-					cfgSingBox.Inbounds[i].Users = append(cfgSingBox.Inbounds[i].Users, newUser)
+					cfgSingbox.Inbounds[i].Users = append(cfgSingbox.Inbounds[i].Users, newUser)
 				}
 				found = true
-				break
+				configData = cfgSingbox
 			}
 		}
-		configData = cfgSingBox
-
 	default:
 		cfg.Logger.Warn("Unsupported core type", "proxyType", proxyType)
 		return fmt.Errorf("unsupported core type: %s", proxyType)

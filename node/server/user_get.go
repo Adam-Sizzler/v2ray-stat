@@ -7,17 +7,16 @@ import (
 	"os"
 	"path/filepath"
 
-	// Import for google.rpc.Status
 	"google.golang.org/grpc/codes"
-	grpcstatus "google.golang.org/grpc/status" // Alias to avoid conflict
+	"google.golang.org/grpc/status"
 
 	"v2ray-stat/node/config"
-	"v2ray-stat/node/proto"
+	"v2ray-stat/proto"
 )
 
 // makeUserKey creates a unique key for a user based on their username.
 func makeUserKey(username string) string {
-	return username // Username is used as the unique key since id and tag are stored in IdInbounds.
+	return username
 }
 
 // processUsers processes users from configuration and adds them to userMap.
@@ -38,13 +37,15 @@ func (s *NodeServer) ListUsers(ctx context.Context, req *proto.ListUsersRequest)
 	mainConfigPath := s.Cfg.Core.Config
 	disabledUsersPath := filepath.Join(s.Cfg.Core.Dir, ".disabled_users")
 
+	s.Cfg.Logger.Debug("Starting ListUsers", "main_config_path", mainConfigPath, "disabled_users_path", disabledUsersPath)
+
 	switch s.Cfg.V2rayStat.Type {
 	case "xray":
 		// Process main config
 		data, err := os.ReadFile(mainConfigPath)
 		if err != nil {
 			s.Cfg.Logger.Error("Failed to read Xray main config", "path", mainConfigPath, "error", err)
-			return nil, grpcstatus.Errorf(codes.Internal, "read main config: %v", err)
+			return nil, status.Errorf(codes.Internal, "read main config: %v", err)
 		}
 		err = processUsers(data, userMap, s.Cfg, false, func(cfg config.ConfigXray, userMap map[string]*proto.User, isDisabled bool) {
 			for _, inbound := range cfg.Inbounds {
@@ -58,7 +59,7 @@ func (s *NodeServer) ListUsers(ctx context.Context, req *proto.ListUsersRequest)
 						userMap[key] = &proto.User{
 							Username:   client.Email,
 							IdInbounds: []*proto.IdInbound{},
-							Enabled:    !isDisabled, // Use isDisabled to set Enabled
+							Enabled:    !isDisabled,
 						}
 					}
 					userMap[key].IdInbounds = append(userMap[key].IdInbounds, &proto.IdInbound{
@@ -69,7 +70,8 @@ func (s *NodeServer) ListUsers(ctx context.Context, req *proto.ListUsersRequest)
 			}
 		})
 		if err != nil {
-			return nil, grpcstatus.Errorf(codes.Internal, "process Xray main config: %v", err)
+			s.Cfg.Logger.Error("Failed to process Xray main config", "error", err)
+			return nil, status.Errorf(codes.Internal, "process Xray main config: %v", err)
 		}
 
 		// Process disabled users
@@ -87,23 +89,24 @@ func (s *NodeServer) ListUsers(ctx context.Context, req *proto.ListUsersRequest)
 							userMap[key] = &proto.User{
 								Username:   client.Email,
 								IdInbounds: []*proto.IdInbound{},
-								Enabled:    !isDisabled, // Use isDisabled to set Enabled
+								Enabled:    !isDisabled,
 							}
 						}
 						userMap[key].IdInbounds = append(userMap[key].IdInbounds, &proto.IdInbound{
 							Id:         client.ID,
 							InboundTag: inbound.Tag,
 						})
-						userMap[key].Enabled = !isDisabled // Update Enabled for existing users
+						userMap[key].Enabled = !isDisabled
 					}
 				}
 			})
 			if err != nil {
-				return nil, grpcstatus.Errorf(codes.Internal, "process Xray disabled users: %v", err)
+				s.Cfg.Logger.Error("Failed to process Xray disabled users", "path", disabledUsersPath, "error", err)
+				return nil, status.Errorf(codes.Internal, "process Xray disabled users: %v", err)
 			}
 		} else if err != nil && !os.IsNotExist(err) {
 			s.Cfg.Logger.Error("Failed to read Xray disabled users", "path", disabledUsersPath, "error", err)
-			return nil, grpcstatus.Errorf(codes.Internal, "read disabled users: %v", err)
+			return nil, status.Errorf(codes.Internal, "read disabled users: %v", err)
 		}
 
 	case "singbox":
@@ -111,7 +114,7 @@ func (s *NodeServer) ListUsers(ctx context.Context, req *proto.ListUsersRequest)
 		data, err := os.ReadFile(mainConfigPath)
 		if err != nil {
 			s.Cfg.Logger.Error("Failed to read Singbox main config", "path", mainConfigPath, "error", err)
-			return nil, grpcstatus.Errorf(codes.Internal, "read main config: %v", err)
+			return nil, status.Errorf(codes.Internal, "read main config: %v", err)
 		}
 		err = processUsers(data, userMap, s.Cfg, false, func(cfg config.ConfigSingbox, userMap map[string]*proto.User, isDisabled bool) {
 			for _, inbound := range cfg.Inbounds {
@@ -135,7 +138,7 @@ func (s *NodeServer) ListUsers(ctx context.Context, req *proto.ListUsersRequest)
 						userMap[key] = &proto.User{
 							Username:   user.Name,
 							IdInbounds: []*proto.IdInbound{},
-							Enabled:    !isDisabled, // Use isDisabled to set Enabled
+							Enabled:    !isDisabled,
 						}
 					}
 					userMap[key].IdInbounds = append(userMap[key].IdInbounds, &proto.IdInbound{
@@ -146,7 +149,8 @@ func (s *NodeServer) ListUsers(ctx context.Context, req *proto.ListUsersRequest)
 			}
 		})
 		if err != nil {
-			return nil, grpcstatus.Errorf(codes.Internal, "process Singbox main config: %v", err)
+			s.Cfg.Logger.Error("Failed to process Singbox main config", "error", err)
+			return nil, status.Errorf(codes.Internal, "process Singbox main config: %v", err)
 		}
 
 		// Process disabled users
@@ -174,28 +178,29 @@ func (s *NodeServer) ListUsers(ctx context.Context, req *proto.ListUsersRequest)
 							userMap[key] = &proto.User{
 								Username:   user.Name,
 								IdInbounds: []*proto.IdInbound{},
-								Enabled:    !isDisabled, // Use isDisabled to set Enabled
+								Enabled:    !isDisabled,
 							}
 						}
 						userMap[key].IdInbounds = append(userMap[key].IdInbounds, &proto.IdInbound{
 							Id:         id,
 							InboundTag: inbound.Tag,
 						})
-						userMap[key].Enabled = !isDisabled // Update Enabled for existing users
+						userMap[key].Enabled = !isDisabled
 					}
 				}
 			})
 			if err != nil {
-				return nil, grpcstatus.Errorf(codes.Internal, "process Singbox disabled users: %v", err)
+				s.Cfg.Logger.Error("Failed to process Singbox disabled users", "path", disabledUsersPath, "error", err)
+				return nil, status.Errorf(codes.Internal, "process Singbox disabled users: %v", err)
 			}
 		} else if err != nil && !os.IsNotExist(err) {
 			s.Cfg.Logger.Error("Failed to read Singbox disabled users", "path", disabledUsersPath, "error", err)
-			return nil, grpcstatus.Errorf(codes.Internal, "read disabled users: %v", err)
+			return nil, status.Errorf(codes.Internal, "read disabled users: %v", err)
 		}
 
 	default:
 		s.Cfg.Logger.Error("Unsupported core type", "type", s.Cfg.V2rayStat.Type)
-		return nil, grpcstatus.Errorf(codes.InvalidArgument, "unsupported core type: %s", s.Cfg.V2rayStat.Type)
+		return nil, status.Errorf(codes.InvalidArgument, "unsupported core type: %s", s.Cfg.V2rayStat.Type)
 	}
 
 	resp := &proto.ListUsersResponse{

@@ -8,7 +8,7 @@ log:
 # v2ray-stat-node Settings
 v2ray-stat-node:
   type: xray                             # Type of proxy core used for statistics. Accepted values: xray, singbox.
-  address: 0.0.0.0                       # IP address of the v2ray-stat API server. 127.0.0.1 means it is accessible only locally (localhost).
+  address: 127.0.0.1                     # IP address of the v2ray-stat API server. 127.0.0.1 means it is accessible only locally (localhost).
   port: 10000  
   mtls:                                  # mTLS (mutual TLS) configuration for secure connection to the node.
     cert: /usr/local/etc/v2ray-stat/certs/node.crt    # Path to the client's TLS certificate.

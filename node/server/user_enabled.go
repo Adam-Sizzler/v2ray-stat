@@ -13,7 +13,7 @@ import (
 
 	"v2ray-stat/node/common"
 	"v2ray-stat/node/config"
-	"v2ray-stat/node/proto"
+	"v2ray-stat/proto"
 )
 
 // SetUserEnabled enables or disables multiple users on the node.
@@ -23,10 +23,19 @@ func (s *NodeServer) SetUserEnabled(ctx context.Context, req *proto.SetUserEnabl
 		s.Cfg.Logger.Error("Ошибка переключения статуса пользователей", "users", req.Usernames, "enabled", req.Enabled, "error", err)
 		return nil, grpcstatus.Errorf(codes.FailedPrecondition, "failed to toggle users enabled status: %v", err)
 	}
+
+	// Fetch updated user list
+	users, err := s.ListUsers(ctx, &proto.ListUsersRequest{})
+	if err != nil {
+		s.Cfg.Logger.Error("Failed to fetch updated user list", "error", err)
+		return nil, grpcstatus.Errorf(codes.Internal, "failed to fetch updated user list: %v", err)
+	}
+
 	s.Cfg.Logger.Info("Статус пользователей переключён успешно", "users", req.Usernames, "enabled", req.Enabled)
 	return &proto.OperationResponse{
 		Status:    &status.Status{Code: int32(codes.OK), Message: "success"},
 		Usernames: req.Usernames,
+		Users:     users,
 	}, nil
 }
 
@@ -246,7 +255,7 @@ func toggleUsersEnabled(cfg *config.NodeConfig, usernames []string, enabled bool
 			targetInbounds = mainConfig.Inbounds
 		}
 
-		userMap := make(map[string]map[string]config.SingboxClient) // tag -> name -> user
+		userMap := make(map[string]map[string]config.SingboxUser) // tag -> name -> user
 		userSet := make(map[string]bool)
 		for _, user := range usernames {
 			userSet[user] = true
@@ -255,13 +264,13 @@ func toggleUsersEnabled(cfg *config.NodeConfig, usernames []string, enabled bool
 
 		for i, inbound := range sourceInbounds {
 			if inbound.Type == "vless" || inbound.Type == "trojan" {
-				newUsers := make([]config.SingboxClient, 0, len(inbound.Users))
+				newUsers := make([]config.SingboxUser, 0, len(inbound.Users))
 				userNameMap := make(map[string]bool)
 				for _, user := range inbound.Users {
 					cfg.Logger.Trace("Processing user in inbound", "tag", inbound.Tag, "name", user.Name)
 					if userSet[user.Name] && !userNameMap[user.Name] {
 						if _, exists := userMap[inbound.Tag]; !exists {
-							userMap[inbound.Tag] = make(map[string]config.SingboxClient)
+							userMap[inbound.Tag] = make(map[string]config.SingboxUser)
 						}
 						userMap[inbound.Tag][user.Name] = user
 						userNameMap[user.Name] = true
@@ -295,7 +304,7 @@ func toggleUsersEnabled(cfg *config.NodeConfig, usernames []string, enabled bool
 			if inbound.Type == "vless" || inbound.Type == "trojan" {
 				if users, exists := userMap[inbound.Tag]; exists {
 					userNameMap := make(map[string]bool)
-					newUsers := make([]config.SingboxClient, 0, len(inbound.Users)+len(users))
+					newUsers := make([]config.SingboxUser, 0, len(inbound.Users)+len(users))
 					for _, u := range inbound.Users {
 						if !userNameMap[u.Name] {
 							newUsers = append(newUsers, u)
@@ -318,7 +327,7 @@ func toggleUsersEnabled(cfg *config.NodeConfig, usernames []string, enabled bool
 			if (mainInbound.Type == "vless" || mainInbound.Type == "trojan") && !hasInboundSingbox(targetInbounds, mainInbound.Tag) {
 				if users, exists := userMap[mainInbound.Tag]; exists {
 					newInbound := mainInbound
-					newUsers := make([]config.SingboxClient, 0, len(users))
+					newUsers := make([]config.SingboxUser, 0, len(users))
 					for _, user := range usernames {
 						if u, ok := users[user]; ok {
 							newUsers = append(newUsers, u)

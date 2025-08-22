@@ -8,8 +8,8 @@ import (
 	"os"
 
 	"v2ray-stat/node/config"
-	"v2ray-stat/node/proto"
 	"v2ray-stat/node/server"
+	"v2ray-stat/proto"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"

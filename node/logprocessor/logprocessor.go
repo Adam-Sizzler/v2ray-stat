@@ -9,7 +9,7 @@ import (
 
 	"v2ray-stat/logger"
 	"v2ray-stat/node/config"
-	"v2ray-stat/node/proto"
+	"v2ray-stat/proto"
 )
 
 // ProcessLogLine processes a log line and extracts user data.

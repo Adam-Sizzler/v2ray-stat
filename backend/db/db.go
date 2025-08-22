@@ -12,7 +12,7 @@ import (
 
 	"v2ray-stat/backend/config"
 	"v2ray-stat/backend/db/manager"
-	"v2ray-stat/node/proto"
+	"v2ray-stat/proto"
 
 	_ "github.com/mattn/go-sqlite3"
 	"google.golang.org/grpc"
@@ -25,6 +25,7 @@ type NodeClient struct {
 	NodeName string
 	URL      string
 	Client   proto.NodeServiceClient
+	Conn     *grpc.ClientConn
 }
 
 // NewNodeClient creates a new gRPC client for a node with TLS configuration.
@@ -78,7 +79,16 @@ func NewNodeClient(nodeCfg config.NodeConfig, cfg *config.Config) (*NodeClient, 
 		NodeName: nodeCfg.NodeName,
 		URL:      nodeCfg.URL,
 		Client:   client,
+		Conn:     conn,
 	}, nil
+}
+
+// Метод для закрытия соединения
+func (nc *NodeClient) Close() error {
+	if nc.Conn != nil {
+		return nc.Conn.Close()
+	}
+	return nil
 }
 
 // InitNodeClients initializes gRPC clients for all nodes.
@@ -295,10 +305,10 @@ func InitDatabase(cfg *config.Config) (memDB, fileDB *sql.DB, err error) {
 
 // MonitorSubscriptionsAndSync runs periodic subscription checks and database synchronization.
 func MonitorSubscriptionsAndSync(ctx context.Context, manager *manager.DatabaseManager, fileDB *sql.DB, cfg *config.Config, wg *sync.WaitGroup) {
+    defer wg.Done() // сигналим о завершении
+
 	cfg.Logger.Debug("Starting subscription and sync monitoring")
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
 
@@ -306,7 +316,12 @@ func MonitorSubscriptionsAndSync(ctx context.Context, manager *manager.DatabaseM
 			select {
 			case <-ticker.C:
 				syncCtx, syncCancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer syncCancel()
+				if err := manager.SyncDBWithContext(syncCtx, fileDB, "memory to file"); err != nil {
+					cfg.Logger.Error("Failed to synchronize database (memory to file)", "error", err)
+				} else {
+					cfg.Logger.Info("Database synchronized successfully (memory to file)")
+				}
+				syncCancel()
 				if _, err := os.Stat(cfg.Paths.Database); os.IsNotExist(err) {
 					cfg.Logger.Warn("File database does not exist, recreating", "path", cfg.Paths.Database)
 					fileDB, err = OpenAndInitDB(cfg.Paths.Database, "file", cfg)

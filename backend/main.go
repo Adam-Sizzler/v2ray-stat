@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/pprof"
 	"sync"
 	"syscall"
 	"time"
@@ -36,6 +37,7 @@ func withServerHeader(next http.Handler) http.Handler {
 
 // startAPIServer starts the API server.
 func startAPIServer(ctx context.Context, manager *manager.DatabaseManager, cfg *config.Config, wg *sync.WaitGroup) {
+	defer wg.Done()
 	server := &http.Server{
 		Addr:    cfg.V2rayStat.Address + ":" + cfg.V2rayStat.Port,
 		Handler: withServerHeader(http.DefaultServeMux),
@@ -45,9 +47,10 @@ func startAPIServer(ctx context.Context, manager *manager.DatabaseManager, cfg *
 	http.HandleFunc("/api/v1/users", api.UsersHandler(manager, cfg))
 	http.HandleFunc("/api/v1/dns_stats", api.DnsStatsHandler(manager, cfg))
 	http.HandleFunc("/api/v1/stats", api.StatsHandler(manager, cfg))
+
 	http.HandleFunc("/api/v1/add_user", api.TokenAuthMiddleware(cfg, api.AddUserHandler(manager, cfg)))
 	http.HandleFunc("/api/v1/delete_user", api.TokenAuthMiddleware(cfg, api.DeleteUserHandler(manager, cfg)))
-	http.HandleFunc("/api/v1/enabled_user", api.TokenAuthMiddleware(cfg, api.SetUserEnabledHandler(manager, cfg)))
+	http.HandleFunc("/api/v1/set_user_enabled", api.TokenAuthMiddleware(cfg, api.SetUserEnabledHandler(manager, cfg)))
 	http.HandleFunc("/api/v1/update_ip_limit", api.TokenAuthMiddleware(cfg, api.UpdateIPLimitHandler(manager, cfg)))
 	http.HandleFunc("/api/v1/update_renew", api.TokenAuthMiddleware(cfg, api.UpdateRenewHandler(manager, cfg)))
 	http.HandleFunc("/api/v1/reset_dns_stats", api.TokenAuthMiddleware(cfg, reset_stats.DeleteDNSStatsHandler(manager, cfg)))
@@ -71,7 +74,6 @@ func startAPIServer(ctx context.Context, manager *manager.DatabaseManager, cfg *
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		cfg.Logger.Error("Error shutting down server", "error", err)
 	}
-	wg.Done()
 }
 
 func main() {
@@ -88,8 +90,6 @@ func main() {
 	if err != nil {
 		cfg.Logger.Fatal("Failed to initialize database", "error", err)
 	}
-	defer memDB.Close()
-	defer fileDB.Close()
 
 	manager, err := manager.NewDatabaseManager(memDB, ctx, 1, 300, 500, &cfg)
 	if err != nil {
@@ -107,21 +107,47 @@ func main() {
 	// Проверяем и генерируем сертификаты, если они отсутствуют
 	certgen.EnsureCertificates(&cfg)
 
+	// Готовим wg
 	var wg sync.WaitGroup
-	wg.Add(1)
+	wg.Add(3) // три фоновые задачи
+
 	go startAPIServer(ctx, manager, &cfg, &wg)
-	db.MonitorSubscriptionsAndSync(ctx, manager, fileDB, &cfg, &wg)
-	users.MonitorUsers(ctx, manager, nodeClients, &cfg, &wg)
-	users.MonitorTrafficStats(ctx, manager, nodeClients, &cfg, &wg)
-	users.MonitorLogData(ctx, manager, nodeClients, &cfg, &wg)
+	go db.MonitorSubscriptionsAndSync(ctx, manager, fileDB, &cfg, &wg)
+	go users.MonitorNodeData(ctx, manager, nodeClients, &cfg, &wg)
 
 	log.Printf("[START] v2ray-stat-backend application %s", constant.Version)
+
 	<-sigChan
 	cfg.Logger.Info("Received termination signal, saving data")
 	cancel()
 
-	wg.Wait()
+	// Закрываем все gRPC-соединения
+	for _, nc := range nodeClients {
+		if err := nc.Close(); err != nil {
+			cfg.Logger.Error("Failed to close node client", "node_name", nc.NodeName, "error", err)
+		}
+	}
 
+	// Закрываем DatabaseManager
+	manager.Close()
+
+	// Ждём завершения горутин
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		cfg.Logger.Debug("All goroutines completed")
+	case <-time.After(10 * time.Second):
+		cfg.Logger.Warn("Timeout waiting for goroutines to complete, forcing shutdown")
+		// Профилирование горутин при тайм-ауте
+		pprof.Lookup("goroutine").WriteTo(os.Stderr, 1)
+	}
+
+	// Финальная синхронизация базы данных
 	syncCtx, syncCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer syncCancel()
 	if _, err := os.Stat(cfg.Paths.Database); os.IsNotExist(err) {
@@ -130,14 +156,27 @@ func main() {
 			cfg.Logger.Error("Failed to recreate file database", "path", cfg.Paths.Database, "error", err)
 		} else {
 			defer fileDB.Close()
+			if err := manager.SyncDBWithContext(syncCtx, fileDB, "memory to file"); err != nil {
+				cfg.Logger.Error("Failed to perform final database synchronization", "error", err)
+			} else {
+				cfg.Logger.Info("Database synchronized successfully (memory to file)")
+			}
+		}
+	} else {
+		if err := manager.SyncDBWithContext(syncCtx, fileDB, "memory to file"); err != nil {
+			cfg.Logger.Error("Failed to perform final database synchronization", "error", err)
+		} else {
+			cfg.Logger.Info("Database synchronized successfully (memory to file)")
 		}
 	}
-	if err := manager.SyncDBWithContext(syncCtx, fileDB, "memory to file"); err != nil {
-		cfg.Logger.Error("Failed to perform final database synchronization", "error", err)
-	} else {
-		cfg.Logger.Info("Database synchronized successfully (memory to file)")
+
+	// Закрываем базы данных после синхронизации
+	if err := memDB.Close(); err != nil {
+		cfg.Logger.Error("Failed to close in-memory database", "error", err)
+	}
+	if err := fileDB.Close(); err != nil {
+		cfg.Logger.Error("Failed to close file database", "error", err)
 	}
 
-	manager.Close()
 	log.Printf("[STOP] Program terminated")
 }

@@ -1,50 +1,29 @@
 syntax = "proto3";
 
-package node;
-
-option go_package = "./proto";
+package proto;
+option go_package = "v2ray-stat/node/proto";
 
 import "google/rpc/status.proto";
 
 // NodeService provides methods for managing node users and data.
 service NodeService {
-  // ListUsers retrieves a list of users on the node.
+  // ListUsers retrieves a list of users from the node.
   rpc ListUsers(ListUsersRequest) returns (ListUsersResponse) {}
-  // GetApiStats retrieves API statistics for the node.
+  // GetApiStats retrieves API statistics from the node.
   rpc GetApiStats(GetApiStatsRequest) returns (GetApiStatsResponse) {}
   // GetLogData retrieves processed log data from the node.
   rpc GetLogData(GetLogDataRequest) returns (GetLogDataResponse) {}
+  
+  // StreamNodeData is a bidirectional streaming RPC for node data.
+  rpc StreamNodeData(stream NodeDataRequest) returns (stream NodeDataResponse) {}
+
   // AddUsers adds one or more users to the node in one operation.
   rpc AddUsers(AddUsersRequest) returns (OperationResponse) {}
   // DeleteUsers deletes one or more users from the node in one operation.
   rpc DeleteUsers(DeleteUsersRequest) returns (OperationResponse) {}
-  // SetUserEnabled enables or disables a user on the node.
+  // SetUserEnabled enables or disables users on the node.
   rpc SetUserEnabled(SetUserEnabledRequest) returns (OperationResponse) {}
 }
-
-// ListUsersRequest is an empty request for listing users.
-message ListUsersRequest {}
-
-// IdInbound represents an ID and inbound tag pair for a user.
-message IdInbound {
-  string id = 1;
-  string inbound_tag = 2;
-}
-
-// User represents a user on the node.
-message User {
-  string username = 1;
-  repeated IdInbound id_inbounds = 2;
-  bool enabled = 3;
-}
-
-// ListUsersResponse contains a list of users.
-message ListUsersResponse {
-  repeated User users = 1;
-}
-
-// GetApiStatsRequest is an empty request for retrieving API statistics.
-message GetApiStatsRequest {}
 
 // Stat represents a single statistic entry.
 message Stat {
@@ -52,12 +31,15 @@ message Stat {
   string value = 2;
 }
 
-// GetApiStatsResponse contains API statistics.
+// GetApiStatsRequest is the request message for GetApiStats.
+message GetApiStatsRequest {}
+
+// GetApiStatsResponse is the response message for GetApiStats.
 message GetApiStatsResponse {
   repeated Stat stats = 1;
 }
 
-// GetLogDataRequest is an empty request for retrieving log data.
+// GetLogDataRequest is the request message for GetLogData.
 message GetLogDataRequest {}
 
 // UserLogData contains log data for a specific user.
@@ -66,9 +48,52 @@ message UserLogData {
   map<string, int32> dns_stats = 2;
 }
 
-// GetLogDataResponse contains log data for multiple users.
+// GetLogDataResponse is the response message for GetLogData.
 message GetLogDataResponse {
   map<string, UserLogData> user_log_data = 1;
+}
+
+// IdInbound represents an inbound configuration for a user.
+message IdInbound {
+  string id = 1;
+  string inbound_tag = 2;
+}
+
+// User represents a user configuration.
+message User {
+  string username = 1;
+  repeated IdInbound id_inbounds = 2;
+  bool enabled = 3;
+}
+
+// ListUsersRequest is the request message for ListUsers.
+message ListUsersRequest {}
+
+// ListUsersResponse is the response message for ListUsers.
+message ListUsersResponse {
+  repeated User users = 1;
+}
+
+// StreamConfig defines the configuration for streaming.
+message StreamConfig {
+  int32 interval_seconds = 1;
+}
+
+// NodeDataRequest is the request message for StreamNodeData.
+message NodeDataRequest {
+  oneof request {
+    StreamConfig config = 1;
+    ListUsersRequest list_users = 2;
+  }
+}
+
+// NodeDataResponse is the response message for StreamNodeData.
+message NodeDataResponse {
+  oneof response {
+    GetApiStatsResponse stats = 1;
+    ListUsersResponse users = 2;
+    GetLogDataResponse log_data = 3;
+  }
 }
 
 // AddUsersRequest specifies one or more users to add to the node.
@@ -85,7 +110,7 @@ message DeleteUsersRequest {
 
 // SetUserEnabledRequest specifies one or more users to enable or disable.
 message SetUserEnabledRequest {
-  repeated string usernames = 1; // Changed from single username to repeated
+  repeated string usernames = 1;
   bool enabled = 2;
 }
 
@@ -93,4 +118,5 @@ message SetUserEnabledRequest {
 message OperationResponse {
   google.rpc.Status status = 1;
   repeated string usernames = 2; // List of affected usernames
+  ListUsersResponse users = 3;   // Updated list of users
 }

@@ -1639,7 +1639,7 @@ add_user() {
         if echo "$response" | jq -e . >/dev/null 2>&1; then
           message=$(echo "$response" | jq -r '.message // ""')
           if [ -n "$message" ]; then
-            if [ "$message" == "users added and synced successfully to all specified nodes" ]; then
+            if [ "$message" == "operation add completed successfully for all specified nodes" ]; then
               info " Успех: $message"
               info " Пользователи: $(echo "$response" | jq -r '.usernames | join(", ")')"
               info " Результаты: $(echo "$response" | jq -r '.results | tostring')"
@@ -1872,7 +1872,7 @@ delete_user() {
         if echo "$response" | jq -e . >/dev/null 2>&1; then
           message=$(echo "$response" | jq -r '.message // ""')
           if [ -n "$message" ]; then
-            if [ "$message" == "users deleted and synced successfully from all specified nodes" ]; then
+            if [ "$message" == "operation delete completed successfully for all specified nodes" ]; then
               info " Успех: $message"
               info " Пользователи: $(echo "$response" | jq -r '.usernames | join(", ")')"
               info " Результаты: $(echo "$response" | jq -r '.results | tostring')"
@@ -1903,7 +1903,7 @@ delete_user() {
 ### TOGGLE USER STATUS
 ###################################
 toggle_user_status() {
-  local API_URL="http://127.0.0.1:9952/api/v1/enabled_user"
+  local API_URL="http://127.0.0.1:9952/api/v1/set_user_enabled"
   local selected_inbound_tags=""
   local selected_nodes=""
   local selected_users=""
@@ -2115,7 +2115,7 @@ toggle_user_status() {
         if echo "$response" | jq -e . >/dev/null 2>&1; then
           message=$(echo "$response" | jq -r '.message // ""')
           if [ -n "$message" ]; then
-            if [[ "$message" == *"status updated and synced successfully"* ]]; then
+            if [[ "$message" == *"operation set_enabled completed successfully for all specified nodes"* ]]; then
               info " Успех: $message"
               info " Пользователи: $(echo "$response" | jq -r '.usernames | join(", ")')"
               info " Результаты: $(echo "$response" | jq -r '.results | tostring')"
@@ -2141,6 +2141,8 @@ toggle_user_status() {
 
   return 0
 }
+
+
 
 
 ###################################

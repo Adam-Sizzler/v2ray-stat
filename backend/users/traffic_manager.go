@@ -11,11 +11,10 @@ import (
 	"time"
 
 	"v2ray-stat/backend/config"
-	"v2ray-stat/backend/db"
 	"v2ray-stat/backend/db/manager"
 	"v2ray-stat/common"
 	"v2ray-stat/node/api"
-	"v2ray-stat/node/proto"
+	"v2ray-stat/proto"
 )
 
 var (
@@ -456,58 +455,10 @@ func max(a, b int) int {
 	return b
 }
 
-// MonitorTrafficStats periodically collects traffic statistics from nodes.
-func MonitorTrafficStats(ctx context.Context, manager *manager.DatabaseManager, nodeClients []*db.NodeClient, cfg *config.Config, wg *sync.WaitGroup) {
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		// Load initial user inactivity status
-		if err := LoadIsInactiveFromLastSeen(manager, cfg); err != nil {
-			cfg.Logger.Error("Failed to load initial user inactivity status", "error", err)
-		}
-
-		ticker := time.NewTicker(time.Duration(cfg.V2rayStat.Monitor.TickerInterval) * time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				// Create WaitGroup for node processing
-				var nodeWG sync.WaitGroup
-				nodeWG.Add(len(nodeClients))
-
-				// Process each node in a separate goroutine
-				for _, nc := range nodeClients {
-					go func(nc *db.NodeClient) {
-						defer nodeWG.Done()
-
-						grpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-						defer cancel()
-
-						protoData, err := nc.Client.GetApiStats(grpcCtx, &proto.GetApiStatsRequest{})
-						if err != nil {
-							cfg.Logger.Error("Failed to retrieve API data from node", "node_name", nc.NodeName, "error", err)
-							return
-						}
-
-						apiData := convertProtoToApiResponse(protoData)
-						if err := updateProxyStats(manager, nc.NodeName, apiData, cfg); err != nil {
-							cfg.Logger.Error("Failed to update proxy stats", "node_name", nc.NodeName, "error", err)
-						}
-						if err := updateUserStats(manager, nc.NodeName, apiData, cfg); err != nil {
-							cfg.Logger.Error("Failed to update user stats", "node_name", nc.NodeName, "error", err)
-						}
-					}(nc)
-				}
-
-				// Wait for all node goroutines to complete
-				nodeWG.Wait()
-
-			case <-ctx.Done():
-				cfg.Logger.Debug("Traffic monitoring stopped")
-				return
-			}
-		}
-	}()
+// min returns the minimum of two numbers.
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
