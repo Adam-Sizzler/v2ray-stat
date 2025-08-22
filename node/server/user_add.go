@@ -112,9 +112,10 @@ func (s *NodeServer) AddUsers(ctx context.Context, req *proto.AddUsersRequest) (
 
 	s.Cfg.Logger.Info("Users added successfully", "users", usernames, "inbound_tag", inboundTag)
 	return &proto.OperationResponse{
-		Status:    &status.Status{Code: int32(codes.OK), Message: "success"},
-		Usernames: usernames,
-		Users:     users,
+		Status:      &status.Status{Code: int32(codes.OK), Message: "success"},
+		Usernames:   usernames,
+		Users:       users,
+		Credentials: credentials,
 	}, nil
 }
 

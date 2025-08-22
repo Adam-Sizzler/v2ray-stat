@@ -878,8 +878,9 @@ func (x *SetUserEnabledRequest) GetEnabled() bool {
 type OperationResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Status        *status.Status         `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
-	Usernames     []string               `protobuf:"bytes,2,rep,name=usernames,proto3" json:"usernames,omitempty"` // List of affected usernames
-	Users         *ListUsersResponse     `protobuf:"bytes,3,opt,name=users,proto3" json:"users,omitempty"`         // Updated list of users
+	Usernames     []string               `protobuf:"bytes,2,rep,name=usernames,proto3" json:"usernames,omitempty"`
+	Users         *ListUsersResponse     `protobuf:"bytes,3,opt,name=users,proto3" json:"users,omitempty"`
+	Credentials   map[string]string      `protobuf:"bytes,4,rep,name=credentials,proto3" json:"credentials,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -931,6 +932,13 @@ func (x *OperationResponse) GetUsernames() []string {
 func (x *OperationResponse) GetUsers() *ListUsersResponse {
 	if x != nil {
 		return x.Users
+	}
+	return nil
+}
+
+func (x *OperationResponse) GetCredentials() map[string]string {
+	if x != nil {
+		return x.Credentials
 	}
 	return nil
 }
@@ -994,11 +1002,15 @@ const file_node_proto_rawDesc = "" +
 	"inboundTag\"O\n" +
 	"\x15SetUserEnabledRequest\x12\x1c\n" +
 	"\tusernames\x18\x01 \x03(\tR\tusernames\x12\x18\n" +
-	"\aenabled\x18\x02 \x01(\bR\aenabled\"\x8d\x01\n" +
+	"\aenabled\x18\x02 \x01(\bR\aenabled\"\x9a\x02\n" +
 	"\x11OperationResponse\x12*\n" +
 	"\x06status\x18\x01 \x01(\v2\x12.google.rpc.StatusR\x06status\x12\x1c\n" +
 	"\tusernames\x18\x02 \x03(\tR\tusernames\x12.\n" +
-	"\x05users\x18\x03 \x01(\v2\x18.proto.ListUsersResponseR\x05users2\xf7\x03\n" +
+	"\x05users\x18\x03 \x01(\v2\x18.proto.ListUsersResponseR\x05users\x12K\n" +
+	"\vcredentials\x18\x04 \x03(\v2).proto.OperationResponse.CredentialsEntryR\vcredentials\x1a>\n" +
+	"\x10CredentialsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x012\xf7\x03\n" +
 	"\vNodeService\x12@\n" +
 	"\tListUsers\x12\x17.proto.ListUsersRequest\x1a\x18.proto.ListUsersResponse\"\x00\x12F\n" +
 	"\vGetApiStats\x12\x19.proto.GetApiStatsRequest\x1a\x1a.proto.GetApiStatsResponse\"\x00\x12C\n" +
@@ -1007,7 +1019,7 @@ const file_node_proto_rawDesc = "" +
 	"\x0eStreamNodeData\x12\x16.proto.NodeDataRequest\x1a\x17.proto.NodeDataResponse\"\x00(\x010\x01\x12>\n" +
 	"\bAddUsers\x12\x16.proto.AddUsersRequest\x1a\x18.proto.OperationResponse\"\x00\x12D\n" +
 	"\vDeleteUsers\x12\x19.proto.DeleteUsersRequest\x1a\x18.proto.OperationResponse\"\x00\x12J\n" +
-	"\x0eSetUserEnabled\x12\x1c.proto.SetUserEnabledRequest\x1a\x18.proto.OperationResponse\"\x00B\x17Z\x15v2ray-stat/node/protob\x06proto3"
+	"\x0eSetUserEnabled\x12\x1c.proto.SetUserEnabledRequest\x1a\x18.proto.OperationResponse\"\x00B\x12Z\x10v2ray-stat/protob\x06proto3"
 
 var (
 	file_node_proto_rawDescOnce sync.Once
@@ -1021,7 +1033,7 @@ func file_node_proto_rawDescGZIP() []byte {
 	return file_node_proto_rawDescData
 }
 
-var file_node_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_node_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_node_proto_goTypes = []any{
 	(*Stat)(nil),                  // 0: proto.Stat
 	(*GetApiStatsRequest)(nil),    // 1: proto.GetApiStatsRequest
@@ -1042,7 +1054,8 @@ var file_node_proto_goTypes = []any{
 	(*OperationResponse)(nil),     // 16: proto.OperationResponse
 	nil,                           // 17: proto.UserLogData.DnsStatsEntry
 	nil,                           // 18: proto.GetLogDataResponse.UserLogDataEntry
-	(*status.Status)(nil),         // 19: google.rpc.Status
+	nil,                           // 19: proto.OperationResponse.CredentialsEntry
+	(*status.Status)(nil),         // 20: google.rpc.Status
 }
 var file_node_proto_depIdxs = []int32{
 	0,  // 0: proto.GetApiStatsResponse.stats:type_name -> proto.Stat
@@ -1055,28 +1068,29 @@ var file_node_proto_depIdxs = []int32{
 	2,  // 7: proto.NodeDataResponse.stats:type_name -> proto.GetApiStatsResponse
 	9,  // 8: proto.NodeDataResponse.users:type_name -> proto.ListUsersResponse
 	5,  // 9: proto.NodeDataResponse.log_data:type_name -> proto.GetLogDataResponse
-	19, // 10: proto.OperationResponse.status:type_name -> google.rpc.Status
+	20, // 10: proto.OperationResponse.status:type_name -> google.rpc.Status
 	9,  // 11: proto.OperationResponse.users:type_name -> proto.ListUsersResponse
-	4,  // 12: proto.GetLogDataResponse.UserLogDataEntry.value:type_name -> proto.UserLogData
-	8,  // 13: proto.NodeService.ListUsers:input_type -> proto.ListUsersRequest
-	1,  // 14: proto.NodeService.GetApiStats:input_type -> proto.GetApiStatsRequest
-	3,  // 15: proto.NodeService.GetLogData:input_type -> proto.GetLogDataRequest
-	11, // 16: proto.NodeService.StreamNodeData:input_type -> proto.NodeDataRequest
-	13, // 17: proto.NodeService.AddUsers:input_type -> proto.AddUsersRequest
-	14, // 18: proto.NodeService.DeleteUsers:input_type -> proto.DeleteUsersRequest
-	15, // 19: proto.NodeService.SetUserEnabled:input_type -> proto.SetUserEnabledRequest
-	9,  // 20: proto.NodeService.ListUsers:output_type -> proto.ListUsersResponse
-	2,  // 21: proto.NodeService.GetApiStats:output_type -> proto.GetApiStatsResponse
-	5,  // 22: proto.NodeService.GetLogData:output_type -> proto.GetLogDataResponse
-	12, // 23: proto.NodeService.StreamNodeData:output_type -> proto.NodeDataResponse
-	16, // 24: proto.NodeService.AddUsers:output_type -> proto.OperationResponse
-	16, // 25: proto.NodeService.DeleteUsers:output_type -> proto.OperationResponse
-	16, // 26: proto.NodeService.SetUserEnabled:output_type -> proto.OperationResponse
-	20, // [20:27] is the sub-list for method output_type
-	13, // [13:20] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	19, // 12: proto.OperationResponse.credentials:type_name -> proto.OperationResponse.CredentialsEntry
+	4,  // 13: proto.GetLogDataResponse.UserLogDataEntry.value:type_name -> proto.UserLogData
+	8,  // 14: proto.NodeService.ListUsers:input_type -> proto.ListUsersRequest
+	1,  // 15: proto.NodeService.GetApiStats:input_type -> proto.GetApiStatsRequest
+	3,  // 16: proto.NodeService.GetLogData:input_type -> proto.GetLogDataRequest
+	11, // 17: proto.NodeService.StreamNodeData:input_type -> proto.NodeDataRequest
+	13, // 18: proto.NodeService.AddUsers:input_type -> proto.AddUsersRequest
+	14, // 19: proto.NodeService.DeleteUsers:input_type -> proto.DeleteUsersRequest
+	15, // 20: proto.NodeService.SetUserEnabled:input_type -> proto.SetUserEnabledRequest
+	9,  // 21: proto.NodeService.ListUsers:output_type -> proto.ListUsersResponse
+	2,  // 22: proto.NodeService.GetApiStats:output_type -> proto.GetApiStatsResponse
+	5,  // 23: proto.NodeService.GetLogData:output_type -> proto.GetLogDataResponse
+	12, // 24: proto.NodeService.StreamNodeData:output_type -> proto.NodeDataResponse
+	16, // 25: proto.NodeService.AddUsers:output_type -> proto.OperationResponse
+	16, // 26: proto.NodeService.DeleteUsers:output_type -> proto.OperationResponse
+	16, // 27: proto.NodeService.SetUserEnabled:output_type -> proto.OperationResponse
+	21, // [21:28] is the sub-list for method output_type
+	14, // [14:21] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_node_proto_init() }
@@ -1099,7 +1113,7 @@ func file_node_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_node_proto_rawDesc), len(file_node_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   19,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

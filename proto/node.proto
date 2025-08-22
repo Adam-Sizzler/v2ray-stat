@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 package proto;
-option go_package = "v2ray-stat/node/proto";
+option go_package = "v2ray-stat/proto";
 
 import "google/rpc/status.proto";
 
@@ -117,6 +117,7 @@ message SetUserEnabledRequest {
 // OperationResponse represents the result of an operation.
 message OperationResponse {
   google.rpc.Status status = 1;
-  repeated string usernames = 2; // List of affected usernames
-  ListUsersResponse users = 3;   // Updated list of users
+  repeated string usernames = 2;
+  ListUsersResponse users = 3;
+  map<string, string> credentials = 4;
 }

@@ -625,14 +625,6 @@ display_v2ray-stat_banner() {
 }
 
 ###################################
-### GENERATE UUID FOR XRAY CONFIGURATION
-###################################
-generate_uuid() {
-  local XRAY_UUID=$(cat /proc/sys/kernel/random/uuid)
-  echo "$XRAY_UUID"
-}
-
-###################################
 ### EXTRACT DATA FROM HAPROXY CONFIG
 ###################################
 extract_data() {
@@ -1643,6 +1635,28 @@ add_user() {
               info " Успех: $message"
               info " Пользователи: $(echo "$response" | jq -r '.usernames | join(", ")')"
               info " Результаты: $(echo "$response" | jq -r '.results | tostring')"
+
+              # Добавление JSON-файла только если SUB_JSON_PATH не пустая и ноды не выбраны (локально)
+              if [ -n "$SUB_JSON_PATH" ] && [ -z "$selected_nodes" ]; then
+                # Предполагаем одну ноду (локальную), берём первый элемент credentials
+                creds_map=$(echo "$response" | jq -r '.credentials | to_entries[0].value')
+                if [ "$creds_map" != "null" ]; then
+                  for username in "${username_array[@]}"; do
+                    username=$(echo "$username" | xargs)
+                    XRAY_UUID=$(echo "$creds_map" | jq -r ".\"$username\"")
+                    if [ "$XRAY_UUID" != "null" ]; then
+                      USERNAME="$username"
+                      DOMAIN="$CURR_DOMAIN"
+                      configure_xray_client
+                      info " JSON-конфиг для $USERNAME добавлен в /var/www/${SUB_JSON_PATH}/vless_raw/"
+                    else
+                      warning " UUID для $username не найден в ответе"
+                    fi
+                  done
+                else
+                  warning " Credentials не найдены в ответе API"
+                fi
+              fi
             else
               warning " Ошибка API: $message"
               warning " Ошибки: $(echo "$response" | jq -r '.errors | tostring')"
