@@ -156,7 +156,10 @@ func MonitorNodeData(ctx context.Context, manager *manager.DatabaseManager, node
 						cfg.Logger.Debug("Node monitoring stopped", "node_name", nc.NodeName)
 						nodeStates[nc.NodeName].mutex.Lock()
 						if nodeStates[nc.NodeName].stream != nil {
-							nodeStates[nc.NodeName].stream.CloseSend()
+							if err := nodeStates[nc.NodeName].stream.CloseSend(); err != nil {
+								cfg.Logger.Debug("Error closing stream", "node_name", nc.NodeName, "error", err)
+							}
+							nodeStates[nc.NodeName].stream = nil
 						}
 						nodeStates[nc.NodeName].isConnected = false
 						nodeStates[nc.NodeName].mutex.Unlock()
@@ -176,7 +179,12 @@ func MonitorNodeData(ctx context.Context, manager *manager.DatabaseManager, node
 						cfg.Logger.Debug("Attempting to establish connection", "node_name", nc.NodeName)
 						stream, err := nc.Client.StreamNodeData(ctx)
 						if err != nil {
-							cfg.Logger.Error("Failed to open stream", "node_name", nc.NodeName, "error", err)
+							// Проверяем, является ли ошибка недоступностью ноды
+							if status.Code(err) == codes.Unavailable {
+								cfg.Logger.Warn("Node is temporarily unavailable, will retry", "node_name", nc.NodeName, "error", err)
+							} else {
+								cfg.Logger.Error("Failed to open stream", "node_name", nc.NodeName, "error", err)
+							}
 							continue
 						}
 
@@ -193,11 +201,20 @@ func MonitorNodeData(ctx context.Context, manager *manager.DatabaseManager, node
 								},
 							},
 						}); err != nil {
-							cfg.Logger.Error("Failed to send initial config", "node_name", nc.NodeName, "error", err)
+							// Проверяем, является ли ошибка недоступностью ноды
+							if status.Code(err) == codes.Unavailable {
+								cfg.Logger.Warn("Node is temporarily unavailable while sending initial config, will retry", "node_name", nc.NodeName, "error", err)
+							} else {
+								cfg.Logger.Error("Failed to send initial config", "node_name", nc.NodeName, "error", err)
+							}
 							nodeStates[nc.NodeName].mutex.Lock()
+							if nodeStates[nc.NodeName].stream != nil {
+								if err := nodeStates[nc.NodeName].stream.CloseSend(); err != nil {
+									cfg.Logger.Debug("Error closing stream", "node_name", nc.NodeName, "error", err)
+								}
+								nodeStates[nc.NodeName].stream = nil
+							}
 							nodeStates[nc.NodeName].isConnected = false
-							nodeStates[nc.NodeName].stream.CloseSend()
-							nodeStates[nc.NodeName].stream = nil
 							nodeStates[nc.NodeName].mutex.Unlock()
 							continue
 						}
@@ -209,11 +226,20 @@ func MonitorNodeData(ctx context.Context, manager *manager.DatabaseManager, node
 								ListUsers: &proto.ListUsersRequest{},
 							},
 						}); err != nil {
-							cfg.Logger.Error("Failed to send initial list users request", "node_name", nc.NodeName, "error", err)
+							// Проверяем, является ли ошибка недоступностью ноды
+							if status.Code(err) == codes.Unavailable {
+								cfg.Logger.Warn("Node is temporarily unavailable while sending initial list users request, will retry", "node_name", nc.NodeName, "error", err)
+							} else {
+								cfg.Logger.Error("Failed to send initial list users request", "node_name", nc.NodeName, "error", err)
+							}
 							nodeStates[nc.NodeName].mutex.Lock()
+							if nodeStates[nc.NodeName].stream != nil {
+								if err := nodeStates[nc.NodeName].stream.CloseSend(); err != nil {
+									cfg.Logger.Debug("Error closing stream", "node_name", nc.NodeName, "error", err)
+								}
+								nodeStates[nc.NodeName].stream = nil
+							}
 							nodeStates[nc.NodeName].isConnected = false
-							nodeStates[nc.NodeName].stream.CloseSend()
-							nodeStates[nc.NodeName].stream = nil
 							nodeStates[nc.NodeName].mutex.Unlock()
 							continue
 						}
@@ -232,14 +258,22 @@ func MonitorNodeData(ctx context.Context, manager *manager.DatabaseManager, node
 									return
 								}
 								if err != nil {
+									// Проверяем, является ли ошибка отменой контекста или недоступностью ноды
+									nodeStates[nc.NodeName].mutex.Lock()
 									if status.Code(err) == codes.Canceled && ctx.Err() != nil {
 										cfg.Logger.Debug("Stream closed due to context cancellation", "node_name", nc.NodeName)
+									} else if status.Code(err) == codes.Unavailable {
+										cfg.Logger.Warn("Node is temporarily unavailable, stream closed, will retry", "node_name", nc.NodeName, "error", err)
 									} else {
 										cfg.Logger.Error("Stream error", "node_name", nc.NodeName, "error", err)
 									}
-									nodeStates[nc.NodeName].mutex.Lock()
+									if nodeStates[nc.NodeName].stream != nil {
+										if err := nodeStates[nc.NodeName].stream.CloseSend(); err != nil {
+											cfg.Logger.Debug("Error closing stream", "node_name", nc.NodeName, "error", err)
+										}
+										nodeStates[nc.NodeName].stream = nil
+									}
 									nodeStates[nc.NodeName].isConnected = false
-									nodeStates[nc.NodeName].stream = nil
 									nodeStates[nc.NodeName].mutex.Unlock()
 									return
 								}
@@ -251,9 +285,13 @@ func MonitorNodeData(ctx context.Context, manager *manager.DatabaseManager, node
 								case <-ctx.Done():
 									cfg.Logger.Debug("Stopped sending to task channel due to context cancellation", "node_name", nc.NodeName)
 									nodeStates[nc.NodeName].mutex.Lock()
+									if nodeStates[nc.NodeName].stream != nil {
+										if err := nodeStates[nc.NodeName].stream.CloseSend(); err != nil {
+											cfg.Logger.Debug("Error closing stream", "node_name", nc.NodeName, "error", err)
+										}
+										nodeStates[nc.NodeName].stream = nil
+									}
 									nodeStates[nc.NodeName].isConnected = false
-									nodeStates[nc.NodeName].stream.CloseSend()
-									nodeStates[nc.NodeName].stream = nil
 									nodeStates[nc.NodeName].mutex.Unlock()
 									return
 								}
@@ -272,10 +310,19 @@ func MonitorNodeData(ctx context.Context, manager *manager.DatabaseManager, node
 								ListUsers: &proto.ListUsersRequest{},
 							},
 						}); err != nil {
-							cfg.Logger.Error("Failed to send list users request", "node_name", nc.NodeName, "error", err)
+							// Проверяем, является ли ошибка недоступностью ноды
+							if status.Code(err) == codes.Unavailable {
+								cfg.Logger.Warn("Node is temporarily unavailable while sending list users request, will retry", "node_name", nc.NodeName, "error", err)
+							} else {
+								cfg.Logger.Error("Failed to send list users request", "node_name", nc.NodeName, "error", err)
+							}
+							if nodeStates[nc.NodeName].stream != nil {
+								if err := nodeStates[nc.NodeName].stream.CloseSend(); err != nil {
+									cfg.Logger.Debug("Error closing stream", "node_name", nc.NodeName, "error", err)
+								}
+								nodeStates[nc.NodeName].stream = nil
+							}
 							nodeStates[nc.NodeName].isConnected = false
-							nodeStates[nc.NodeName].stream.CloseSend()
-							nodeStates[nc.NodeName].stream = nil
 							nodeStates[nc.NodeName].mutex.Unlock()
 							continue
 						}
