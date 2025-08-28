@@ -16,6 +16,7 @@ import (
 	"v2ray-stat/backend/db"
 	"v2ray-stat/backend/db/manager"
 	"v2ray-stat/backend/users"
+	"v2ray-stat/common"
 	"v2ray-stat/proto"
 
 	"google.golang.org/grpc/codes"
@@ -254,7 +255,7 @@ func AddUserHandler(manager *manager.DatabaseManager, cfg *config.Config) http.H
 					}
 					defer stmtInsertID.Close()
 
-					currentTime := time.Now().Format("2006-01-02-15")
+					currentTime := time.Now().In(common.TimeLocation).Unix()
 					for _, user := range res.resp.Users.Users {
 						if slices.Contains(req.Users, user.Username) {
 							enabledStr := "false"

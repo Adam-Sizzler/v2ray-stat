@@ -226,30 +226,38 @@ func buildCustomClientStats(builder *strings.Builder, manager *manager.DatabaseM
 		for _, col := range cfg.StatsColumns.Client.Columns {
 			if alias, ok := clientColumnAliases[col]; ok {
 				if aggregate && col == "node_name" {
-					continue // Пропускаем node_name для агрегированной статистики
+					continue
 				}
 				switch col {
-				case "user", "last_seen", "created":
-					if aggregate {
-						if col == "last_seen" {
-							clientCols = append(clientCols, fmt.Sprintf("MAX(ut.%s) AS \"%s\"", col, alias))
-						} else {
-							clientCols = append(clientCols, fmt.Sprintf("MIN(ut.%s) AS \"%s\"", col, alias))
-						}
-					} else {
-						clientCols = append(clientCols, fmt.Sprintf("ut.%s AS \"%s\"", col, alias))
-					}
-				case "sub_end", "renew", "lim_ip", "ips":
-					if aggregate {
-						clientCols = append(clientCols, fmt.Sprintf("MIN(ud.%s) AS \"%s\"", col, alias))
-					} else {
-						clientCols = append(clientCols, fmt.Sprintf("ud.%s AS \"%s\"", col, alias))
-					}
-				case "enabled":
+				case "user", "enabled":
 					if aggregate {
 						clientCols = append(clientCols, fmt.Sprintf("MIN(ut.%s) AS \"%s\"", col, alias))
 					} else {
 						clientCols = append(clientCols, fmt.Sprintf("ut.%s AS \"%s\"", col, alias))
+					}
+				case "last_seen":
+					if aggregate {
+						clientCols = append(clientCols, fmt.Sprintf("CASE WHEN MAX(ut.%s) = 0 THEN 'online' ELSE strftime('%%Y-%%m-%%d %%H:%%M', MAX(ut.%s), 'unixepoch') END AS \"%s\"", col, col, alias))
+					} else {
+						clientCols = append(clientCols, fmt.Sprintf("CASE WHEN ut.%s = 0 THEN 'online' ELSE strftime('%%Y-%%m-%%d %%H:%%M', ut.%s, 'unixepoch') END AS \"%s\"", col, col, alias))
+					}
+				case "created":
+					if aggregate {
+						clientCols = append(clientCols, fmt.Sprintf("MIN(strftime('%%Y-%%m-%%d %%H:%%M', ut.%s, 'unixepoch')) AS \"%s\"", col, alias))
+					} else {
+						clientCols = append(clientCols, fmt.Sprintf("strftime('%%Y-%%m-%%d %%H:%%M', ut.%s, 'unixepoch') AS \"%s\"", col, alias))
+					}
+				case "sub_end":
+					if aggregate {
+						clientCols = append(clientCols, fmt.Sprintf("CASE WHEN MAX(ud.%s) = 0 THEN 'permanent' ELSE strftime('%%Y-%%m-%%d %%H:%%M', MAX(ud.%s), 'unixepoch') END AS \"%s\"", col, col, alias))
+					} else {
+						clientCols = append(clientCols, fmt.Sprintf("CASE WHEN ud.%s = 0 THEN 'permanent' ELSE strftime('%%Y-%%m-%%d %%H:%%M', ud.%s, 'unixepoch') END AS \"%s\"", col, col, alias))
+					}
+				case "renew", "lim_ip", "ips":
+					if aggregate {
+						clientCols = append(clientCols, fmt.Sprintf("MIN(ud.%s) AS \"%s\"", col, alias))
+					} else {
+						clientCols = append(clientCols, fmt.Sprintf("ud.%s AS \"%s\"", col, alias))
 					}
 				case "inbound_tag", "id":
 					if aggregate {
@@ -283,7 +291,6 @@ func buildCustomClientStats(builder *strings.Builder, manager *manager.DatabaseM
 			clientSortOrder = sortOrder
 		}
 
-		// Формируем запрос с LEFT JOIN на user_ids
 		clientQuery := fmt.Sprintf("SELECT %s FROM user_traffic ut LEFT JOIN user_data ud ON ut.user = ud.user LEFT JOIN user_ids uu ON ut.user = uu.user AND ut.node_name = uu.node_name", strings.Join(clientCols, ", "))
 		var whereClauses []string
 		if nodeParam != "" {

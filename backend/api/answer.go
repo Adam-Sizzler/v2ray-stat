@@ -16,3 +16,13 @@ func Answer() http.HandlerFunc {
 		fmt.Fprintf(w, "MuxCloud / %s\n", constant.Version)
 	}
 }
+
+// WithServerHeader adds a Server header to all responses.
+func WithServerHeader(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serverHeader := fmt.Sprintf("MuxCloud/%s (WebServer)", constant.Version)
+		w.Header().Set("Server", serverHeader)
+		w.Header().Set("X-Powered-By", "MuxCloud")
+		next.ServeHTTP(w, r)
+	})
+}

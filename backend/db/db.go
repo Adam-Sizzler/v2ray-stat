@@ -160,7 +160,7 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 		-- Таблица для данных пользователей
 		CREATE TABLE IF NOT EXISTS user_data (
 			user TEXT PRIMARY KEY,
-			sub_end TEXT DEFAULT '',
+			sub_end INTEGER DEFAULT 0,
 			renew INTEGER DEFAULT 0,
 			lim_ip INTEGER DEFAULT 0,
 			ips TEXT DEFAULT ''
@@ -170,13 +170,13 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 		CREATE TABLE IF NOT EXISTS user_traffic (
 			node_name TEXT,
 			user TEXT,
-			last_seen TEXT DEFAULT '',
+			last_seen INTEGER DEFAULT 0,
 			rate INTEGER DEFAULT 0,
 			uplink INTEGER DEFAULT 0,
 			downlink INTEGER DEFAULT 0,
 			sess_uplink INTEGER DEFAULT 0,
 			sess_downlink INTEGER DEFAULT 0,
-			created TEXT,
+			created INTEGER DEFAULT 0,
 			enabled TEXT DEFAULT 'true',
 			PRIMARY KEY (node_name, user),
 			FOREIGN KEY (node_name) REFERENCES nodes(node_name) ON DELETE CASCADE,
@@ -305,7 +305,7 @@ func InitDatabase(cfg *config.Config) (memDB, fileDB *sql.DB, err error) {
 
 // MonitorSubscriptionsAndSync runs periodic subscription checks and database synchronization.
 func MonitorSubscriptionsAndSync(ctx context.Context, manager *manager.DatabaseManager, fileDB *sql.DB, cfg *config.Config, wg *sync.WaitGroup) {
-    defer wg.Done() // сигналим о завершении
+	defer wg.Done() // сигналим о завершении
 
 	cfg.Logger.Debug("Starting subscription and sync monitoring")
 	go func() {

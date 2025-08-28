@@ -1,0 +1,12 @@
+  - name: "HAPROXY"
+    type: vless
+    server: swe.theleet.world
+    port: 443
+    uuid: "{user_id}"
+    udp: true
+    tls: true
+    flow: none
+    fingerprint: chrome
+    alpn:
+      - h2
+    network: tcp

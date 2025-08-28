@@ -1,0 +1,41 @@
+mixed-port: 7890
+allow-lan: true
+mode: rule
+log-level: warning
+
+dns:
+  enable: true
+  listen: :53
+  default-nameserver:
+    - 1.1.1.1
+    - 8.8.8.8
+  enhanced-mode: fake-ip
+  nameserver:
+    - https://1.1.1.1/dns-query
+    - 8.8.8.8
+    - 8.8.4.4
+  nameserver-policy:
+    "swe.theleet.world": 62.60.152.224
+
+proxies: []
+
+proxy-groups:
+  - name: "SELECT"
+    type: select
+    proxies:
+      - HAPROXY
+      - CHAIN
+      - DIRECT
+      - REJECT
+
+rules:
+  - DOMAIN,swe.theleet.world,DIRECT
+  - DOMAIN-SUFFIX,ru.net,DIRECT
+  - DOMAIN-KEYWORD,ipleak,DIRECT
+  - DOMAIN-KEYWORD,analytics,REJECT
+  - DOMAIN-KEYWORD,telemetry,REJECT
+  - DOMAIN-KEYWORD,bongacams,REJECT
+  - DOMAIN-KEYWORD,firebase,REJECT
+  - DOMAIN-KEYWORD,tracking,REJECT
+  - DOMAIN-KEYWORD,reklama,REJECT
+  - MATCH,SELECT

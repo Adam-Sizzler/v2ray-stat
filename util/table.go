@@ -5,20 +5,19 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 	"v2ray-stat/backend/config"
+	"v2ray-stat/common"
 )
 
-// contains checks if an item exists in a slice.
 func Contains(slice []string, item string) bool {
 	return slices.Contains(slice, item)
 }
 
-// appendStats appends content to a strings.Builder.
 func AppendStats(builder *strings.Builder, content string) {
 	builder.WriteString(content)
 }
 
-// formatTable formats SQL query results into a table.
 func FormatTable(rows *sql.Rows, trafficColumns []string, cfg *config.Config) (string, error) {
 	columns, err := rows.Columns()
 	if err != nil {
@@ -46,22 +45,37 @@ func FormatTable(rows *sql.Rows, trafficColumns []string, cfg *config.Config) (s
 
 		row := make([]string, len(columns))
 		for i, val := range values {
-			strVal := fmt.Sprintf("%v", val)
+			strVal := ""
+			switch v := val.(type) {
+			case int64:
+				if columns[i] == "created" || columns[i] == "sub_end" {
+					if v == 0 {
+						strVal = ""
+					} else {
+						strVal = time.Unix(v, 0).In(common.TimeLocation).Format("2006-01-02 15:04")
+					}
+				} else if Contains(trafficColumns, columns[i]) {
+					switch columns[i] {
+					case "Rate":
+						strVal = FormatData(float64(v), "bps")
+					case "Uplink", "Downlink", "Sess Up", "Sess Down":
+						strVal = FormatData(float64(v), "byte")
+					default:
+						strVal = fmt.Sprintf("%d", v)
+					}
+				} else {
+					strVal = fmt.Sprintf("%d", v)
+				}
+			case string:
+				strVal = v
+			case nil:
+				strVal = ""
+			default:
+				strVal = fmt.Sprintf("%v", v)
+			}
 			if len(strVal) > 255 {
 				cfg.Logger.Warn("Value too long in column", "column", columns[i], "length", len(strVal))
 				strVal = strVal[:255]
-			}
-			if Contains(trafficColumns, columns[i]) {
-				if numVal, ok := val.(int64); ok {
-					switch columns[i] {
-					case "Rate":
-						strVal = FormatData(float64(numVal), "bps")
-					case "Uplink", "Downlink", "Sess Up", "Sess Down":
-						strVal = FormatData(float64(numVal), "byte")
-					default:
-						strVal = fmt.Sprintf("%d", numVal)
-					}
-				}
 			}
 			row[i] = strVal
 			if len(strVal) > maxWidths[i] {

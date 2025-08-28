@@ -41,13 +41,14 @@ func LoadIsInactiveFromLastSeen(manager *manager.DatabaseManager, cfg *config.Co
 		defer rows.Close()
 
 		for rows.Next() {
-			var nodeName, user, lastSeen string
+			var nodeName, user string
+			var lastSeen int64
 			if err := rows.Scan(&nodeName, &user, &lastSeen); err != nil {
 				cfg.Logger.Warn("Failed to scan row", "node_name", nodeName, "user", user, "error", err)
 				continue
 			}
 			cfg.Logger.Trace("Processing user", "node_name", nodeName, "user", user, "last_seen", lastSeen)
-			isInactiveLocal[nodeName+":"+user] = lastSeen != "online"
+			isInactiveLocal[nodeName+":"+user] = lastSeen != 0
 		}
 		if err := rows.Err(); err != nil {
 			cfg.Logger.Error("Error iterating rows", "error", err)
@@ -311,7 +312,7 @@ func updateUserStats(manager *manager.DatabaseManager, nodeName string, apiData 
 		}
 	}
 
-	currentTime := time.Now().In(common.TimeLocation)
+	currentTime := time.Now().In(common.TimeLocation).Unix()
 	err := manager.ExecuteHighPriority(func(db *sql.DB) error {
 		tx, err := db.BeginTx(context.Background(), nil)
 		if err != nil {
@@ -343,48 +344,52 @@ func updateUserStats(manager *manager.DatabaseManager, nodeName string, apiData 
 			downlinkOnline := max(sessDownlink-previousDownlink, 0)
 			rate := (uplinkOnline + downlinkOnline) * 8 / cfg.V2rayStat.Monitor.TickerInterval
 
-			var lastSeen string
+			var lastSeen int64
+			var updateLastSeen bool
 			userKey := nodeName + ":" + user
 			if rate > cfg.V2rayStat.Monitor.OnlineRateThreshold*1000 {
-				lastSeen = "online"
+				lastSeen = 0
 				isInactive[userKey] = false
+				updateLastSeen = true
 				cfg.Logger.Debug("User is active", "node_name", nodeName, "user", user)
 			} else {
 				if !isInactive[userKey] {
-					lastSeen = currentTime.Truncate(time.Minute).Format("2006-01-02 15:04")
+					lastSeen = currentTime
 					isInactive[userKey] = true
+					updateLastSeen = true
 					cfg.Logger.Debug("User transitioned to inactive state", "node_name", nodeName, "user", user, "last_seen", lastSeen)
+				} else {
+					updateLastSeen = false // Не обновляем last_seen для уже неактивных пользователей
+					cfg.Logger.Debug("User remains inactive, preserving last_seen", "node_name", nodeName, "user", user)
 				}
 			}
 
-			cfg.Logger.Debug("Updating user stats", "node_name", nodeName, "user", user, "rate", rate, "uplink", uplink, "downlink", downlink)
+			cfg.Logger.Debug("Updating user stats", "node_name", nodeName, "user", user, "rate", rate, "uplink", uplink, "downlink", downlink, "last_seen", lastSeen, "update_last_seen", updateLastSeen)
 
-			if lastSeen != "" {
+			if updateLastSeen {
 				_, err := tx.Exec(`
-					UPDATE user_traffic 
-					SET last_seen = ?, rate = ?, uplink = uplink + ?, downlink = downlink + ?, sess_uplink = ?, sess_downlink = ?
-					WHERE node_name = ? AND user = ? AND EXISTS (
-						SELECT 1 FROM user_traffic WHERE node_name = ? AND user = ?
-					)`,
-					lastSeen, rate, uplink, downlink, sessUplink, sessDownlink, nodeName, user, nodeName, user)
+                    UPDATE user_traffic 
+                    SET last_seen = ?, rate = ?, uplink = uplink + ?, downlink = downlink + ?, sess_uplink = ?, sess_downlink = ?
+                    WHERE node_name = ? AND user = ?`,
+					lastSeen, rate, uplink, downlink, sessUplink, sessDownlink, nodeName, user)
 				if err != nil {
 					return fmt.Errorf("update user_traffic for %s: %w", user, err)
 				}
 			} else {
 				_, err := tx.Exec(`
-					UPDATE user_traffic 
-					SET rate = ?, uplink = uplink + ?, downlink = downlink + ?, sess_uplink = ?, sess_downlink = ?
-					WHERE node_name = ? AND user = ? AND EXISTS (
-						SELECT 1 FROM user_traffic WHERE node_name = ? AND user = ?
-					)`,
-					rate, uplink, downlink, sessUplink, sessDownlink, nodeName, user, nodeName, user)
+                    UPDATE user_traffic 
+                    SET rate = ?, uplink = uplink + ?, downlink = downlink + ?, sess_uplink = ?, sess_downlink = ?
+                    WHERE node_name = ? AND user = ?`,
+					rate, uplink, downlink, sessUplink, sessDownlink, nodeName, user)
 				if err != nil {
 					return fmt.Errorf("update user_traffic for %s: %w", user, err)
 				}
 			}
 
 			userActivityMutex.Lock()
-			userActivityTimestamps[nodeName][user] = currentTime
+			if updateLastSeen {
+				userActivityTimestamps[nodeName][user] = time.Unix(lastSeen, 0).In(common.TimeLocation)
+			}
 			userActivityMutex.Unlock()
 		}
 

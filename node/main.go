@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	cfg, err := config.LoadNodeConfig("node_config.yaml")
+	cfg, err := config.LoadNodeConfig("config.yaml")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load node config: %v\n", err)
 		os.Exit(1)

@@ -36,7 +36,6 @@ func processTask(ctx context.Context, manager *manager.DatabaseManager, nodeName
 		cfg.Logger.Debug("Processed stats response", "node_name", nodeName)
 
 	case *proto.NodeDataResponse_Users:
-		// Найти правильный nodeClient по nodeName
 		var nodeClient *db.NodeClient
 		for _, nc := range nodeClients {
 			if nc.NodeName == nodeName {
@@ -100,7 +99,7 @@ func MonitorNodeData(ctx context.Context, manager *manager.DatabaseManager, node
 
 		// Start worker pool (number of workers based on CPU count or node count)
 		numWorkers := max(4, min(len(nodeClients)/10, runtime.NumCPU()*2))
-		for i := 0; i < numWorkers; i++ {
+		for i := range numWorkers {
 			workerWG.Add(1)
 			go func(workerID int) {
 				defer workerWG.Done()

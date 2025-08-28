@@ -10,6 +10,7 @@ import (
 	"v2ray-stat/backend/config"
 	"v2ray-stat/backend/db"
 	"v2ray-stat/backend/db/manager"
+	"v2ray-stat/common"
 	"v2ray-stat/proto"
 )
 
@@ -30,7 +31,6 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 		go func(nc *db.NodeClient) {
 			defer wg.Done()
 
-			// Защита от nil client
 			if nc == nil || nc.Client == nil {
 				cfg.Logger.Error("Node client is nil", "node_name", nc.NodeName)
 				resultsCh <- struct {
@@ -116,20 +116,29 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 			}
 			defer tx.Rollback()
 
-			stmtUpsertUser, err := tx.Prepare(`
-                INSERT INTO user_traffic (node_name, user, rate, created, enabled)
-                VALUES (?, ?, 0, ?, ?)
-                ON CONFLICT(node_name, user) DO UPDATE SET
-                    enabled = excluded.enabled,
-                    created = excluded.created`)
+			// Запрос для вставки новых пользователей
+			stmtInsertUser, err := tx.Prepare(`
+				INSERT INTO user_traffic (node_name, user, rate, last_seen, created, enabled)
+				VALUES (?, ?, 0, ?, ?, ?)
+				ON CONFLICT(node_name, user) DO NOTHING`)
 			if err != nil {
-				return fmt.Errorf("prepare upsert user statement: %w", err)
+				return fmt.Errorf("prepare insert user statement: %w", err)
 			}
-			defer stmtUpsertUser.Close()
+			defer stmtInsertUser.Close()
+
+			// Запрос для обновления существующих пользователей
+			stmtUpdateUser, err := tx.Prepare(`
+				UPDATE user_traffic
+				SET enabled = ?
+				WHERE node_name = ? AND user = ?`)
+			if err != nil {
+				return fmt.Errorf("prepare update user statement: %w", err)
+			}
+			defer stmtUpdateUser.Close()
 
 			stmtInsertID, err := tx.Prepare(`
-                INSERT OR IGNORE INTO user_ids (node_name, user, id, inbound_tag)
-                VALUES (?, ?, ?, ?)`)
+				INSERT OR IGNORE INTO user_ids (node_name, user, id, inbound_tag)
+				VALUES (?, ?, ?, ?)`)
 			if err != nil {
 				return fmt.Errorf("prepare insert id statement: %w", err)
 			}
@@ -147,45 +156,53 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 			}
 			defer stmtDeleteID.Close()
 
-			currentTime := time.Now().Format("2006-01-02-15")
+			currentTime := time.Now().In(common.TimeLocation).Unix()
 			for _, user := range res.users.Users {
 				enabledStr := "false"
 				if user.Enabled {
 					enabledStr = "true"
 				}
 
-				cfg.Logger.Debug("Upserting user", "node_name", res.nodeName, "user", user.Username, "enabled", enabledStr)
-				result, err := stmtUpsertUser.Exec(res.nodeName, user.Username, currentTime, enabledStr)
+				cfg.Logger.Debug("Processing user", "node_name", res.nodeName, "user", user.Username, "enabled", enabledStr)
+
+				// Проверяем, существует ли пользователь
+				var exists int
+				err = tx.QueryRow(`SELECT COUNT(*) FROM user_traffic WHERE node_name = ? AND user = ?`, res.nodeName, user.Username).Scan(&exists)
 				if err != nil {
-					return fmt.Errorf("upsert user %s: %w", user.Username, err)
+					return fmt.Errorf("check existence for user %s: %w", user.Username, err)
 				}
 
-				rowsAffected, err := result.RowsAffected()
-				if err != nil {
-					return fmt.Errorf("check rows affected for upsert user %s: %w", user.Username, err)
-				}
-				if rowsAffected > 0 {
-					var exists int
-					err = tx.QueryRow(`SELECT COUNT(*) FROM user_traffic WHERE node_name=? AND user=?`, res.nodeName, user.Username).Scan(&exists)
+				if exists == 0 {
+					// Вставка нового пользователя
+					result, err := stmtInsertUser.Exec(res.nodeName, user.Username, currentTime, currentTime, enabledStr)
 					if err != nil {
-						return fmt.Errorf("check existence for user %s: %w", user.Username, err)
+						return fmt.Errorf("insert user %s: %w", user.Username, err)
 					}
-					if exists == 1 {
-						var created string
-						err = tx.QueryRow(`SELECT created FROM user_traffic WHERE node_name=? AND user=?`, res.nodeName, user.Username).Scan(&created)
-						if err != nil {
-							return fmt.Errorf("get created for user %s: %w", user.Username, err)
-						}
-						if created == currentTime {
-							addedUsers++
-							cfg.Logger.Debug("User added", "node_name", res.nodeName, "user", user.Username)
-						} else {
-							updatedUsers++
-							cfg.Logger.Debug("User updated", "node_name", res.nodeName, "user", user.Username)
-						}
+					rowsAffected, err := result.RowsAffected()
+					if err != nil {
+						return fmt.Errorf("check rows affected for insert user %s: %w", user.Username, err)
+					}
+					if rowsAffected > 0 {
+						addedUsers++
+						cfg.Logger.Debug("User added", "node_name", res.nodeName, "user", user.Username)
+					}
+				} else {
+					// Обновление существующего пользователя (только enabled)
+					result, err := stmtUpdateUser.Exec(enabledStr, res.nodeName, user.Username)
+					if err != nil {
+						return fmt.Errorf("update user %s: %w", user.Username, err)
+					}
+					rowsAffected, err := result.RowsAffected()
+					if err != nil {
+						return fmt.Errorf("check rows affected for update user %s: %w", user.Username, err)
+					}
+					if rowsAffected > 0 {
+						updatedUsers++
+						cfg.Logger.Debug("User updated", "node_name", res.nodeName, "user", user.Username)
 					}
 				}
 
+				// Вставка ID для пользователя
 				for _, ui := range user.IdInbounds {
 					cfg.Logger.Debug("Inserting ID for user", "node_name", res.nodeName, "user", user.Username, "id", ui.Id, "inbound_tag", ui.InboundTag)
 					result, err := stmtInsertID.Exec(res.nodeName, user.Username, ui.Id, ui.InboundTag)
@@ -203,6 +220,7 @@ func SyncUsersWithNode(ctx context.Context, manager *manager.DatabaseManager, no
 				}
 			}
 
+			// Удаление пользователей, которых нет в nodeUsers
 			for _, user := range dbUsers {
 				if !nodeUsers[user] {
 					cfg.Logger.Debug("Deleting user", "node_name", res.nodeName, "user", user)

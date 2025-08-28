@@ -17,6 +17,7 @@ import (
 	"v2ray-stat/backend/db"
 	"v2ray-stat/backend/db/manager"
 	"v2ray-stat/backend/users"
+	"v2ray-stat/common"
 	"v2ray-stat/proto"
 )
 
@@ -244,7 +245,7 @@ func SetUserEnabledHandler(manager *manager.DatabaseManager, cfg *config.Config)
 					}
 					defer stmtInsertID.Close()
 
-					currentTime := time.Now().Format("2006-01-02-15")
+					currentTime := time.Now().In(common.TimeLocation).Unix()
 					for _, user := range res.users.Users {
 						if slices.Contains(req.Users, user.Username) {
 							enabledStr := "false"

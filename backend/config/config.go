@@ -16,7 +16,7 @@ import (
 // Config holds the configuration settings for the backend.
 type Config struct {
 	Log          LogConfig       `yaml:"log"`
-	V2rayStat    V2rayStatConfig `yaml:"v2ray-stat"`
+	V2rayStat    V2rayStatConfig `yaml:"v2rs-backend"`
 	API          APIConfig       `yaml:"api"`
 	Timezone     string          `yaml:"timezone"`
 	Paths        PathsConfig     `yaml:"paths"`

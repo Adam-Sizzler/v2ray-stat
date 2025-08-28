@@ -1,0 +1,44 @@
+# v2ray-stat-subscription Configuration File
+# This file specifies paths and settings for the v2ray-stat monitoring application.
+
+# Log Settings
+log:
+  loglevel: info                                          # Logging level: none, error, warn, info, debug, trace. NONE disables logging; each level includes messages from lower levels.
+  logmode: inclusive                                      # Log mode: inclusive = this and lower levels; exclusive = only this level
+
+# Timezone Settings 
+timezone: Asia/Bangkok                                    # IANA timezone name (e.g., Europe/Amsterdam, Asia/Singapore). If empty, uses TZ environment variable or UTC.
+
+# V2RS-Sub Settings
+v2rs-sub:
+  address: 127.0.0.1                                      # Listening address for the subscription server. '127.0.0.1' restricts access to localhost.
+  port: 9962                                              # Listening port for the subscription server. Must be between 1 and 65535.
+
+# Subscription Settings
+subscription:
+  defaults:                                               # Default settings applied to users unless overridden.
+    clients: ["xray"]                                     # Default list of supported clients (e.g., xray, singbox, mihomo).
+    nodes: ["rus"]                                        # Default list of nodes available to users.
+    templates:                                            # Default node-to-template mappings for generating configurations.
+      rus: node_1                                         # Template used for the 'rus' node.
+    headers:                                              # Default HTTP headers included in subscription responses.
+      Profile-Title: "base64:U3Vic2NyaXB"                 # Base64-encoded subscription title.
+      Profile-Update-Interval: "12"                       # Interval (in hours) for subscription updates.
+      Support-Url: "https://natribu.org/"                 # URL for support information.
+      Profile-Web-Page-Url: "https://nat.org/"            # URL for the subscription web page.
+      Announce: "base64:SHVsaSB0eXQgemFiaWwn"             # Base64-encoded announcement message.
+  groups:                                                 # Configuration for user groups with shared settings.
+    standard:                                             # Group for standard-tier users.
+      clients: ["mihomo"]                                 # Supported clients for this group.
+      nodes: ["swe"]                                      # Nodes available to this group.
+      templates:                                          # Node-to-template mappings for this group.
+        swe: node_1                                       # Template used for the 'swe' node.
+    premium:                                              # Group for premium-tier users.
+      clients: ["xray", "singbox", "mihomo"]              # Supported clients for this group.
+      nodes: ["swe", "rus"]                               # Nodes available to this group.
+      templates:                                          # Node-to-template mappings for this group.
+        swe: node_1                                       # Template for the 'swe' node.
+        rus: node_2                                       # Template for the 'rus' node.
+  users:                                                  # Configuration for individual users.
+    cortez:                                               # User-specific settings for user 'cortez'.
+      group: premium                                      # Assigns the user to the 'premium' group, inheriting its settings.

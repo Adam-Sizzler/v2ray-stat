@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -25,22 +24,12 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// withServerHeader adds a Server header to all responses.
-func withServerHeader(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		serverHeader := fmt.Sprintf("MuxCloud/%s (WebServer)", constant.Version)
-		w.Header().Set("Server", serverHeader)
-		w.Header().Set("X-Powered-By", "MuxCloud")
-		next.ServeHTTP(w, r)
-	})
-}
-
 // startAPIServer starts the API server.
 func startAPIServer(ctx context.Context, manager *manager.DatabaseManager, cfg *config.Config, wg *sync.WaitGroup) {
 	defer wg.Done()
 	server := &http.Server{
 		Addr:    cfg.V2rayStat.Address + ":" + cfg.V2rayStat.Port,
-		Handler: withServerHeader(http.DefaultServeMux),
+		Handler: api.WithServerHeader(http.DefaultServeMux),
 	}
 
 	http.HandleFunc("/", api.Answer())
