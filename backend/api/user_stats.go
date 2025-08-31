@@ -220,7 +220,7 @@ func buildCustomClientStats(builder *strings.Builder, manager *manager.DatabaseM
 		"Downlink",
 		"Sess Up",
 		"Sess Down",
-		"Traffic cap",
+		"Traffic Cap",
 	}
 
 	if len(cfg.StatsColumns.Client.Columns) > 0 {

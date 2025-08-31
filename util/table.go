@@ -58,7 +58,7 @@ func FormatTable(rows *sql.Rows, trafficColumns []string, cfg *config.Config) (s
 					switch columns[i] {
 					case "Rate":
 						strVal = FormatData(float64(v), "bps")
-					case "Uplink", "Downlink", "Sess Up", "Sess Down":
+					case "Uplink", "Downlink", "Sess Up", "Sess Down", "Traffic Cap":
 						strVal = FormatData(float64(v), "byte")
 					default:
 						strVal = fmt.Sprintf("%d", v)
