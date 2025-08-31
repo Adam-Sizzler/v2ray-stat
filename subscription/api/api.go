@@ -15,19 +15,21 @@ type UserID struct {
 	NodeName   string `json:"node_name"`
 	User       string `json:"user"`
 	ID         string `json:"id"`
+	SubEnd     int64  `json:"sub_end"`
 	InboundTag string `json:"inbound_tag"`
 	Uplink     int64  `json:"uplink"`
 	Downlink   int64  `json:"downlink"`
-	SubEnd     int64  `json:"sub_end"`
+	TrafficCap int64  `json:"traffic_cap"`
 }
 
 // NodeUser represents a user within a node in the API response.
 type NodeUser struct {
-	User     string    `json:"user"`
-	Inbounds []Inbound `json:"inbounds"`
-	Uplink   int64     `json:"uplink"`
-	Downlink int64     `json:"downlink"`
-	SubEnd   int64     `json:"sub_end"`
+	User       string    `json:"user"`
+	Inbounds   []Inbound `json:"inbounds"`
+	Uplink     int64     `json:"uplink"`
+	Downlink   int64     `json:"downlink"`
+	SubEnd     int64     `json:"sub_end"`
+	TrafficCap int64     `json:"traffic_cap"`
 }
 
 // Inbound represents an inbound configuration for a user.
@@ -131,9 +133,10 @@ func filterUserIDs(backendResponse BackendResponse, user string) []UserID {
 						User:       u.User,
 						ID:         inbound.ID,
 						InboundTag: inbound.InboundTag,
+						SubEnd:     u.SubEnd,
 						Uplink:     u.Uplink,
 						Downlink:   u.Downlink,
-						SubEnd:     u.SubEnd,
+						TrafficCap: u.TrafficCap,
 					})
 				}
 			}

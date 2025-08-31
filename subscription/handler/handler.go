@@ -142,7 +142,7 @@ func SubscriptionHandler(w http.ResponseWriter, r *http.Request) {
 	cfg.Logger.Debug("Fetched user IDs", "user", user, "count", len(userIDs))
 
 	var configs []string
-	var totalUplink, totalDownlink, maxSubEnd int64
+	var totalUplink, totalDownlink, maxSubEnd, maxTrafficCap int64
 
 	tmpls := templates.GetTemplates()
 
@@ -181,6 +181,9 @@ func SubscriptionHandler(w http.ResponseWriter, r *http.Request) {
 		totalDownlink += nodeTraffic.Downlink
 		if nodeTraffic.SubEnd > maxSubEnd {
 			maxSubEnd = nodeTraffic.SubEnd
+		}
+		if nodeTraffic.TrafficCap > maxTrafficCap {
+			maxTrafficCap = nodeTraffic.TrafficCap
 		}
 
 		configStr := strings.ReplaceAll(template, "{user_id}", userID)
@@ -246,7 +249,7 @@ func SubscriptionHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(k, v)
 	}
 
-	userInfo := fmt.Sprintf("upload=%d; download=%d; total=2024102411; expire=%d", totalUplink, totalDownlink, maxSubEnd)
+	userInfo := fmt.Sprintf("upload=%d; download=%d; total=%d; expire=%d", totalUplink, totalDownlink, maxTrafficCap, maxSubEnd)
 	w.Header().Set("Subscription-Userinfo", userInfo)
 	for k, v := range userConfig.Headers {
 		w.Header().Set(k, v)

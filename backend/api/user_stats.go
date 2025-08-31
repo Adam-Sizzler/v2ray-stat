@@ -34,12 +34,12 @@ func StatsHandler(manager *manager.DatabaseManager, cfg *config.Config) http.Han
 		// Валидация sort_by
 		validSortColumns := []string{
 			"node_name", "user", "last_seen", "rate", "uplink", "downlink", "sess_uplink", "sess_downlink", "created",
-			"inbound_tag", "id", // Добавляем новые колонки для сортировки
+			"inbound_tag", "id", "traffic_cap",
 		}
 		if aggregate {
 			validSortColumns = []string{
 				"user", "last_seen", "rate", "uplink", "downlink", "sess_uplink", "sess_downlink", "created",
-				"inbound_tag", "id", // Добавляем новые колонки для агрегированной сортировки
+				"inbound_tag", "id", "traffic_cap",
 			}
 		}
 		if sortBy != "" && !util.Contains(validSortColumns, sortBy) {
@@ -212,6 +212,7 @@ func buildCustomClientStats(builder *strings.Builder, manager *manager.DatabaseM
 		"enabled":       "Enabled",
 		"inbound_tag":   "Tag",
 		"id":            "ID",
+		"traffic_cap":   "Traffic Cap",
 	}
 	clientAliases := []string{
 		"Rate",
@@ -219,6 +220,7 @@ func buildCustomClientStats(builder *strings.Builder, manager *manager.DatabaseM
 		"Downlink",
 		"Sess Up",
 		"Sess Down",
+		"Traffic cap",
 	}
 
 	if len(cfg.StatsColumns.Client.Columns) > 0 {
@@ -264,6 +266,12 @@ func buildCustomClientStats(builder *strings.Builder, manager *manager.DatabaseM
 						clientCols = append(clientCols, fmt.Sprintf("MIN(uu.%s) AS \"%s\"", col, alias))
 					} else {
 						clientCols = append(clientCols, fmt.Sprintf("uu.%s AS \"%s\"", col, alias))
+					}
+				case "traffic_cap":
+					if aggregate {
+						clientCols = append(clientCols, fmt.Sprintf("SUM(ud.%s) AS \"%s\"", col, alias))
+					} else {
+						clientCols = append(clientCols, fmt.Sprintf("ud.%s AS \"%s\"", col, alias))
 					}
 				default:
 					if aggregate {

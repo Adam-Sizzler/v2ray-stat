@@ -30,6 +30,7 @@ type NodeClient struct {
 
 // NewNodeClient creates a new gRPC client for a node with TLS configuration.
 func NewNodeClient(nodeCfg config.NodeConfig, cfg *config.Config) (*NodeClient, error) {
+	url := fmt.Sprintf("%s:%s", nodeCfg.Address, nodeCfg.Port)
 	var opts []grpc.DialOption
 
 	if nodeCfg.MTLSConfig != nil {
@@ -68,16 +69,16 @@ func NewNodeClient(nodeCfg config.NodeConfig, cfg *config.Config) (*NodeClient, 
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	conn, err := grpc.NewClient(nodeCfg.URL, opts...)
+	conn, err := grpc.NewClient(url, opts...)
 	if err != nil {
-		cfg.Logger.Error("Failed to connect to node", "node", nodeCfg.NodeName, "url", nodeCfg.URL, "error", err)
-		return nil, fmt.Errorf("failed to connect to node %s (%s): %v", nodeCfg.NodeName, nodeCfg.URL, err)
+		cfg.Logger.Error("Failed to connect to node", "node", nodeCfg.NodeName, "url", url, "error", err)
+		return nil, fmt.Errorf("failed to connect to node %s (%s): %v", nodeCfg.NodeName, url, err)
 	}
 
 	client := proto.NewNodeServiceClient(conn)
 	return &NodeClient{
 		NodeName: nodeCfg.NodeName,
-		URL:      nodeCfg.URL,
+		URL:      url,
 		Client:   client,
 		Conn:     conn,
 	}, nil
@@ -102,6 +103,7 @@ func InitNodeClients(cfg *config.Config) ([]*NodeClient, error) {
 		}
 		nodeClients = append(nodeClients, client)
 	}
+
 	if len(nodeClients) == 0 {
 		return nil, fmt.Errorf("no node clients initialized")
 	}
@@ -141,7 +143,9 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 		-- Таблица для нод
 		CREATE TABLE IF NOT EXISTS nodes (
 			node_name TEXT PRIMARY KEY,
-			address TEXT NOT NULL UNIQUE
+			address TEXT NOT NULL,
+			port TEXT NOT NULL,
+			CONSTRAINT unique_address_port UNIQUE (address, port)
 		);
 
 		-- Таблица для статистики трафика по нодам
@@ -160,6 +164,7 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 		-- Таблица для данных пользователей
 		CREATE TABLE IF NOT EXISTS user_data (
 			user TEXT PRIMARY KEY,
+			traffic_cap INTEGER DEFAULT 0,
 			sub_end INTEGER DEFAULT 0,
 			renew INTEGER DEFAULT 0,
 			lim_ip INTEGER DEFAULT 0,
@@ -240,9 +245,9 @@ func OpenAndInitDB(dbPath string, dbType string, cfg *config.Config) (*sql.DB, e
 	}
 
 	for _, node := range cfg.V2rayStat.Nodes {
-		_, err = db.Exec("INSERT OR IGNORE INTO nodes (node_name, address) VALUES (?, ?)", node.NodeName, node.URL)
+		_, err = db.Exec("INSERT OR IGNORE INTO nodes (node_name, address, port) VALUES (?, ?, ?)", node.NodeName, node.Address, node.Port)
 		if err != nil {
-			cfg.Logger.Error("Failed to insert node", "node_name", node.NodeName, "address", node.URL, "error", err)
+			cfg.Logger.Error("Failed to insert node", "node_name", node.NodeName, "address", node.Address, "port", node.Port, "error", err)
 		}
 	}
 

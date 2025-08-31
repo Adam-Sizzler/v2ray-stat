@@ -13,8 +13,8 @@ api:
 # Timezone Settings 
 timezone: Asia/Bangkok                                    # IANA timezone name (e.g., Europe/Amsterdam, Asia/Singapore). If empty, uses TZ environment variable or UTC.
 
-# v2ray-stat Settings        
-v2rs-backend:        
+# v2ray-stat Settings
+v2rs-backend:
   address: 127.0.0.1                                      # IP address of the v2ray-stat API server. 127.0.0.1 means it is accessible only locally (localhost).
   port: 9952                                              # TCP port for v2ray-stat API server. Must be between 1 and 65535.
   monitor:        
@@ -22,19 +22,29 @@ v2rs-backend:
     online_rate_threshold: 15                             # Minimum rate threshold in kilobits per second (kbps) to consider a user online. 0 means any non-zero rate is considered online.
   nodes:                                                  # List of monitored nodes and their API connection parameters.
     - node_name: swe                                      # Display name of the node.
-      url: "127.0.0.1:10000"                              # Node API endpoint address in host:port format.
-    - node_name: rus
-      url: "46.85.158.74:10000"
+      address: 127.0.0.1                                  # Node API endpoint address in host format.
+      port: 9962                                          # Node API endpoint address in port format.
+    - node_name: de
+      address: 1.2.3.4                                    # Node API endpoint address in host format.
+      port: 9962                                          # Node API endpoint address in port format.
       mtls:
         cert: /usr/local/etc/v2ray-stat/certs/node.crt
         key: /usr/local/etc/v2ray-stat/certs/node.key
         ca_cert: /usr/local/etc/v2ray-stat/certs/node.crt
     - node_name: nl
-      url: "example.com:443"
+      address: example.com                                # Node API endpoint address in host format.
+      port: 443                                           # Node API endpoint address in port format.
       mtls:                                               # mTLS (mutual TLS) configuration for secure connection to the node.
         cert: /usr/local/etc/v2ray-stat/certs/node.crt    # Path to the client's TLS certificate.
         key: /usr/local/etc/v2ray-stat/certs/node.key     # Path to the client's private key.
         ca_cert: /usr/local/etc/v2ray-stat/certs/node.crt # Path to the CA certificate for server verification.
+  subscription:
+    address: 127.0.0.1
+    port: 9972
+    # mtls:                                               # mTLS (mutual TLS) configuration for secure connection to the node.
+    #   cert: /usr/local/etc/v2ray-stat/certs/node.crt    # Path to the client's TLS certificate.
+    #   key: /usr/local/etc/v2ray-stat/certs/node.key     # Path to the client's private key.
+    #   ca_cert: /usr/local/etc/v2ray-stat/certs/node.crt # Path to the CA certificate for server verification.
 
 # Paths & Logging 
 paths: 
@@ -64,6 +74,7 @@ stats_columns:
       - rate                                              # Current traffic rate in bits per second (bps).
       - uplink                                            # Total uploaded traffic in bytes.
       - downlink                                          # Total downloaded traffic in bytes.
+      # - traffic_cap
       # - sess_uplink                                     # Session-based uploaded traffic in bytes (reset after reconnect).
       # - sess_downlink                                   # Session-based downloaded traffic in bytes (reset after reconnect).
       # - enabled                                         # Whether the client is enabled (true/false).
@@ -81,7 +92,7 @@ stats_columns:
 v2rs-node:
   type: xray                                              # Type of proxy core used for statistics. Accepted values: xray, singbox.
   address: 127.0.0.1                                      # IP address of the proxy core API server. '127.0.0.1' restricts access to localhost.
-  port: 10000                                             # TCP port for the proxy core API server. Must be between 1 and 65535.
+  port: 9962                                              # TCP port for the proxy core API server. Must be between 1 and 65535.
 
 # Features & Monitoring Options
 features:
@@ -102,17 +113,18 @@ core:
 # V2RS-Sub Settings
 v2rs-sub:
   address: 127.0.0.1                                      # Listening address for the subscription server. '127.0.0.1' restricts access to localhost.
-  port: 9962                                              # Listening port for the subscription server. Must be between 1 and 65535.
+  port: 9972                                              # Listening port for the subscription server. Must be between 1 and 65535.
 
 # Subscription Settings
 subscription:
   defaults:                                               # Default settings applied to users unless overridden.
-    clients: ["xray"]                                     # Default list of supported clients (e.g., xray, singbox, mihomo).
-    nodes: ["rus"]                                        # Default list of nodes available to users.
-    templates:                                            # Default node-to-template mappings for generating configurations.
-      rus: node_1                                         # Template used for the 'rus' node.
+    clients: ["xray", "mihomo"]                           # Default list of supported clients (e.g., xray, singbox, mihomo).
+    nodes: ["swe", "rus"]                                 # Nodes available to this group.
+    templates:                                            # Node-to-template mappings for this group.
+      swe: node_1                                         # Template for the 'swe' node.
+      rus: node_2                                         # Template for the 'rus' node.
     headers:                                              # Default HTTP headers included in subscription responses.
-      Profile-Title: "base64:U3Vic2NyaXB"                 # Base64-encoded subscription title.
+      Profile-Title: "base64:U3Vic2NyaXB0aW9u"            # Base64-encoded subscription title.
       Profile-Update-Interval: "12"                       # Interval (in hours) for subscription updates.
       Support-Url: "https://natribu.org/"                 # URL for support information.
       Profile-Web-Page-Url: "https://nat.org/"            # URL for the subscription web page.
@@ -130,5 +142,5 @@ subscription:
         swe: node_1                                       # Template for the 'swe' node.
         rus: node_2                                       # Template for the 'rus' node.
   users:                                                  # Configuration for individual users.
-    cortez:                                               # User-specific settings for user 'cortez'.
+    adam:                                                 # User-specific settings for user 'testuser'.
       group: premium                                      # Assigns the user to the 'premium' group, inheriting its settings.

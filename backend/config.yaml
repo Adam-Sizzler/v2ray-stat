@@ -22,19 +22,29 @@ v2rs-backend:
     online_rate_threshold: 15                             # Minimum rate threshold in kilobits per second (kbps) to consider a user online. 0 means any non-zero rate is considered online.
   nodes:                                                  # List of monitored nodes and their API connection parameters.
     - node_name: swe                                      # Display name of the node.
-      url: "127.0.0.1:10000"                              # Node API endpoint address in host:port format.
+      address: 127.0.0.1                                  # Node API endpoint address in host format.
+      port: 9962                                          # Node API endpoint address in port format.
     - node_name: de
-      url: "1.2.3.4:10000"
+      address: 1.2.3.4                                    # Node API endpoint address in host format.
+      port: 9962                                          # Node API endpoint address in port format.
       mtls:
         cert: /usr/local/etc/v2ray-stat/certs/node.crt
         key: /usr/local/etc/v2ray-stat/certs/node.key
         ca_cert: /usr/local/etc/v2ray-stat/certs/node.crt
     - node_name: nl
-      url: "example.com:443"
+      address: example.com                                # Node API endpoint address in host format.
+      port: 443                                           # Node API endpoint address in port format.
       mtls:                                               # mTLS (mutual TLS) configuration for secure connection to the node.
         cert: /usr/local/etc/v2ray-stat/certs/node.crt    # Path to the client's TLS certificate.
         key: /usr/local/etc/v2ray-stat/certs/node.key     # Path to the client's private key.
         ca_cert: /usr/local/etc/v2ray-stat/certs/node.crt # Path to the CA certificate for server verification.
+  subscription:
+    address: 127.0.0.1
+    port: 9972
+    # mtls:                                               # mTLS (mutual TLS) configuration for secure connection to the node.
+    #   cert: /usr/local/etc/v2ray-stat/certs/node.crt    # Path to the client's TLS certificate.
+    #   key: /usr/local/etc/v2ray-stat/certs/node.key     # Path to the client's private key.
+    #   ca_cert: /usr/local/etc/v2ray-stat/certs/node.crt # Path to the CA certificate for server verification.
 
 # Paths & Logging 
 paths: 
@@ -61,6 +71,7 @@ stats_columns:
       - rate                                              # Current traffic rate in bits per second (bps).
       - uplink                                            # Total uploaded traffic in bytes.
       - downlink                                          # Total downloaded traffic in bytes.
+      # - traffic_cap
       # - sess_uplink                                     # Session-based uploaded traffic in bytes (reset after reconnect).
       # - sess_downlink                                   # Session-based downloaded traffic in bytes (reset after reconnect).
       # - enabled                                         # Whether the client is enabled (true/false).

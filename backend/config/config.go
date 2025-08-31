@@ -31,20 +31,29 @@ type LogConfig struct {
 
 // V2rayStatConfig holds v2ray-stat specific settings.
 type V2rayStatConfig struct {
-	Address string        `yaml:"address"`
-	Port    string        `yaml:"port"`
-	Monitor MonitorConfig `yaml:"monitor"`
-	Nodes   []NodeConfig  `yaml:"nodes"`
+	Address      string              `yaml:"address"`
+	Port         string              `yaml:"port"`
+	Monitor      MonitorConfig       `yaml:"monitor"`
+	Nodes        []NodeConfig        `yaml:"nodes"`
+	Subscription *SubscriptionConfig `yaml:"subscription"` // Указатель, так как подписка опциональна
 }
 
 // NodeConfig holds configuration for a single node.
 type NodeConfig struct {
 	NodeName   string      `yaml:"node_name"`
-	URL        string      `yaml:"url"`
+	Address    string      `yaml:"address"`
+	Port       string      `yaml:"port"`
 	MTLSConfig *MTLSConfig `yaml:"mtls"`
 }
 
-// MTLSConfig holds mTLS configuration for a node.
+// SubscriptionConfig holds configuration for a subscription.
+type SubscriptionConfig struct {
+	Address    string      `yaml:"address"`
+	Port       string      `yaml:"port"`
+	MTLSConfig *MTLSConfig `yaml:"mtls"`
+}
+
+// MTLSConfig holds mTLS configuration.
 type MTLSConfig struct {
 	Cert   string `yaml:"cert"`
 	Key    string `yaml:"key"`
@@ -93,7 +102,8 @@ var defaultConfig = Config{
 			TickerInterval:      10,
 			OnlineRateThreshold: 0,
 		},
-		Nodes: []NodeConfig{},
+		Nodes:        []NodeConfig{},
+		Subscription: nil,
 	},
 	API: APIConfig{
 		APIToken: "",
@@ -158,9 +168,17 @@ func LoadConfig(configFile string) (Config, error) {
 		}
 	}
 
-	for i, node := range cfg.V2rayStat.Nodes {
-		if node.URL == "" || node.NodeName == "" {
-			cfg.Logger.Warn("Invalid node configuration, skipping", "index", i, "node_name", node.NodeName, "url", node.URL)
+	// Validate nodes
+	for i := 0; i < len(cfg.V2rayStat.Nodes); {
+		node := cfg.V2rayStat.Nodes[i]
+		if node.NodeName == "" || node.Address == "" || node.Port == "" {
+			cfg.Logger.Warn("Invalid node configuration, skipping", "index", i, "node_name", node.NodeName, "address", node.Address, "port", node.Port)
+			cfg.V2rayStat.Nodes = append(cfg.V2rayStat.Nodes[:i], cfg.V2rayStat.Nodes[i+1:]...)
+			continue
+		}
+		portNum, err := strconv.Atoi(node.Port)
+		if err != nil || portNum < 1 || portNum > 65535 {
+			cfg.Logger.Warn("Invalid node port, skipping", "node_name", node.NodeName, "port", node.Port)
 			cfg.V2rayStat.Nodes = append(cfg.V2rayStat.Nodes[:i], cfg.V2rayStat.Nodes[i+1:]...)
 			continue
 		}
@@ -178,6 +196,35 @@ func LoadConfig(configFile string) (Config, error) {
 				}
 			}
 		}
+		cfg.V2rayStat.Nodes[i] = node // Update node in case MTLSConfig was modified
+		i++
+	}
+
+	// Validate subscription
+	if cfg.V2rayStat.Subscription != nil {
+		if cfg.V2rayStat.Subscription.Address == "" || cfg.V2rayStat.Subscription.Port == "" {
+			cfg.Logger.Warn("Invalid subscription configuration, disabling", "address", cfg.V2rayStat.Subscription.Address, "port", cfg.V2rayStat.Subscription.Port)
+			cfg.V2rayStat.Subscription = nil
+		} else {
+			portNum, err := strconv.Atoi(cfg.V2rayStat.Subscription.Port)
+			if err != nil || portNum < 1 || portNum > 65535 {
+				cfg.Logger.Warn("Invalid subscription port, disabling", "port", cfg.V2rayStat.Subscription.Port)
+				cfg.V2rayStat.Subscription = nil
+			} else if cfg.V2rayStat.Subscription.MTLSConfig != nil {
+				if cfg.V2rayStat.Subscription.MTLSConfig.Cert == "" || cfg.V2rayStat.Subscription.MTLSConfig.Key == "" || cfg.V2rayStat.Subscription.MTLSConfig.CACert == "" {
+					cfg.Logger.Warn("Incomplete mTLS configuration for subscription, disabling mTLS")
+					cfg.V2rayStat.Subscription.MTLSConfig = nil
+				} else {
+					for _, file := range []string{cfg.V2rayStat.Subscription.MTLSConfig.Cert, cfg.V2rayStat.Subscription.MTLSConfig.Key, cfg.V2rayStat.Subscription.MTLSConfig.CACert} {
+						if _, err := os.Stat(file); os.IsNotExist(err) {
+							cfg.Logger.Warn("mTLS certificate file not found for subscription, disabling mTLS", "file", file)
+							cfg.V2rayStat.Subscription.MTLSConfig = nil
+							break
+						}
+					}
+				}
+			}
+		}
 	}
 
 	if cfg.StatsColumns.Server.Columns == nil {
@@ -189,7 +236,7 @@ func LoadConfig(configFile string) (Config, error) {
 
 	// Validate columns
 	validServerColumns := []string{"node_name", "source", "rate", "uplink", "downlink", "sess_uplink", "sess_downlink"}
-	validClientColumns := []string{"node_name", "user", "last_seen", "rate", "uplink", "downlink", "sess_uplink", "sess_downlink", "enabled", "sub_end", "renew", "lim_ip", "ips", "created", "id", "inbound_tag"}
+	validClientColumns := []string{"node_name", "user", "last_seen", "rate", "uplink", "downlink", "sess_uplink", "sess_downlink", "enabled", "sub_end", "renew", "lim_ip", "ips", "created", "id", "inbound_tag", "traffic_cap"}
 
 	var filteredServer []string
 	for _, col := range cfg.StatsColumns.Server.Columns {
@@ -245,7 +292,7 @@ func LoadConfig(configFile string) (Config, error) {
 	cfg.StatsColumns.Server.SortBy, cfg.StatsColumns.Server.SortOrder = validateSort("Server", cfg.StatsColumns.Server.Sort, validServerColumns)
 	cfg.StatsColumns.Client.SortBy, cfg.StatsColumns.Client.SortOrder = validateSort("Client", cfg.StatsColumns.Client.Sort, validClientColumns)
 
-	cfg.Logger.Debug("Configuration validated", "nodes_count", len(cfg.V2rayStat.Nodes))
+	cfg.Logger.Debug("Configuration validated", "nodes_count", len(cfg.V2rayStat.Nodes), "subscription_defined", cfg.V2rayStat.Subscription != nil)
 	return cfg, nil
 }
 

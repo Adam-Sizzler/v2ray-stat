@@ -12,7 +12,11 @@ timezone: Asia/Bangkok                                    # IANA timezone name (
 # V2RS-Sub Settings
 v2rs-sub:
   address: 127.0.0.1                                      # Listening address for the subscription server. '127.0.0.1' restricts access to localhost.
-  port: 9962                                              # Listening port for the subscription server. Must be between 1 and 65535.
+  port: 9972                                              # Listening port for the subscription server. Must be between 1 and 65535.
+  # mtls:                                                   # mTLS (mutual TLS) configuration for secure connection to the node.
+  #   cert: /usr/local/etc/v2ray-stat/certs/node.crt        # Path to the client's TLS certificate.
+  #   key: /usr/local/etc/v2ray-stat/certs/node.key         # Path to the client's private key.
+  #   ca_cert: /usr/local/etc/v2ray-stat/certs/node.crt     # Path to the CA certificate for server verification.
 
 # Subscription Settings
 subscription:
@@ -22,7 +26,7 @@ subscription:
     templates:                                            # Default node-to-template mappings for generating configurations.
       rus: node_1                                         # Template used for the 'rus' node.
     headers:                                              # Default HTTP headers included in subscription responses.
-      Profile-Title: "base64:U3Vic2NyaXB"                 # Base64-encoded subscription title.
+      Profile-Title: "base64:U3Vic2NyaXB0aW9u"            # Base64-encoded subscription title.
       Profile-Update-Interval: "12"                       # Interval (in hours) for subscription updates.
       Support-Url: "https://natribu.org/"                 # URL for support information.
       Profile-Web-Page-Url: "https://nat.org/"            # URL for the subscription web page.
@@ -40,5 +44,5 @@ subscription:
         swe: node_1                                       # Template for the 'swe' node.
         rus: node_2                                       # Template for the 'rus' node.
   users:                                                  # Configuration for individual users.
-    cortez:                                               # User-specific settings for user 'cortez'.
+    adam:                                                 # User-specific settings for user 'testuser'.
       group: premium                                      # Assigns the user to the 'premium' group, inheriting its settings.
