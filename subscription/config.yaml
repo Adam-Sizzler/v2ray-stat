@@ -12,7 +12,8 @@ timezone: Asia/Bangkok                                    # IANA timezone name (
 # V2RS-Sub Settings
 v2rs-sub:
   address: 127.0.0.1                                      # Listening address for the subscription server. '127.0.0.1' restricts access to localhost.
-  port: 9972                                              # Listening port for the subscription server. Must be between 1 and 65535.
+  port: 9264                                              # Listening port for the subscription server. Must be between 1 and 65535.
+  grpc_port: 9263                                         # Listening port for the gRPC server.
   # mtls:                                                   # mTLS (mutual TLS) configuration for secure connection to the node.
   #   cert: /usr/local/etc/v2ray-stat/certs/node.crt        # Path to the client's TLS certificate.
   #   key: /usr/local/etc/v2ray-stat/certs/node.key         # Path to the client's private key.

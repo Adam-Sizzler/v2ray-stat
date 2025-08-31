@@ -16,17 +16,17 @@ timezone: Asia/Bangkok                                    # IANA timezone name (
 # v2ray-stat Settings
 v2rs-backend:
   address: 127.0.0.1                                      # IP address of the v2ray-stat API server. 127.0.0.1 means it is accessible only locally (localhost).
-  port: 9952                                              # TCP port for v2ray-stat API server. Must be between 1 and 65535.
+  port: 9243                                              # TCP port for v2ray-stat API server. Must be between 1 and 65535.
   monitor:        
     ticker_interval: 10                                   # Interval (in seconds) for polling monitored services and users. Recommended: 5–60.
     online_rate_threshold: 15                             # Minimum rate threshold in kilobits per second (kbps) to consider a user online. 0 means any non-zero rate is considered online.
   nodes:                                                  # List of monitored nodes and their API connection parameters.
     - node_name: swe                                      # Display name of the node.
       address: 127.0.0.1                                  # Node API endpoint address in host format.
-      port: 9962                                          # Node API endpoint address in port format.
-    - node_name: de
+      port: 9253                                          # Node API endpoint address in port format.
+    - node_name: rus
       address: 1.2.3.4                                    # Node API endpoint address in host format.
-      port: 9962                                          # Node API endpoint address in port format.
+      port: 9253                                          # Node API endpoint address in port format.
       mtls:
         cert: /usr/local/etc/v2ray-stat/certs/node.crt
         key: /usr/local/etc/v2ray-stat/certs/node.key
@@ -40,7 +40,7 @@ v2rs-backend:
         ca_cert: /usr/local/etc/v2ray-stat/certs/node.crt # Path to the CA certificate for server verification.
   subscription:
     address: 127.0.0.1
-    port: 9972
+    grpc_port: 9263
     # mtls:                                               # mTLS (mutual TLS) configuration for secure connection to the node.
     #   cert: /usr/local/etc/v2ray-stat/certs/node.crt    # Path to the client's TLS certificate.
     #   key: /usr/local/etc/v2ray-stat/certs/node.key     # Path to the client's private key.
@@ -74,7 +74,7 @@ stats_columns:
       - rate                                              # Current traffic rate in bits per second (bps).
       - uplink                                            # Total uploaded traffic in bytes.
       - downlink                                          # Total downloaded traffic in bytes.
-      # - traffic_cap
+      - traffic_cap
       # - sess_uplink                                     # Session-based uploaded traffic in bytes (reset after reconnect).
       # - sess_downlink                                   # Session-based downloaded traffic in bytes (reset after reconnect).
       # - enabled                                         # Whether the client is enabled (true/false).
@@ -92,7 +92,7 @@ stats_columns:
 v2rs-node:
   type: xray                                              # Type of proxy core used for statistics. Accepted values: xray, singbox.
   address: 127.0.0.1                                      # IP address of the proxy core API server. '127.0.0.1' restricts access to localhost.
-  port: 9962                                              # TCP port for the proxy core API server. Must be between 1 and 65535.
+  port: 9253                                              # TCP port for the proxy core API server. Must be between 1 and 65535.
 
 # Features & Monitoring Options
 features:
@@ -113,7 +113,8 @@ core:
 # V2RS-Sub Settings
 v2rs-sub:
   address: 127.0.0.1                                      # Listening address for the subscription server. '127.0.0.1' restricts access to localhost.
-  port: 9972                                              # Listening port for the subscription server. Must be between 1 and 65535.
+  port: 9264                                              # Listening port for the subscription server. Must be between 1 and 65535.
+  grpc_port: 9263                                         # Listening port for the gRPC server.
 
 # Subscription Settings
 subscription:

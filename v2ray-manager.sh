@@ -130,27 +130,27 @@ RU[131]="Введите 0 для выхода (обновление каждые
 ###################################
 display_help_message() {
   echo
-  echo "Usage: v2ray-stat [-g|--generate <true|false>] [--update <node|backend|manager>] [-h|--help]"
-  echo
-  echo "  -g, --generate <true|false>          Generate a random string for configuration       (default: ${defaults[generate]})"
-  echo "                                       Генерация случайных путей для конфигурации"
-  echo "      --update <node|backend|manager>  Update v2ray-stat node, backend, or manager"
-  echo "                                       Обновить v2ray-stat node, backend или manager"
-  echo "  -h, --help                           Display this help message"
-  echo "                                       Показать это сообщение помощи"
+  echo "Usage: v2ray-stat [-g|--generate <true|false>] [--update <manager|backend|node|sub>] [-h|--help]"
+  echo    
+  echo "  -g, --generate <true|false>              Generate a random string for configuration       (default: ${defaults[generate]})"
+  echo "                                           Генерация случайных путей для конфигурации"
+  echo "      --update <manager|backend|node|sub>  Update v2ray-stat manager, backend, node or sub"
+  echo "                                           Обновить v2ray-stat manager, backend, node or sub"
+  echo "  -h, --help                               Display this help message"
+  echo "                                           Показать это сообщение помощи"
   echo
   exit 0
 }
 
+
 ###################################
-### UPDATE V2RAY-STAT NODE
+### UPDATE XCORE MANAGER
 ###################################
-update_v2ray_stat_node() {
+update_v2ray-stat_manager() {
   local REPO="Adam-Sizzler/v2ray-stat"
-  local FILE="v2ray-stat-node-linux-amd64"
-  local DEST_DIR="/usr/local/etc/v2ray-stat"
+  local FILE="v2ray-manager.sh"
+  local DEST_DIR="${DIR_V2RAY_STAT}"
   local LOG_FILE="${DIR_V2RAY_STAT}/cron_jobs.log"
-  local SERVICE_FILE="/etc/systemd/system/v2ray-stat-node.service"
 
   # Проверка наличия jq
   if ! command -v jq >/dev/null 2>&1; then
@@ -161,10 +161,10 @@ update_v2ray_stat_node() {
 
   # Создание директорий, если они не существуют
   echo "$(date): Creating directories if they don't exist" >> "$LOG_FILE"
-  mkdir -p "$DEST_DIR" "${DIR_V2RAY_STAT}" || {
-    echo "$(date): Error: Failed to create directories $DEST_DIR or ${DIR_V2RAY_STAT}" >> "$LOG_FILE"
+  mkdir -p "$DEST_DIR" || {
+    echo "$(date): Error: Failed to create directory $DEST_DIR" >> "$LOG_FILE"
     echo >> "$LOG_FILE"
-    error "Failed to create directories $DEST_DIR or ${DIR_V2RAY_STAT}"
+    error "Failed to create directory $DEST_DIR"
   }
 
   # Получение URL последнего релиза (включая пререлизы)
@@ -179,52 +179,25 @@ update_v2ray_stat_node() {
     error "File $FILE not found in any release"
   fi
 
-  # Остановка службы, если она существует
-  echo "$(date): Stopping v2ray-stat-node service..." >> "$LOG_FILE"
-  systemctl stop v2ray-stat-node.service || echo "$(date): Warning: Failed to stop v2ray-stat-node service" >> "$LOG_FILE"
-
-  # Скачивание и установка исполняемого файла
+  # Скачивание и установка скрипта
   echo "$(date): Downloading $FILE to $DEST_DIR..." >> "$LOG_FILE"
-  curl -L -o "$DEST_DIR/v2ray-stat-node" "$URL" && chmod +x "$DEST_DIR/v2ray-stat-node" || {
+  curl -L -o "$DEST_DIR/v2ray-manager.sh" "$URL" && chmod +x "$DEST_DIR/v2ray-manager.sh" || {
     echo "$(date): Error: Failed to download or set executable permissions for $FILE" >> "$LOG_FILE"
     echo >> "$LOG_FILE"
     error "Failed to download or set executable permissions for $FILE"
   }
 
-  # Создание/перезапись файла службы
-  echo "$(date): Creating or updating $SERVICE_FILE..." >> "$LOG_FILE"
-  cat > "$SERVICE_FILE" << EOF
-[Unit]
-Description=V2ray Stat Node Service
-After=network.target
-
-[Service]
-User=root
-Group=root
-ExecStart=$DEST_DIR/v2ray-stat-node
-WorkingDirectory=$DEST_DIR
-Restart=always
-RestartSec=5
-KillSignal=SIGTERM
-TimeoutStopSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-  if [ $? -ne 0 ]; then
-    echo "$(date): Error: Failed to create $SERVICE_FILE" >> "$LOG_FILE"
+  # Создание символической ссылки
+  echo "$(date): Creating symlink for v2ray-manager..." >> "$LOG_FILE"
+  ln -sf "$DEST_DIR/v2ray-manager.sh" /usr/local/bin/v2ray-manager || {
+    echo "$(date): Error: Failed to create symlink /usr/local/bin/v2ray-manager" >> "$LOG_FILE"
     echo >> "$LOG_FILE"
-    error "Failed to create $SERVICE_FILE"
-  fi
+    error "Failed to create symlink /usr/local/bin/v2ray-manager"
+  }
 
-  systemctl daemon-reload
-  systemctl enable v2ray-stat-node.service
-  systemctl restart v2ray-stat-node.service
-
-  echo "$(date): Done! $FILE downloaded to $DEST_DIR and set as executable, service configured" >> "$LOG_FILE"
+  echo "$(date): Done! $FILE downloaded to $DEST_DIR and set as executable, symlink created" >> "$LOG_FILE"
   echo >> "$LOG_FILE"
-  info "v2ray-stat node updated successfully"
+  info "v2ray-manager updated successfully"
 }
 
 ###################################
@@ -314,13 +287,14 @@ EOF
 }
 
 ###################################
-### UPDATE XCORE MANAGER
+### UPDATE V2RAY-STAT NODE
 ###################################
-update_v2ray-stat_manager() {
+update_v2ray_stat_node() {
   local REPO="Adam-Sizzler/v2ray-stat"
-  local FILE="v2ray-manager.sh"
-  local DEST_DIR="${DIR_V2RAY_STAT}"
+  local FILE="v2ray-stat-node-linux-amd64"
+  local DEST_DIR="/usr/local/etc/v2ray-stat"
   local LOG_FILE="${DIR_V2RAY_STAT}/cron_jobs.log"
+  local SERVICE_FILE="/etc/systemd/system/v2ray-stat-node.service"
 
   # Проверка наличия jq
   if ! command -v jq >/dev/null 2>&1; then
@@ -331,10 +305,10 @@ update_v2ray-stat_manager() {
 
   # Создание директорий, если они не существуют
   echo "$(date): Creating directories if they don't exist" >> "$LOG_FILE"
-  mkdir -p "$DEST_DIR" || {
-    echo "$(date): Error: Failed to create directory $DEST_DIR" >> "$LOG_FILE"
+  mkdir -p "$DEST_DIR" "${DIR_V2RAY_STAT}" || {
+    echo "$(date): Error: Failed to create directories $DEST_DIR or ${DIR_V2RAY_STAT}" >> "$LOG_FILE"
     echo >> "$LOG_FILE"
-    error "Failed to create directory $DEST_DIR"
+    error "Failed to create directories $DEST_DIR or ${DIR_V2RAY_STAT}"
   }
 
   # Получение URL последнего релиза (включая пререлизы)
@@ -349,25 +323,139 @@ update_v2ray-stat_manager() {
     error "File $FILE not found in any release"
   fi
 
-  # Скачивание и установка скрипта
+  # Остановка службы, если она существует
+  echo "$(date): Stopping v2ray-stat-node service..." >> "$LOG_FILE"
+  systemctl stop v2ray-stat-node.service || echo "$(date): Warning: Failed to stop v2ray-stat-node service" >> "$LOG_FILE"
+
+  # Скачивание и установка исполняемого файла
   echo "$(date): Downloading $FILE to $DEST_DIR..." >> "$LOG_FILE"
-  curl -L -o "$DEST_DIR/v2ray-manager.sh" "$URL" && chmod +x "$DEST_DIR/v2ray-manager.sh" || {
+  curl -L -o "$DEST_DIR/v2ray-stat-node" "$URL" && chmod +x "$DEST_DIR/v2ray-stat-node" || {
     echo "$(date): Error: Failed to download or set executable permissions for $FILE" >> "$LOG_FILE"
     echo >> "$LOG_FILE"
     error "Failed to download or set executable permissions for $FILE"
   }
 
-  # Создание символической ссылки
-  echo "$(date): Creating symlink for v2ray-manager..." >> "$LOG_FILE"
-  ln -sf "$DEST_DIR/v2ray-manager.sh" /usr/local/bin/v2ray-manager || {
-    echo "$(date): Error: Failed to create symlink /usr/local/bin/v2ray-manager" >> "$LOG_FILE"
+  # Создание/перезапись файла службы
+  echo "$(date): Creating or updating $SERVICE_FILE..." >> "$LOG_FILE"
+  cat > "$SERVICE_FILE" << EOF
+[Unit]
+Description=V2ray Stat Node Service
+After=network.target
+
+[Service]
+User=root
+Group=root
+ExecStart=$DEST_DIR/v2ray-stat-node
+WorkingDirectory=$DEST_DIR
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  if [ $? -ne 0 ]; then
+    echo "$(date): Error: Failed to create $SERVICE_FILE" >> "$LOG_FILE"
     echo >> "$LOG_FILE"
-    error "Failed to create symlink /usr/local/bin/v2ray-manager"
+    error "Failed to create $SERVICE_FILE"
+  fi
+
+  systemctl daemon-reload
+  systemctl enable v2ray-stat-node.service
+  systemctl restart v2ray-stat-node.service
+
+  echo "$(date): Done! $FILE downloaded to $DEST_DIR and set as executable, service configured" >> "$LOG_FILE"
+  echo >> "$LOG_FILE"
+  info "v2ray-stat node updated successfully"
+}
+
+
+###################################
+### UPDATE V2RAY-STAT SUBSCRIPTION
+###################################
+update_v2ray_stat_sub() {
+  local REPO="Adam-Sizzler/v2ray-stat"
+  local FILE="v2ray-stat-backend-linux-amd64"
+  local DEST_DIR="/usr/local/etc/v2ray-stat"
+  local LOG_FILE="${DIR_V2RAY_STAT}/cron_jobs.log"
+  local SERVICE_FILE="/etc/systemd/system/v2ray-stat-sub.service"
+
+  # Проверка наличия jq
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "$(date): Error: jq is required but not installed" >> "$LOG_FILE"
+    echo >> "$LOG_FILE"
+    error "jq is required but not installed. Please install it (e.g., 'apt-get install jq')."
+  fi
+
+  # Создание директорий, если они не существуют
+  echo "$(date): Creating directories if they don't exist" >> "$LOG_FILE"
+  mkdir -p "$DEST_DIR" "${DIR_V2RAY_STAT}" || {
+    echo "$(date): Error: Failed to create directories $DEST_DIR or ${DIR_V2RAY_STAT}" >> "$LOG_FILE"
+    echo >> "$LOG_FILE"
+    error "Failed to create directories $DEST_DIR or ${DIR_V2RAY_STAT}"
   }
 
-  echo "$(date): Done! $FILE downloaded to $DEST_DIR and set as executable, symlink created" >> "$LOG_FILE"
+  # Получение URL последнего релиза (включая пререлизы)
+  echo "$(date): Starting download of $FILE" >> "$LOG_FILE"
+  URL=$(curl -s https://api.github.com/repos/$REPO/releases | \
+    jq -r '.[] | select(.prerelease == true or .prerelease == false) | .assets[] | select(.name == "'"$FILE"'") | .browser_download_url' | \
+    head -1)
+
+  if [ -z "$URL" ]; then
+    echo "$(date): Error: File $FILE not found in any release" >> "$LOG_FILE"
+    echo >> "$LOG_FILE"
+    error "File $FILE not found in any release"
+  fi
+
+  # Остановка службы, если она существует
+  echo "$(date): Stopping v2ray-stat-sub service..." >> "$LOG_FILE"
+  systemctl stop v2ray-stat-sub.service || echo "$(date): Warning: Failed to stop v2ray-stat-sub service" >> "$LOG_FILE"
+
+  # Скачивание и установка исполняемого файла
+  echo "$(date): Downloading $FILE to $DEST_DIR..." >> "$LOG_FILE"
+  curl -L -o "$DEST_DIR/v2ray-stat" "$URL" && chmod +x "$DEST_DIR/v2ray-stat" || {
+    echo "$(date): Error: Failed to download or set executable permissions for $FILE" >> "$LOG_FILE"
+    echo >> "$LOG_FILE"
+    error "Failed to download or set executable permissions for $FILE"
+  }
+
+  # Создание/перезапись файла службы
+  echo "$(date): Creating or updating $SERVICE_FILE..." >> "$LOG_FILE"
+  cat > "$SERVICE_FILE" << EOF
+[Unit]
+Description=V2ray Stat Backend Service
+After=network.target
+
+[Service]
+User=root
+Group=root
+ExecStart=$DEST_DIR/v2ray-stat-sub
+WorkingDirectory=$DEST_DIR
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  if [ $? -ne 0 ]; then
+    echo "$(date): Error: Failed to create $SERVICE_FILE" >> "$LOG_FILE"
+    echo >> "$LOG_FILE"
+    error "Failed to create $SERVICE_FILE"
+  fi
+
+  # Перезагрузка конфигурации systemd и запуск службы
+  systemctl daemon-reload
+  systemctl enable v2ray-stat-sub.service
+  systemctl restart v2ray-stat-sub.service
+
+  echo "$(date): Done! $FILE downloaded to $DEST_DIR and set as executable, service configured" >> "$LOG_FILE"
   echo >> "$LOG_FILE"
-  info "v2ray-manager updated successfully"
+  info "v2ray-stat sub updated successfully"
 }
 
 ###################################
@@ -481,16 +569,20 @@ parse_command_line_args() {
   if [ -n "${args[update]}" ]; then
     verify_root_privileges
     case "${args[update]}" in
-      node)
-        update_v2ray_stat_node
+      manager)
+        update_v2ray-stat_manager
         exit
         ;;
       backend)
         update_v2ray_stat_backend
         exit
         ;;
-      manager)
-        update_v2ray-stat_manager
+      node)
+        update_v2ray_stat_node
+        exit
+        ;;
+      sub)
+        update_v2ray_stat_sub
         exit
         ;;
       *)

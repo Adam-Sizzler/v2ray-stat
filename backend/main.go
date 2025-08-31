@@ -17,6 +17,7 @@ import (
 	"v2ray-stat/backend/config"
 	"v2ray-stat/backend/db"
 	"v2ray-stat/backend/db/manager"
+	"v2ray-stat/backend/grpcclient"
 	"v2ray-stat/backend/users"
 	"v2ray-stat/common"
 	"v2ray-stat/constant"
@@ -98,9 +99,10 @@ func main() {
 
 	// Готовим wg
 	var wg sync.WaitGroup
-	wg.Add(3) // три фоновые задачи
+	wg.Add(4)
 
 	go startAPIServer(ctx, manager, &cfg, &wg)
+	go grpcclient.StartGrpcClient(ctx, &cfg, manager, &wg)
 	go db.MonitorSubscriptionsAndSync(ctx, manager, fileDB, &cfg, &wg)
 	go users.MonitorNodeData(ctx, manager, nodeClients, &cfg, &wg)
 

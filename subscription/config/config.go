@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
@@ -29,8 +30,9 @@ type LogConfig struct {
 
 // V2RSSubConfig holds v2rs-sub specific settings.
 type V2RSSubConfig struct {
-	Address string `yaml:"address"`
-	Port    string `yaml:"port"`
+	Address  string `yaml:"address"`
+	Port     string `yaml:"port"`
+	GrpcPort string `yaml:"grpc_port"`
 }
 
 type SubscriptionConfig struct {
@@ -65,8 +67,9 @@ var defaultConfig = Config{
 		LogMode:  "inclusive",
 	},
 	V2RSSub: V2RSSubConfig{
-		Address: "127.0.0.1",
-		Port:    "9954",
+		Address:  "127.0.0.1",
+		Port:     "9954",
+		GrpcPort: "9983",
 	},
 	Timezone: "",
 	Subscription: SubscriptionConfig{
@@ -126,6 +129,14 @@ func LoadConfig(configFile string) (Config, error) {
 		if err != nil || portNum < 1 || portNum > 65535 {
 			cfg.Logger.Warn("Invalid v2rs-sub.port, using default", "port", cfg.V2RSSub.Port, "default", defaultConfig.V2RSSub.Port)
 			cfg.V2RSSub.Port = defaultConfig.V2RSSub.Port
+		}
+	}
+
+	if cfg.V2RSSub.GrpcPort != "" {
+		portNum, err := strconv.Atoi(cfg.V2RSSub.GrpcPort)
+		if err != nil || portNum < 1 || portNum > 65535 {
+			cfg.Logger.Warn("Invalid grpc_port, using default", "port", cfg.V2RSSub.GrpcPort, "default", defaultConfig.V2RSSub.GrpcPort)
+			cfg.V2RSSub.GrpcPort = defaultConfig.V2RSSub.GrpcPort
 		}
 	}
 
@@ -212,53 +223,54 @@ func GetConfig() Config {
 	return config
 }
 
-func WatchConfig(cfg *Config) error {
+// WatchConfig watches the config file for changes and reloads it.
+func WatchConfig(ctx context.Context, cfg *Config, wg *sync.WaitGroup) {
+	defer wg.Done()
 	if cfg.Logger == nil {
-		return fmt.Errorf("logger is nil in WatchConfig")
+		return
 	}
 	cfg.Logger.Trace("Starting to watch config file", "file", "config.yaml")
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		cfg.Logger.Error("Failed to create config watcher", "error", err)
-		return fmt.Errorf("failed to create watcher: %w", err)
+		return
 	}
-	cfg.Logger.Info("Started watching config file")
-
-	go func() {
-		for {
-			select {
-			case event, ok := <-watcher.Events:
-				if !ok {
-					cfg.Logger.Warn("Config watcher closed unexpectedly")
-					return
-				}
-				if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
-					cfg.Logger.Info("config.yaml changed, reloading...")
-					if newCfg, err := LoadConfig("config.yaml"); err != nil {
-						cfg.Logger.Error("Failed to reload config", "error", err)
-					} else {
-						mu.Lock()
-						config = newCfg
-						mu.Unlock()
-						cfg.Logger.Info("Config reloaded successfully")
-					}
-				}
-			case err, ok := <-watcher.Errors:
-				if !ok {
-					cfg.Logger.Warn("Config watcher error channel closed")
-					return
-				}
-				cfg.Logger.Error("Watcher error", "error", err)
-			}
-		}
-	}()
+	defer watcher.Close()
 
 	err = watcher.Add("config.yaml")
 	if err != nil {
 		cfg.Logger.Error("Failed to add watch for config.yaml", "error", err)
-		watcher.Close()
-		return fmt.Errorf("failed to watch config.yaml: %w", err)
+		return
 	}
 	cfg.Logger.Debug("Added watch for config.yaml")
-	return nil
+
+	for {
+		select {
+		case <-ctx.Done():
+			cfg.Logger.Debug("Stopping config watcher due to context cancellation")
+			return
+		case event, ok := <-watcher.Events:
+			if !ok {
+				cfg.Logger.Warn("Config watcher closed unexpectedly")
+				return
+			}
+			if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
+				cfg.Logger.Info("config.yaml changed, reloading...")
+				if newCfg, err := LoadConfig("config.yaml"); err != nil {
+					cfg.Logger.Error("Failed to reload config", "error", err)
+				} else {
+					mu.Lock()
+					config = newCfg
+					mu.Unlock()
+					cfg.Logger.Info("Config reloaded successfully")
+				}
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				cfg.Logger.Warn("Config watcher error channel closed")
+				return
+			}
+			cfg.Logger.Error("Watcher error", "error", err)
+		}
+	}
 }

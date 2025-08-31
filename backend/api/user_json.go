@@ -54,7 +54,7 @@ func UsersHandler(manager *manager.DatabaseManager, cfg *config.Config) http.Han
 			return
 		}
 
-		nodeUsers, err := queryUsers(r.Context(), manager, cfg)
+		nodeUsers, err := QueryUsers(r.Context(), manager, cfg)
 		if err != nil {
 			cfg.Logger.Error("Ошибка в UsersHandler", "error", err)
 			http.Error(w, "Ошибка обработки данных", http.StatusInternalServerError)
@@ -73,7 +73,7 @@ func UsersHandler(manager *manager.DatabaseManager, cfg *config.Config) http.Han
 }
 
 // queryUsers выполняет запрос к базе данных для получения пользователей и возвращает NodeUsers.
-func queryUsers(ctx context.Context, manager *manager.DatabaseManager, cfg *config.Config) ([]NodeUsers, error) {
+func QueryUsers(ctx context.Context, manager *manager.DatabaseManager, cfg *config.Config) ([]NodeUsers, error) {
 	var nodeUsers []NodeUsers
 	err := manager.ExecuteLowPriority(func(db *sql.DB) error {
 		cfg.Logger.Debug("Выполнение запроса к таблицам user_traffic, user_data, user_ids и nodes")

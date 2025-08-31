@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -69,38 +70,16 @@ func GetTemplates() map[string]map[string]string {
 	return templates
 }
 
-// WatchTemplates starts watching the templates/ directory for changes.
-func WatchTemplates(cfg *config.Config) error {
+// WatchTemplates watches the templates/ directory for changes.
+func WatchTemplates(ctx context.Context, cfg *config.Config, wg *sync.WaitGroup) {
+	defer wg.Done()
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		cfg.Logger.Error("Failed to create templates watcher", "error", err)
-		return fmt.Errorf("failed to create watcher: %w", err)
+		return
 	}
+	defer watcher.Close()
 	cfg.Logger.Info("Started watching templates directories")
-
-	go func() {
-		for {
-			select {
-			case event, ok := <-watcher.Events:
-				if !ok {
-					return
-				}
-				if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
-					cfg.Logger.Info("Templates directory changed, reloading...")
-					if err := LoadTemplates(cfg); err != nil {
-						cfg.Logger.Error("Failed to reload templates", "error", err)
-					} else {
-						cfg.Logger.Info("Templates reloaded successfully")
-					}
-				}
-			case err, ok := <-watcher.Errors:
-				if !ok {
-					return
-				}
-				cfg.Logger.Error("Watcher error", "error", err)
-			}
-		}
-	}()
 
 	clients := []string{"xray", "singbox", "mihomo", "happ"}
 	for _, client := range clients {
@@ -108,11 +87,35 @@ func WatchTemplates(cfg *config.Config) error {
 		err := watcher.Add(dir)
 		if err != nil {
 			cfg.Logger.Error("Failed to add watch for templates directory", "client", client, "error", err)
-			watcher.Close()
-			return fmt.Errorf("failed to watch templates/%s: %w", client, err)
+			return
 		}
 		cfg.Logger.Debug("Added watch for templates directory", "client", client)
 	}
 
-	return nil
+	for {
+		select {
+		case <-ctx.Done():
+			cfg.Logger.Debug("Stopping templates watcher due to context cancellation")
+			return
+		case event, ok := <-watcher.Events:
+			if !ok {
+				cfg.Logger.Warn("Templates watcher closed unexpectedly")
+				return
+			}
+			if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
+				cfg.Logger.Info("Templates directory changed, reloading...")
+				if err := LoadTemplates(cfg); err != nil {
+					cfg.Logger.Error("Failed to reload templates", "error", err)
+				} else {
+					cfg.Logger.Info("Templates reloaded successfully")
+				}
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				cfg.Logger.Warn("Templates watcher error channel closed")
+				return
+			}
+			cfg.Logger.Error("Watcher error", "error", err)
+		}
+	}
 }

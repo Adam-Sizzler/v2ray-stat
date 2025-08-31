@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package api;
+
+option go_package = "v2ray-stat/subscription/proto";
+
+service SubscriptionService {
+  // Bidirectional stream: сервер отправляет Request, клиент - Response
+  rpc DataStream(stream Response) returns (stream Request);
+}
+
+// Request от сервера (subscription) к клиенту (backend)
+message Request {
+  string request_id = 1;
+}
+
+// Response от клиента (backend) к серверу (subscription)
+message Response {
+  string request_id = 1;
+  repeated NodeUsers node_users = 2;
+  bool is_heartbeat = 3;  // Для heartbeat, если true - игнорировать node_users
+}
+
+// NodeUsers - структура как в backend/api
+message NodeUsers {
+  string node = 1;
+  string address = 2;
+  string port = 3;
+  repeated User users = 4;
+}
+
+// User - структура как в backend/api
+message User {
+  string user = 1;
+  repeated IdEntry inbounds = 2;
+  string rate = 3;
+  string enabled = 4;
+  int64 created = 5;
+  int64 sub_end = 6;
+  int32 renew = 7;
+  int32 lim_ip = 8;
+  string ips = 9;
+  int64 uplink = 10;
+  int64 downlink = 11;
+  int64 traffic_cap = 12;
+}
+
+// IdEntry - структура как в backend/api
+message IdEntry {
+  string inbound_tag = 1;
+  string id = 2;
+}

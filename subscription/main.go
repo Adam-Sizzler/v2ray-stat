@@ -14,6 +14,7 @@ import (
 
 	"v2ray-stat/backend/api"
 	"v2ray-stat/subscription/config"
+	"v2ray-stat/subscription/grpcserver"
 	"v2ray-stat/subscription/handler"
 	"v2ray-stat/subscription/templates"
 
@@ -77,19 +78,10 @@ func main() {
 	var wg sync.WaitGroup
 	wg.Add(3)
 
+	grpcServer := grpcserver.StartGrpcServer(ctx, &cfg, &wg)
 	go startAPIServer(ctx, &cfg, &wg)
-	go func() {
-		if err := config.WatchConfig(&cfg); err != nil {
-			cfg.Logger.Fatal("Failed to watch config", "error", err)
-		}
-		wg.Done()
-	}()
-	go func() {
-		if err := templates.WatchTemplates(&cfg); err != nil {
-			cfg.Logger.Fatal("Failed to watch templates", "error", err)
-		}
-		wg.Done()
-	}()
+	go config.WatchConfig(ctx, &cfg, &wg)
+	go templates.WatchTemplates(ctx, &cfg, &wg)
 
 	log.Printf("[START] v2ray-stat-subscription application %s", constant.Version)
 
@@ -97,6 +89,11 @@ func main() {
 	cfg.Logger.Info("Received termination signal")
 
 	cancel()
+
+	// Останавливаем gRPC-сервер
+	cfg.Logger.Debug("Stopping gRPC server")
+	grpcServer.GracefulStop()
+	cfg.Logger.Info("gRPC server stopped")
 
 	// Ждём завершения горутин
 	done := make(chan struct{})

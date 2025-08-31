@@ -35,7 +35,7 @@ type V2rayStatConfig struct {
 	Port         string              `yaml:"port"`
 	Monitor      MonitorConfig       `yaml:"monitor"`
 	Nodes        []NodeConfig        `yaml:"nodes"`
-	Subscription *SubscriptionConfig `yaml:"subscription"` // Указатель, так как подписка опциональна
+	Subscription *SubscriptionConfig `yaml:"subscription"`
 }
 
 // NodeConfig holds configuration for a single node.
@@ -49,7 +49,7 @@ type NodeConfig struct {
 // SubscriptionConfig holds configuration for a subscription.
 type SubscriptionConfig struct {
 	Address    string      `yaml:"address"`
-	Port       string      `yaml:"port"`
+	Port       string      `yaml:"grpc_port"`
 	MTLSConfig *MTLSConfig `yaml:"mtls"`
 }
 
@@ -85,8 +85,8 @@ type StatsColumns struct {
 // StatsSection holds columns and sort configuration for a section.
 type StatsSection struct {
 	Sort      string   `yaml:"sort"`
-	SortBy    string   // Parsed column name for sorting
-	SortOrder string   // Parsed sort order (asc or desc)
+	SortBy    string
+	SortOrder string
 	Columns   []string `yaml:"columns"`
 }
 

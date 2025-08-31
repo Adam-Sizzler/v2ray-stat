@@ -13,7 +13,7 @@ timezone: Asia/Bangkok                                    # IANA timezone name (
 v2rs-node:
   type: xray                                              # Type of proxy core used for statistics. Accepted values: xray, singbox.
   address: 127.0.0.1                                      # IP address of the proxy core API server. '127.0.0.1' restricts access to localhost.
-  port: 9962                                              # TCP port for the proxy core API server. Must be between 1 and 65535.
+  port: 9253                                              # TCP port for the proxy core API server. Must be between 1 and 65535.
 
 # Features & Monitoring Options
 features:
