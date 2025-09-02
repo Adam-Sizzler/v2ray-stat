@@ -250,17 +250,9 @@ func buildCustomClientStats(builder *strings.Builder, manager *manager.DatabaseM
 						clientCols = append(clientCols, fmt.Sprintf("strftime('%%Y-%%m-%%d %%H:%%M', ut.%s, 'unixepoch') AS \"%s\"", col, alias))
 					}
 				case "sub_end":
-					if aggregate {
-						clientCols = append(clientCols, fmt.Sprintf("CASE WHEN MAX(ud.%s) = 0 THEN 'permanent' ELSE strftime('%%Y-%%m-%%d %%H:%%M', MAX(ud.%s), 'unixepoch') END AS \"%s\"", col, col, alias))
-					} else {
-						clientCols = append(clientCols, fmt.Sprintf("CASE WHEN ud.%s = 0 THEN 'permanent' ELSE strftime('%%Y-%%m-%%d %%H:%%M', ud.%s, 'unixepoch') END AS \"%s\"", col, col, alias))
-					}
+					clientCols = append(clientCols, fmt.Sprintf("CASE WHEN ud.%s = 0 THEN 'permanent' ELSE strftime('%%Y-%%m-%%d %%H:%%M', ud.%s, 'unixepoch') END AS \"%s\"", col, col, alias))
 				case "renew", "lim_ip", "ips":
-					if aggregate {
-						clientCols = append(clientCols, fmt.Sprintf("MIN(ud.%s) AS \"%s\"", col, alias))
-					} else {
-						clientCols = append(clientCols, fmt.Sprintf("ud.%s AS \"%s\"", col, alias))
-					}
+					clientCols = append(clientCols, fmt.Sprintf("ud.%s AS \"%s\"", col, alias))
 				case "inbound_tag", "id":
 					if aggregate {
 						clientCols = append(clientCols, fmt.Sprintf("MIN(uu.%s) AS \"%s\"", col, alias))
@@ -268,11 +260,7 @@ func buildCustomClientStats(builder *strings.Builder, manager *manager.DatabaseM
 						clientCols = append(clientCols, fmt.Sprintf("uu.%s AS \"%s\"", col, alias))
 					}
 				case "traffic_cap":
-					if aggregate {
-						clientCols = append(clientCols, fmt.Sprintf("SUM(ud.%s) AS \"%s\"", col, alias))
-					} else {
-						clientCols = append(clientCols, fmt.Sprintf("ud.%s AS \"%s\"", col, alias))
-					}
+					clientCols = append(clientCols, fmt.Sprintf("ud.%s AS \"%s\"", col, alias))
 				default:
 					if aggregate {
 						clientCols = append(clientCols, fmt.Sprintf("SUM(ut.%s) AS \"%s\"", col, alias))

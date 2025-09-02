@@ -71,14 +71,14 @@ stats_columns:
       - rate                                              # Current traffic rate in bits per second (bps).
       - uplink                                            # Total uploaded traffic in bytes.
       - downlink                                          # Total downloaded traffic in bytes.
-      # - traffic_cap
-      # - sess_uplink                                     # Session-based uploaded traffic in bytes (reset after reconnect).
-      # - sess_downlink                                   # Session-based downloaded traffic in bytes (reset after reconnect).
-      # - enabled                                         # Whether the client is enabled (true/false).
-      # - created                                         # Timestamp when the client was created.
-      # - sub_end                                         # Subscription end date for the client.
-      # - renew                                           # Renewal status or date for the client.
-      # - id                                              # Unique client identifier (ID).
-      # - inbound_tag                                     # Inbound tag associated with the client.
-      # - lim_ip                                          # IP limit for the client (number of allowed IPs).
-      # - ips                                             # List of IPs currently used by the client.
+      - traffic_cap
+      - sess_uplink                                     # Session-based uploaded traffic in bytes (reset after reconnect).
+      - sess_downlink                                   # Session-based downloaded traffic in bytes (reset after reconnect).
+      - enabled                                         # Whether the client is enabled (true/false).
+      - created                                         # Timestamp when the client was created.
+      - sub_end                                         # Subscription end date for the client.
+      - renew                                           # Renewal status or date for the client.
+      - id                                              # Unique client identifier (ID).
+      - inbound_tag                                     # Inbound tag associated with the client.
+      - lim_ip                                          # IP limit for the client (number of allowed IPs).
+      - ips                                             # List of IPs currently used by the client.
