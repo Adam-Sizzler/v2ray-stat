@@ -19,7 +19,7 @@ v2rs-backend:
   port: 9243                                              # TCP port for v2ray-stat API server. Must be between 1 and 65535.
   monitor:        
     ticker_interval: 10                                   # Interval (in seconds) for polling monitored services and users. Recommended: 5–60.
-    online_rate_threshold: 15                             # Minimum rate threshold in kilobits per second (kbps) to consider a user online. 0 means any non-zero rate is considered online.
+    online_rate_threshold: 0                              # Minimum rate threshold in kilobits per second (kbps) to consider a user online. 0 means any non-zero rate is considered online.
   nodes:                                                  # List of monitored nodes and their API connection parameters.
     - node_name: swe                                      # Display name of the node.
       address: 127.0.0.1                                  # Node API endpoint address in host format.

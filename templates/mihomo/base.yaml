@@ -14,8 +14,6 @@ dns:
     - https://1.1.1.1/dns-query
     - 8.8.8.8
     - 8.8.4.4
-  nameserver-policy:
-    "swe.theleet.world": 62.60.152.224
 
 proxies: []
 
@@ -29,12 +27,9 @@ proxy-groups:
       - REJECT
 
 rules:
-  - DOMAIN,swe.theleet.world,DIRECT
-  - DOMAIN-SUFFIX,ru.net,DIRECT
   - DOMAIN-KEYWORD,ipleak,DIRECT
   - DOMAIN-KEYWORD,analytics,REJECT
   - DOMAIN-KEYWORD,telemetry,REJECT
-  - DOMAIN-KEYWORD,bongacams,REJECT
   - DOMAIN-KEYWORD,firebase,REJECT
   - DOMAIN-KEYWORD,tracking,REJECT
   - DOMAIN-KEYWORD,reklama,REJECT

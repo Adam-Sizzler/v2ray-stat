@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	"v2ray-stat/subscription/config"
@@ -49,9 +48,8 @@ func LoadTemplates(cfg *config.Config) error {
 					cfg.Logger.Error("Failed to read template file", "path", path, "error", err)
 					return fmt.Errorf("failed to read %s: %w", path, err)
 				}
-				templateName := strings.TrimSuffix(file.Name(), filepath.Ext(file.Name()))
-				newTemplates[client][templateName] = string(content)
-				cfg.Logger.Trace("Loaded template", "client", client, "name", templateName)
+				newTemplates[client][file.Name()] = string(content)
+				cfg.Logger.Trace("Loaded template", "client", client, "name", file.Name())
 			}
 		}
 	}

@@ -19,7 +19,7 @@ v2rs-backend:
   port: 9243                                              # TCP port for v2ray-stat API server. Must be between 1 and 65535.
   monitor:        
     ticker_interval: 10                                   # Interval (in seconds) for polling monitored services and users. Recommended: 5–60.
-    online_rate_threshold: 15                             # Minimum rate threshold in kilobits per second (kbps) to consider a user online. 0 means any non-zero rate is considered online.
+    online_rate_threshold: 0                              # Minimum rate threshold in kilobits per second (kbps) to consider a user online. 0 means any non-zero rate is considered online.
   nodes:                                                  # List of monitored nodes and their API connection parameters.
     - node_name: swe                                      # Display name of the node.
       address: 127.0.0.1                                  # Node API endpoint address in host format.
@@ -122,8 +122,8 @@ subscription:
     clients: ["xray", "mihomo"]                           # Default list of supported clients (e.g., xray, singbox, mihomo).
     nodes: ["swe", "rus"]                                 # Nodes available to this group.
     templates:                                            # Node-to-template mappings for this group.
-      swe: node_1                                         # Template for the 'swe' node.
-      rus: node_2                                         # Template for the 'rus' node.
+      swe: node_1.json                                    # Template for the 'swe' node.
+      rus: node_2.json                                    # Template for the 'rus' node.
     headers:                                              # Default HTTP headers included in subscription responses.
       Profile-Title: "base64:U3Vic2NyaXB0aW9u"            # Base64-encoded subscription title.
       Profile-Update-Interval: "12"                       # Interval (in hours) for subscription updates.
@@ -135,13 +135,13 @@ subscription:
       clients: ["mihomo"]                                 # Supported clients for this group.
       nodes: ["swe"]                                      # Nodes available to this group.
       templates:                                          # Node-to-template mappings for this group.
-        swe: node_1                                       # Template used for the 'swe' node.
+        swe: node_1.json                                  # Template used for the 'swe' node.
     premium:                                              # Group for premium-tier users.
       clients: ["xray", "singbox", "mihomo"]              # Supported clients for this group.
       nodes: ["swe", "rus"]                               # Nodes available to this group.
       templates:                                          # Node-to-template mappings for this group.
-        swe: node_1                                       # Template for the 'swe' node.
-        rus: node_2                                       # Template for the 'rus' node.
+        swe: node_1.json                                  # Template for the 'swe' node.
+        rus: node_2.json                                  # Template for the 'rus' node.
   users:                                                  # Configuration for individual users.
     adam:                                                 # User-specific settings for user 'testuser'.
       group: premium                                      # Assigns the user to the 'premium' group, inheriting its settings.

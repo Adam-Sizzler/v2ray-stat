@@ -25,7 +25,7 @@ subscription:
     clients: ["xray"]                                     # Default list of supported clients (e.g., xray, singbox, mihomo).
     nodes: ["rus"]                                        # Default list of nodes available to users.
     templates:                                            # Default node-to-template mappings for generating configurations.
-      rus: node_1                                         # Template used for the 'rus' node.
+      rus: node_1.json                                    # Template used for the 'rus' node.
     headers:                                              # Default HTTP headers included in subscription responses.
       Profile-Title: "base64:U3Vic2NyaXB0aW9u"            # Base64-encoded subscription title.
       Profile-Update-Interval: "12"                       # Interval (in hours) for subscription updates.
@@ -42,8 +42,8 @@ subscription:
       clients: ["xray", "singbox", "mihomo"]              # Supported clients for this group.
       nodes: ["swe", "rus"]                               # Nodes available to this group.
       templates:                                          # Node-to-template mappings for this group.
-        swe: node_1                                       # Template for the 'swe' node.
-        rus: node_2                                       # Template for the 'rus' node.
+        swe: node_1.json                                  # Template for the 'swe' node.
+        rus: node_2.json                                  # Template for the 'rus' node.
   users:                                                  # Configuration for individual users.
     adam:                                                 # User-specific settings for user 'testuser'.
       group: premium                                      # Assigns the user to the 'premium' group, inheriting its settings.

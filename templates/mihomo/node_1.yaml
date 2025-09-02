@@ -1,6 +1,6 @@
   - name: "HAPROXY"
     type: vless
-    server: swe.theleet.world
+    server: example.com
     port: 443
     uuid: "{user_id}"
     udp: true

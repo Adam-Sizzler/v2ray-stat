@@ -1,15 +1,10 @@
 {
-"remarks": "CHAIN",
+"remarks": "nl",
 "log": {
   "dnsLog": false,
   "loglevel": "warning"
 },
-"dns": {
-  "queryStrategy": "UseIP",
-  "servers": [
-	"fakedns"
-  ]
-},
+"dns": {},
 "routing": {
   "domainStrategy": "IPIfNonMatch",
   "domainMatcher": "hybrid",
@@ -35,13 +30,7 @@
 	},
 	{
 	  "domain": [
-		"geosite:category-ads-all",
-		"keyword:reklama",
-		"keyword:firebase",
-		"keyword:analytics",
-		"keyword:telemetry",
-		"keyword:bongacams",
-		"keyword:tracking"
+		"geosite:category-ads-all"
 	  ],
 	  "outboundTag": "block"
 	}
@@ -61,8 +50,7 @@
 	  "destOverride": [
 		"http",
 		"tls",
-		"quic",
-		"fakedns"
+		"quic"
 	  ]
 	},
 	"routeOnly": false,
@@ -115,7 +103,7 @@
 	  "domainStrategy": "UseIP",
 	  "vnext": [
 		{
-		  "address": "theleet.world",
+		  "address": "example.com",
 		  "port": 443,
 		  "users": [
 			{
@@ -181,16 +169,6 @@
 	"ReflectionService"
   ]
 },
-"fakedns": [
-  {
-	"ipPool": "198.18.0.0/16",
-	"poolSize": 512
-  },
-  {
-	"ipPool": "fc00::/64",
-	"poolSize": 512
-  }
-],
 "stats": {},
 "reverse": null,
 "transport": null,

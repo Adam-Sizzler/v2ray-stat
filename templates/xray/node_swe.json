@@ -1,0 +1,183 @@
+{
+"remarks": "swe",
+"log": {
+  "dnsLog": false,
+  "loglevel": "warning"
+},
+"dns": {},
+"routing": {
+  "domainStrategy": "IPIfNonMatch",
+  "domainMatcher": "hybrid",
+  "network": "tcp,udp",
+  "rules": [
+	{
+	  "inboundTag": [
+		"api"
+	  ],
+	  "outboundTag": "api"
+	},
+	{
+	  "protocol": [
+		"bittorrent"
+	  ],
+	  "outboundTag": "direct"
+	},
+	{
+	  "ip": [
+		"geoip:private"
+	  ],
+	  "outboundTag": "direct"
+	},
+	{
+	  "domain": [
+		"geosite:category-ads-all"
+	  ],
+	  "outboundTag": "block"
+	},
+	{
+	  "domain": [
+      "keyword:ipleak"
+	  ],
+	  "outboundTag": "direct"
+	}
+  ]
+},
+"inbounds": [
+  {
+	"tag": "socks",
+	"port": 10808,
+	"protocol": "socks",
+	"settings": {
+	  "udp": true,
+	  "auth": "noauth"
+	},
+	"sniffing": {
+	  "enabled": true,
+	  "destOverride": [
+		"http",
+		"tls",
+		"quic"
+	  ]
+	},
+	"routeOnly": false,
+	"metadataOnly": false
+  },
+  {
+	"listen": "127.0.0.1",
+	"port": 9953,
+	"protocol": "dokodemo-door",
+	"settings": {
+	  "address": "127.0.0.1"
+	},
+	"tag": "api"
+  }
+],
+"outbounds": [
+  {
+	"tag": "vless-out",
+	"protocol": "vless",
+	"userLevel": 1,
+	"streamSettings": {
+	  "network": "tcp",
+	  "security": "tls",
+	  "tcpSettings": {
+		"header": {
+		  "type": "none"
+		}
+	  },
+	  "tlsSettings": {
+		"utls": {
+		  "alpn": [
+			"h2",
+			"quic"
+		  ],
+		  "fingerprint": "chrome"
+		}
+	  }
+	},
+	"mux": {
+	  "enabled": true,
+	  "concurrency": 2,
+	  "xudpConcurrency": 8,
+	  "xudpProxyUDP443": "allow"
+	},
+	"sockopt": {
+	  "tcpMaxSeg": 1492,
+	  "tcpFastOpen": true
+	},
+	"settings": {
+	  "domainStrategy": "UseIP",
+	  "vnext": [
+		{
+		  "address": "swe.example.com",
+		  "port": 443,
+		  "users": [
+			{
+			  "encryption": "none",
+			  "id": "{user_id}"
+			}
+		  ]
+		}
+	  ]
+	}
+  },
+  {
+	"tag": "direct",
+	"protocol": "freedom",
+	"userLevel": 0,
+	"settings": {
+	  "domainStrategy": "UseIPv4"
+	},
+	"sockopt": {
+	  "tcpMaxSeg": 1492,
+	  "tcpFastOpen": true
+	}
+  },
+  {
+	"tag": "block",
+	"protocol": "blackhole",
+	"settings": {
+	  "response": {
+		"type": "http"
+	  }
+	}
+  }
+],
+"policy": {
+  "levels": {
+	"1": {
+	  "statsUserUplink": true,
+	  "statsUserDownlink": true,
+	  "statsUserOnline": true
+	},
+	"0": {
+	  "handshake": 4,
+	  "connIdle": 300,
+	  "uplinkOnly": 2,
+	  "downlinkOnly": 5,
+	  "statsUserUplink": true,
+	  "statsUserDownlink": true,
+	  "statsUserOnline": true
+	}
+  },
+  "system": {
+	"statsInboundDownlink": true,
+	"statsInboundUplink": true,
+	"statsOutboundDownlink": true,
+	"statsOutboundUplink": true
+  }
+},
+"api": {
+  "tag": "api",
+  "services": [
+	"HandlerService",
+	"StatsService",
+	"ReflectionService"
+  ]
+},
+"stats": {},
+"reverse": null,
+"transport": null,
+"observatory": null,
+"burstObservatory": null
+}
