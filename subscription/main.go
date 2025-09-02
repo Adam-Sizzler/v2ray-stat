@@ -76,7 +76,7 @@ func main() {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
 
 	grpcServer := grpcserver.StartGrpcServer(ctx, &cfg, &wg)
 	go startAPIServer(ctx, &cfg, &wg)

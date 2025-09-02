@@ -377,7 +377,7 @@ EOF
 ###################################
 update_v2ray_stat_sub() {
   local REPO="Adam-Sizzler/v2ray-stat"
-  local FILE="v2ray-stat-backend-linux-amd64"
+  local FILE="v2ray-stat-sub-linux-amd64"
   local DEST_DIR="/usr/local/etc/v2ray-stat"
   local LOG_FILE="${DIR_V2RAY_STAT}/cron_jobs.log"
   local SERVICE_FILE="/etc/systemd/system/v2ray-stat-sub.service"
@@ -415,7 +415,7 @@ update_v2ray_stat_sub() {
 
   # Скачивание и установка исполняемого файла
   echo "$(date): Downloading $FILE to $DEST_DIR..." >> "$LOG_FILE"
-  curl -L -o "$DEST_DIR/v2ray-stat" "$URL" && chmod +x "$DEST_DIR/v2ray-stat" || {
+  curl -L -o "$DEST_DIR/v2ray-stat-sub" "$URL" && chmod +x "$DEST_DIR/v2ray-stat" || {
     echo "$(date): Error: Failed to download or set executable permissions for $FILE" >> "$LOG_FILE"
     echo >> "$LOG_FILE"
     error "Failed to download or set executable permissions for $FILE"

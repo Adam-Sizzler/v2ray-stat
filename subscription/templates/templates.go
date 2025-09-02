@@ -82,6 +82,10 @@ func WatchTemplates(ctx context.Context, cfg *config.Config, wg *sync.WaitGroup)
 	clients := []string{"xray", "singbox", "mihomo", "happ"}
 	for _, client := range clients {
 		dir := filepath.Join("templates", client)
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			cfg.Logger.Warn("Templates directory does not exist, skipping warch", "client", client, "dir", dir)
+			continue
+		}
 		err := watcher.Add(dir)
 		if err != nil {
 			cfg.Logger.Error("Failed to add watch for templates directory", "client", client, "error", err)
