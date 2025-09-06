@@ -3,7 +3,9 @@ package config
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -21,6 +23,7 @@ type Config struct {
 	Timezone     string             `yaml:"timezone"`
 	Subscription SubscriptionConfig `yaml:"subscription"`
 	Logger       *logger.Logger
+	Ctx          context.Context
 }
 
 type LogConfig struct {
@@ -36,24 +39,31 @@ type V2RSSubConfig struct {
 }
 
 type SubscriptionConfig struct {
+	Domains  map[string]string     `yaml:"domains"`
 	Defaults DefaultsConfig        `yaml:"defaults"`
 	Groups   map[string]UserConfig `yaml:"groups"`
-	Users    map[string]UserConfig `yaml:"users"`
+	Users    map[string]*UserGroup `yaml:"users"`
+	UserMap  map[string]UserConfig
 }
 
 type DefaultsConfig struct {
-	Clients       []string          `yaml:"clients"`
-	IncludeNodes  []string          `yaml:"nodes"`
-	NodeTemplates map[string]string `yaml:"templates"`
-	Headers       map[string]string `yaml:"headers"`
+	Clients       []string                     `yaml:"clients"`
+	IncludeNodes  []string                     `yaml:"nodes"`
+	NodeTemplates map[string]map[string]string `yaml:"templates"`
+	Headers       map[string]string            `yaml:"headers"`
 }
 
 type UserConfig struct {
-	Group         string            `yaml:"group"`
-	Clients       []string          `yaml:"clients"`
-	IncludeNodes  []string          `yaml:"nodes"`
-	NodeTemplates map[string]string `yaml:"templates"`
-	Headers       map[string]string `yaml:"headers"`
+	Group         string                       `yaml:"group"`
+	Clients       []string                     `yaml:"clients"`
+	IncludeNodes  []string                     `yaml:"nodes"`
+	NodeTemplates map[string]map[string]string `yaml:"templates"`
+	Headers       map[string]string            `yaml:"headers"`
+}
+
+type UserGroup struct {
+	UserConfig
+	Users []string `yaml:"users"`
 }
 
 var (
@@ -76,11 +86,12 @@ var defaultConfig = Config{
 		Defaults: DefaultsConfig{
 			Clients:       []string{},
 			IncludeNodes:  []string{},
-			NodeTemplates: map[string]string{},
+			NodeTemplates: map[string]map[string]string{},
 			Headers:       map[string]string{},
 		},
-		Groups: map[string]UserConfig{},
-		Users:  map[string]UserConfig{},
+		Groups:  map[string]UserConfig{},
+		Users:   map[string]*UserGroup{},
+		UserMap: map[string]UserConfig{},
 	},
 }
 
@@ -123,6 +134,62 @@ func LoadConfig(configFile string) (Config, error) {
 	}
 	cfg.Logger.Info("Logger initialized with level and mode", "level", cfg.Log.LogLevel, "mode", cfg.Log.LogMode)
 
+	// Normalize users into UserMap
+	cfg.Subscription.UserMap = make(map[string]UserConfig)
+	for groupName, userGroup := range cfg.Subscription.Users {
+		if len(userGroup.Users) > 0 {
+			for _, u := range userGroup.Users {
+				userConfig := UserConfig{
+					Group:         groupName,
+					Clients:       slices.Clone(userGroup.Clients),
+					IncludeNodes:  slices.Clone(userGroup.IncludeNodes),
+					NodeTemplates: make(map[string]map[string]string),
+					Headers:       make(map[string]string),
+				}
+
+				for mode, templates := range userGroup.NodeTemplates {
+					userConfig.NodeTemplates[mode] = make(map[string]string)
+					maps.Copy(userConfig.NodeTemplates[mode], templates)
+				}
+				maps.Copy(userConfig.Headers, userGroup.Headers)
+				if override, exists := cfg.Subscription.Users[u]; exists && len(override.Users) == 0 {
+					if override.Clients != nil {
+						userConfig.Clients = slices.Clone(override.Clients)
+					}
+					if override.IncludeNodes != nil {
+						userConfig.IncludeNodes = slices.Clone(override.IncludeNodes)
+					}
+					if override.NodeTemplates != nil {
+						userConfig.NodeTemplates = make(map[string]map[string]string)
+						for mode, templates := range override.NodeTemplates {
+							userConfig.NodeTemplates[mode] = make(map[string]string)
+							maps.Copy(userConfig.NodeTemplates[mode], templates)
+						}
+					}
+					if override.Headers != nil {
+						userConfig.Headers = make(map[string]string)
+						maps.Copy(userConfig.Headers, override.Headers)
+					}
+				}
+				cfg.Subscription.UserMap[u] = userConfig
+			}
+		} else {
+			userConfig := UserConfig{
+				Group:         userGroup.Group,
+				Clients:       slices.Clone(userGroup.Clients),
+				IncludeNodes:  slices.Clone(userGroup.IncludeNodes),
+				NodeTemplates: make(map[string]map[string]string),
+				Headers:       make(map[string]string),
+			}
+			for mode, templates := range userGroup.NodeTemplates {
+				userConfig.NodeTemplates[mode] = make(map[string]string)
+				maps.Copy(userConfig.NodeTemplates[mode], templates)
+			}
+			maps.Copy(userConfig.Headers, userGroup.Headers)
+			cfg.Subscription.UserMap[groupName] = userConfig
+		}
+	}
+
 	// Validate configuration
 	if cfg.V2RSSub.Port != "" {
 		portNum, err := strconv.Atoi(cfg.V2RSSub.Port)
@@ -147,6 +214,12 @@ func LoadConfig(configFile string) (Config, error) {
 		}
 	}
 
+	for node, domain := range cfg.Subscription.Domains {
+		if domain == "" {
+			cfg.Logger.Warn("Empty domain for node", "node", node)
+		}
+	}
+
 	// Validate defaults
 	if len(cfg.Subscription.Defaults.Clients) == 0 {
 		cfg.Logger.Warn("defaults.clients is empty, using empty list")
@@ -154,12 +227,17 @@ func LoadConfig(configFile string) (Config, error) {
 	if len(cfg.Subscription.Defaults.IncludeNodes) == 0 {
 		cfg.Logger.Warn("defaults.nodes is empty, using empty list")
 	}
-	if len(cfg.Subscription.Defaults.NodeTemplates) == 0 {
-		cfg.Logger.Warn("defaults.templates is empty, using empty map")
-	}
-	for _, node := range cfg.Subscription.Defaults.IncludeNodes {
-		if _, ok := cfg.Subscription.Defaults.NodeTemplates[node]; !ok {
-			cfg.Logger.Warn("defaults: no template specified for node", "node", node)
+	for mode, templates := range cfg.Subscription.Defaults.NodeTemplates {
+		if len(templates) == 0 {
+			cfg.Logger.Warn("defaults.templates is empty for mode", "mode", mode)
+		}
+		for _, node := range cfg.Subscription.Defaults.IncludeNodes {
+			if _, ok := templates[node]; !ok {
+				cfg.Logger.Warn("defaults: no template specified for node in mode", "node", node, "mode", mode)
+			}
+			if _, ok := cfg.Subscription.Domains[node]; !ok {
+				cfg.Logger.Warn("defaults: no domain specified for node", "node", node)
+			}
 		}
 	}
 
@@ -171,35 +249,44 @@ func LoadConfig(configFile string) (Config, error) {
 		if len(group.IncludeNodes) == 0 {
 			cfg.Logger.Warn("group nodes is empty", "group", groupName)
 		}
-		if len(group.NodeTemplates) == 0 {
-			cfg.Logger.Warn("group templates is empty", "group", groupName)
-		}
-		for _, node := range group.IncludeNodes {
-			if _, ok := group.NodeTemplates[node]; !ok {
-				cfg.Logger.Warn("group: no template specified for node", "group", groupName, "node", node)
+		for mode, templates := range group.NodeTemplates {
+			if len(templates) == 0 {
+				cfg.Logger.Warn("group templates is empty for mode", "group", groupName, "mode", mode)
+			}
+			for _, node := range group.IncludeNodes {
+				if _, ok := templates[node]; !ok {
+					cfg.Logger.Warn("group: no template specified for node in mode", "group", groupName, "node", node, "mode", mode)
+				}
+				if _, ok := cfg.Subscription.Domains[node]; !ok {
+					cfg.Logger.Warn("group: no domain specified for node", "group", groupName, "node", node)
+				}
 			}
 		}
 	}
 
-	// Validate users
-	for userName, user := range cfg.Subscription.Users {
+	// Validate user map
+	for userName, user := range cfg.Subscription.UserMap {
 		if user.Group != "" {
 			if _, ok := cfg.Subscription.Groups[user.Group]; !ok {
 				cfg.Logger.Warn("user: group not found", "user", userName, "group", user.Group)
 			}
 		}
-		// If user has nodes, ensure templates exist
 		if len(user.IncludeNodes) > 0 {
-			for _, node := range user.IncludeNodes {
-				if _, ok := user.NodeTemplates[node]; !ok {
-					if user.Group != "" {
-						if group, ok := cfg.Subscription.Groups[user.Group]; ok {
-							if _, ok := group.NodeTemplates[node]; !ok {
-								cfg.Logger.Warn("user: no template specified for node in group or user config", "user", userName, "node", node, "group", user.Group)
+			for mode, templates := range user.NodeTemplates {
+				for _, node := range user.IncludeNodes {
+					if _, ok := templates[node]; !ok {
+						if user.Group != "" {
+							if group, ok := cfg.Subscription.Groups[user.Group]; ok {
+								if _, ok := group.NodeTemplates[mode][node]; !ok {
+									cfg.Logger.Warn("user: no template specified for node in group or user config for mode", "user", userName, "node", node, "group", user.Group, "mode", mode)
+								}
 							}
+						} else if _, ok := cfg.Subscription.Defaults.NodeTemplates[mode][node]; !ok {
+							cfg.Logger.Warn("user: no template specified for node in user config or defaults for mode", "user", userName, "node", node, "mode", mode)
 						}
-					} else if _, ok := cfg.Subscription.Defaults.NodeTemplates[node]; !ok {
-						cfg.Logger.Warn("user: no template specified for node in user config or defaults", "user", userName, "node", node)
+					}
+					if _, ok := cfg.Subscription.Domains[node]; !ok {
+						cfg.Logger.Warn("user: no domain specified for node", "user", userName, "node", node)
 					}
 				}
 			}

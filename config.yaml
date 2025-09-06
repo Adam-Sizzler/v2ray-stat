@@ -118,30 +118,48 @@ v2rs-sub:
 
 # Subscription Settings
 subscription:
-  defaults:                                               # Default settings applied to users unless overridden.
-    clients: ["xray", "mihomo"]                           # Default list of supported clients (e.g., xray, singbox, mihomo).
-    nodes: ["swe", "rus"]                                 # Nodes available to this group.
-    templates:                                            # Node-to-template mappings for this group.
-      swe: node_1.json                                    # Template for the 'swe' node.
-      rus: node_2.json                                    # Template for the 'rus' node.
-    headers:                                              # Default HTTP headers included in subscription responses.
-      Profile-Title: "base64:U3Vic2NyaXB0aW9u"            # Base64-encoded subscription title.
-      Profile-Update-Interval: "12"                       # Interval (in hours) for subscription updates.
-      Support-Url: "https://natribu.org/"                 # URL for support information.
-      Profile-Web-Page-Url: "https://nat.org/"            # URL for the subscription web page.
-      Announce: "base64:SHVsaSB0eXQgemFiaWwn"             # Base64-encoded announcement message.
+  domains:                                                # Mapping of nodes to domains.
+    rus: "example.com"                                    # Node located in Russia
+    de: "de.example.com"                                  # Node located in Germany
+    us: "us.example.com"                                  # Node located in the United States
+  defaults:                                               # Default settings applied to all users unless overridden.
+    headers:                                              # HTTP headers included in subscription responses.
+      Profile-Title: "base64:U3Vic2NyaXB0aW9u"            # Subscription title (base64-encoded string).
+      Profile-Update-Interval: "12"                       # Subscription update interval (hours).
+      Support-Url: "https://natribu.org/"                 # Support URL.
+      Profile-Web-Page-Url: "https://natribu.org/"        # Profile web page URL.
+      Announce: "COME here (ง ͠° ͟ل͜ ͡°)ง"                   # Custom announcement message.
+    clients: ["xray", "singbox"]                          # Default list of supported clients (e.g., xray, singbox, mihomo).
+    nodes: ["rus"]                                        # Default list of nodes available to users.
+    templates:                                            # Default node-to-template mappings.
+      base:
+        rus: node_rus.base                                # Template for the "rus" node in base mode.
+      advanced:
+        rus: node_rus.json                                # Template for the "rus" node in advanced mode.
   groups:                                                 # Configuration for user groups with shared settings.
-    standard:                                             # Group for standard-tier users.
-      clients: ["mihomo"]                                 # Supported clients for this group.
-      nodes: ["swe"]                                      # Nodes available to this group.
+    free:                                                 # Group for free/standard-tier users.
+      clients: ["xray"]                                   # Supported clients for this group.
+      nodes: ["rus"]                                      # Nodes available to this group.
       templates:                                          # Node-to-template mappings for this group.
-        swe: node_1.json                                  # Template used for the 'swe' node.
+        base:
+          rus: node_rus.base64                            # Custom template for "rus" in base mode.
+        advanced: {}                                      # Clears advanced templates (requests to advanced will return 404).
     premium:                                              # Group for premium-tier users.
       clients: ["xray", "singbox", "mihomo"]              # Supported clients for this group.
-      nodes: ["swe", "rus"]                               # Nodes available to this group.
+      nodes: ["rus", "de", "us"]                          # Nodes available to this group.
       templates:                                          # Node-to-template mappings for this group.
-        swe: node_1.json                                  # Template for the 'swe' node.
-        rus: node_2.json                                  # Template for the 'rus' node.
-  users:                                                  # Configuration for individual users.
-    adam:                                                 # User-specific settings for user 'testuser'.
-      group: premium                                      # Assigns the user to the 'premium' group, inheriting its settings.
+        base:
+          rus: node_rus.base64                            # Custom template for "rus" in base mode.
+          de: node_de                                     # Template for "de" in base mode.
+          us: node_us.base64                              # Template for "us" in base mode.
+        advanced:
+          rus: node_rus                                   # Advanced template for "rus".
+          de: node_de.json                                # Advanced template for "de".
+          us: node_us.json                                # Advanced template for "us".
+  users:                                                  # User-specific settings (override group or default settings).
+    premium:                                              # Group of users inheriting from groups.premium.
+      users: ["adam", "zoi"]                              # List of users in the premium group.
+    free:                                                 # Group of users inheriting from groups.free.
+      users: ["test"]                                     # User "test" inherits settings from the free group.
+      headers:                                            # Custom headers overriding group/default headers.
+        Announce: "Free"                                  # Custom announcement for this user/group.

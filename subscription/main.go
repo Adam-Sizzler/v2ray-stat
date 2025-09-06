@@ -78,7 +78,7 @@ func main() {
 	var wg sync.WaitGroup
 	wg.Add(4)
 
-	grpcServer := grpcserver.StartGrpcServer(ctx, &cfg, &wg)
+	go grpcserver.StartGrpcServer(ctx, &cfg, &wg)
 	go startAPIServer(ctx, &cfg, &wg)
 	go config.WatchConfig(ctx, &cfg, &wg)
 	go templates.WatchTemplates(ctx, &cfg, &wg)
@@ -89,11 +89,6 @@ func main() {
 	cfg.Logger.Info("Received termination signal")
 
 	cancel()
-
-	// Останавливаем gRPC-сервер
-	cfg.Logger.Debug("Stopping gRPC server")
-	grpcServer.GracefulStop()
-	cfg.Logger.Info("gRPC server stopped")
 
 	// Ждём завершения горутин
 	done := make(chan struct{})

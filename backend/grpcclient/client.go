@@ -12,6 +12,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 )
 
@@ -37,6 +38,7 @@ func StartGrpcClient(ctx context.Context, cfg *config.Config, manager *manager.D
 	for {
 		select {
 		case <-ctx.Done():
+			cfg.Logger.Debug("Stopping gRPC client due to context cancellation")
 			return
 		default:
 			connectAndHandle(ctx, cfg, manager)
@@ -44,6 +46,7 @@ func StartGrpcClient(ctx context.Context, cfg *config.Config, manager *manager.D
 			case <-ctx.Done():
 				return
 			case <-time.After(30 * time.Second):
+				cfg.Logger.Info("Reconnecting to gRPC server")
 				continue
 			}
 		}
@@ -51,6 +54,9 @@ func StartGrpcClient(ctx context.Context, cfg *config.Config, manager *manager.D
 }
 
 func connectAndHandle(ctx context.Context, cfg *config.Config, manager *manager.DatabaseManager) {
+	localCtx, localCancel := context.WithCancel(ctx)
+	defer localCancel()
+
 	mu.Lock()
 	if grpcConn != nil {
 		grpcConn.Close()
@@ -59,7 +65,15 @@ func connectAndHandle(ctx context.Context, cfg *config.Config, manager *manager.
 	}
 	mu.Unlock()
 
-	conn, err := grpc.Dial(cfg.V2rayStat.Subscription.Address+":"+cfg.V2rayStat.Subscription.Port, grpc.WithInsecure())
+	conn, err := grpc.Dial(
+		cfg.V2rayStat.Subscription.Address+":"+cfg.V2rayStat.Subscription.Port,
+		grpc.WithInsecure(),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                10 * time.Second,
+			Timeout:             5 * time.Second,
+			PermitWithoutStream: true,
+		}),
+	)
 	if err != nil {
 		cfg.Logger.Error("Failed to dial gRPC", "error", err)
 		return
@@ -86,16 +100,19 @@ func connectAndHandle(ctx context.Context, cfg *config.Config, manager *manager.
 		defer ticker.Stop()
 		for {
 			select {
-			case <-ctx.Done():
+			case <-localCtx.Done():
+				cfg.Logger.Debug("Stopping heartbeat ticker due to local context cancellation")
 				return
 			case <-ticker.C:
 				mu.Lock()
 				if stream != nil {
 					if err := stream.Send(&proto.Response{IsHeartbeat: true}); err != nil {
 						cfg.Logger.Error("Failed to send heartbeat", "error", err)
-					} else {
-						cfg.Logger.Debug("Sent heartbeat")
+						mu.Unlock()
+						localCancel() // Прерываем при ошибке отправки
+						return
 					}
+					cfg.Logger.Debug("Sent heartbeat")
 				}
 				mu.Unlock()
 			}
@@ -111,6 +128,16 @@ func connectAndHandle(ctx context.Context, cfg *config.Config, manager *manager.
 				grpcConn = nil
 				stream = nil
 				cfg.Logger.Debug("gRPC connection closed due to context cancellation")
+			}
+			mu.Unlock()
+			return
+		case <-localCtx.Done():
+			cfg.Logger.Info("gRPC stream closed due to local context cancellation")
+			mu.Lock()
+			if grpcConn != nil {
+				grpcConn.Close()
+				grpcConn = nil
+				stream = nil
 			}
 			mu.Unlock()
 			return

@@ -415,7 +415,7 @@ update_v2ray_stat_sub() {
 
   # Скачивание и установка исполняемого файла
   echo "$(date): Downloading $FILE to $DEST_DIR..." >> "$LOG_FILE"
-  curl -L -o "$DEST_DIR/v2ray-stat-sub" "$URL" && chmod +x "$DEST_DIR/v2ray-stat" || {
+  curl -L -o "$DEST_DIR/v2ray-stat-sub" "$URL" && chmod +x "$DEST_DIR/v2ray-stat-sub" || {
     echo "$(date): Error: Failed to download or set executable permissions for $FILE" >> "$LOG_FILE"
     echo >> "$LOG_FILE"
     error "Failed to download or set executable permissions for $FILE"

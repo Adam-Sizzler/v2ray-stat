@@ -674,3 +674,119 @@ v2ray-manager --update node
 ```bash
 v2ray-manager
 ```
+
+## Subscription
+
+```yaml
+# Main subscription settings
+subscription:
+  # Mapping of nodes to domains
+  # Key: node name (e.g., "rus"). Value: domain (e.g., "example.com").
+  # An empty domain (e.g., "") will trigger a warning in logs but will not stop execution.
+  domains:
+    rus: "example.com"        # Node in Russia
+    de: "de.example.com"      # Node in Germany
+    us: "us.example.com"      # Node in the USA
+
+  # Default settings
+  # Applied to all users unless overridden in groups or individual settings.
+  defaults:
+    # HTTP headers added to subscription responses
+    # They can be arbitrary strings, including base64 or custom messages.
+    headers:
+      Profile-Title: "base64:U3Vic2NyaXB0aW9u"  # Subscription title in base64
+      Profile-Update-Interval: "12"            # Subscription update interval in hours
+      Support-Url: "https://natribu.org/"      # Support URL
+      Profile-Web-Page-Url: "https://natribu.org/"  # Profile web page URL
+      Announce: "COME here (ง ͠° ͟ل͜ ͡°)ง"    # Custom announcement
+    # List of supported clients
+    # Available values: "xray", "singbox", "mihomo". An empty list will trigger a warning.
+    clients: ["xray", "singbox"]               # Default clients
+    # List of nodes available by default
+    # Refers to domains. An empty list will trigger a warning.
+    nodes: ["rus"]                             # Default node
+    # Configuration templates for base and advanced modes
+    # Key: mode ("base" or "advanced"). Value: map of node->template_file_name.
+    # Files must be located in templates/<client>/<mode>/<file_name>.
+    templates:
+      base:
+        rus: "node_rus.base"       # Template for rus in base mode
+      advanced:
+        rus: "node_rus.json"       # JSON template for rus in advanced mode
+
+  # User groups
+  # Define common settings for groups. Override defaults.
+  # Empty values (e.g., templates: {}, clients: []) clear the corresponding defaults.
+  groups:
+    # Group for free users
+    free:
+      clients: ["xray"]            # Only xray for free users
+      nodes: ["rus"]               # Only the rus node
+      templates:
+        base:
+          rus: "node_rus.base64"   # Custom template for base
+        advanced: {}               # Clear all advanced templates (advanced requests return 404)
+      headers:
+        Announce: "Free access"    # Override announcement
+    # Group for premium users
+    premium:
+      clients: ["xray", "singbox", "mihomo"]  # Full access to all clients
+      nodes: ["rus", "de", "us"]              # Access to all nodes
+      templates:
+        base:
+          rus: "node_rus.base64"   # Custom template for rus
+          de: "node_de.base"       # Template for de
+          us: "node_us.base64"     # Template for us
+        advanced:
+          rus: "node_rus.json"     # JSON for rus
+          de: "node_de.json"       # JSON for de
+          us: "node_us.json"       # JSON for us
+    # Group demonstrating full template clearing
+    no_templates:
+      clients: ["xray", "singbox"]  # Available clients
+      nodes: ["de"]                 # Only the de node
+      templates: {}                 # Full clearing of all templates (base and advanced requests return 404)
+      headers: {}                   # Clear all headers
+
+  # Users and user groups
+  # Format:
+  # - Groups: key = group name, field "users" = list of users, other fields override groups.
+  # - Individual users: key = username, without "users", settings override defaults.
+  users:
+    # Premium group
+    premium:
+      users: ["adam", "zoi"]        # Users inheriting settings from groups.premium
+      headers:
+        Announce: "Premium Group"   # Override announcement for the group
+      templates:
+        base:
+          rus: ""                   # Empty string clears the rus template in base
+    # Free group
+    free:
+      users: ["test"]               # User "test" inherits settings from groups.free
+      headers:
+        Announce: "Free"            # Override announcement for the group
+    # Individual user (not in a group)
+    josh:
+      clients: ["singbox"]          # Only singbox
+      nodes: ["us"]                 # Only the us node
+      templates:
+        advanced:
+          us: "individual_us.json"  # Custom template for advanced
+        base: {}                    # Clear all base templates
+      headers:
+        Custom: "Individual-Value"  # Custom header
+    # User with partial override of the premium group
+    adam:
+      clients: ["xray", "mihomo"]   # Override clients
+      templates:
+        base: {}                    # Clear all base templates (base requests return 404)
+        advanced:
+          de: "adam_de.json"        # Custom template for de
+    # User with full clearing
+    empty_user:
+      clients: []                   # Clear client list
+      nodes: []                     # Clear node list
+      templates: {}                 # Clear all templates
+      headers: {}                   # Clear all headers
+```

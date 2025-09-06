@@ -17,7 +17,6 @@ var (
 		"xray":    {},
 		"singbox": {},
 		"mihomo":  {},
-		"happ":    {},
 	}
 	mu sync.RWMutex
 )
@@ -29,29 +28,36 @@ func LoadTemplates(cfg *config.Config) error {
 		"xray":    {},
 		"singbox": {},
 		"mihomo":  {},
-		"happ":    {},
 	}
-	clients := []string{"xray", "singbox", "mihomo", "happ"}
+	clients := []string{"xray", "singbox", "mihomo"}
 	for _, client := range clients {
-		dir := filepath.Join("templates", client)
-		files, err := os.ReadDir(dir)
-		if err != nil {
-			cfg.Logger.Error("Failed to read templates directory", "client", client, "error", err)
-			return fmt.Errorf("failed to read templates/%s: %w", client, err)
-		}
-		cfg.Logger.Debug("Reading templates for client", "client", client, "file_count", len(files))
-		for _, file := range files {
-			if !file.IsDir() {
-				path := filepath.Join(dir, file.Name())
+		baseDir := filepath.Join("templates", client)
+		err := filepath.WalkDir(baseDir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				cfg.Logger.Error("Error accessing path", "path", path, "error", err)
+				return err
+			}
+			if !d.IsDir() {
 				content, err := os.ReadFile(path)
 				if err != nil {
 					cfg.Logger.Error("Failed to read template file", "path", path, "error", err)
 					return fmt.Errorf("failed to read %s: %w", path, err)
 				}
-				newTemplates[client][file.Name()] = string(content)
-				cfg.Logger.Trace("Loaded template", "client", client, "name", file.Name())
+				relativePath, err := filepath.Rel(baseDir, path)
+				if err != nil {
+					cfg.Logger.Error("Failed to get relative path", "path", path, "error", err)
+					return err
+				}
+				newTemplates[client][relativePath] = string(content)
+				cfg.Logger.Trace("Loaded template", "client", client, "name", relativePath)
 			}
+			return nil
+		})
+		if err != nil {
+			cfg.Logger.Error("Failed to read templates directory", "client", client, "error", err)
+			return fmt.Errorf("failed to read templates/%s: %w", client, err)
 		}
+		cfg.Logger.Debug("Reading templates for client", "client", client)
 	}
 
 	mu.Lock()
@@ -79,11 +85,11 @@ func WatchTemplates(ctx context.Context, cfg *config.Config, wg *sync.WaitGroup)
 	defer watcher.Close()
 	cfg.Logger.Info("Started watching templates directories")
 
-	clients := []string{"xray", "singbox", "mihomo", "happ"}
+	clients := []string{"xray", "singbox", "mihomo"}
 	for _, client := range clients {
 		dir := filepath.Join("templates", client)
 		if _, err := os.Stat(dir); os.IsNotExist(err) {
-			cfg.Logger.Warn("Templates directory does not exist, skipping warch", "client", client, "dir", dir)
+			cfg.Logger.Warn("Templates directory does not exist, skipping watch", "client", client, "dir", dir)
 			continue
 		}
 		err := watcher.Add(dir)
@@ -92,6 +98,24 @@ func WatchTemplates(ctx context.Context, cfg *config.Config, wg *sync.WaitGroup)
 			return
 		}
 		cfg.Logger.Debug("Added watch for templates directory", "client", client)
+		err = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				err = watcher.Add(path)
+				if err != nil {
+					cfg.Logger.Error("Failed to add watch for subdirectory", "path", path, "error", err)
+					return err
+				}
+				cfg.Logger.Debug("Added watch for subdirectory", "path", path)
+			}
+			return nil
+		})
+		if err != nil {
+			cfg.Logger.Error("Failed to walk templates directory", "client", client, "error", err)
+			return
+		}
 	}
 
 	for {

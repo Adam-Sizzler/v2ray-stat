@@ -5,9 +5,11 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
 	"v2ray-stat/subscription/config"
@@ -30,13 +32,24 @@ var (
 func StartGrpcServer(ctx context.Context, config *config.Config, wg *sync.WaitGroup) *grpc.Server {
 	defer wg.Done()
 	cfg = config
+	cfg.Ctx = ctx
 	lis, err := net.Listen("tcp", ":"+cfg.V2RSSub.GrpcPort)
 	if err != nil {
 		cfg.Logger.Fatal("Failed to listen gRPC", "port", cfg.V2RSSub.GrpcPort, "error", err)
 	}
 
+	// Добавляем keepalive параметры для сервера
 	s := grpc.NewServer(
-		grpc.MaxRecvMsgSize(10 * 1024 * 1024), // 10MB
+		grpc.MaxRecvMsgSize(10*1024*1024), // 10MB
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle: 60 * time.Second,
+			Time:              10 * time.Second,
+			Timeout:           5 * time.Second,
+		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             5 * time.Second,
+			PermitWithoutStream: true,
+		}),
 	)
 	proto.RegisterSubscriptionServiceServer(s, &server{})
 
@@ -80,9 +93,13 @@ func (s *server) DataStream(stream proto.SubscriptionService_DataStreamServer) e
 		case <-stream.Context().Done():
 			cfg.Logger.Info("gRPC stream closed due to context cancellation")
 			return nil
+		case <-cfg.Ctx.Done():
+			cfg.Logger.Info("gRPC stream closed due to application context cancellation")
+			return nil
 		default:
 			resp, err := stream.Recv()
 			if err == io.EOF {
+				cfg.Logger.Info("gRPC stream closed by client (EOF)")
 				return nil
 			}
 			if err != nil {
@@ -97,9 +114,6 @@ func (s *server) DataStream(stream proto.SubscriptionService_DataStreamServer) e
 
 			mu.Lock()
 			lastResponse = resp
-			mu.Unlock()
-
-			mu.Lock()
 			ch, ok := waiting[resp.RequestId]
 			if ok {
 				cfg.Logger.Debug("Sending response to waiting channel", "request_id", resp.RequestId)

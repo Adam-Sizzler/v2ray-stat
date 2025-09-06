@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"maps"
 	"net/http"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -29,21 +31,21 @@ var clientFormats = map[string]struct {
 		Format: "yaml",
 		Header: map[string]string{"Content-Type": "text/yaml"},
 	},
-	"happ": {
-		Format: "json",
-		Header: map[string]string{"Content-Type": "application/json"},
-	},
 }
 
-// SubscriptionHandler handles /api/v1/sub?client=<client>&user=<user>.
+// SubscriptionHandler handles /api/v1/sub?client=<client>&user=<user>&mode=<mode>.
 func SubscriptionHandler(w http.ResponseWriter, r *http.Request) {
+	mode := r.URL.Query().Get("mode")
 	client := r.URL.Query().Get("client")
 	user := r.URL.Query().Get("user")
 	if client == "" {
 		client = "xray"
 	}
+	if mode == "" {
+		mode = "advanced" // Default to JSON/YAML templates
+	}
 	cfg := config.GetConfig()
-	cfg.Logger.Debug("Received subscription request", "client", client, "user", user)
+	cfg.Logger.Debug("Received subscription request", "client", client, "user", user, "mode", mode)
 	if user == "" {
 		cfg.Logger.Warn("Missing user parameter in request")
 		http.Error(w, "missing user parameter", http.StatusBadRequest)
@@ -56,44 +58,54 @@ func SubscriptionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userConfig := cfg.Subscription.Users[user]
+	if mode != "base" && mode != "advanced" {
+		cfg.Logger.Warn("Invalid mode requested", "mode", mode)
+		http.Error(w, "invalid mode, must be 'base' or 'advanced'", http.StatusBadRequest)
+		return
+	}
+
+	userConfig, ok := cfg.Subscription.UserMap[user]
+	if !ok {
+		cfg.Logger.Debug("User not found in UserMap, applying defaults", "user", user)
+		userConfig = config.UserConfig{
+			Clients:       slices.Clone(cfg.Subscription.Defaults.Clients),
+			IncludeNodes:  slices.Clone(cfg.Subscription.Defaults.IncludeNodes),
+			NodeTemplates: make(map[string]map[string]string),
+			Headers:       make(map[string]string),
+		}
+
+		for mode, templates := range cfg.Subscription.Defaults.NodeTemplates {
+			userConfig.NodeTemplates[mode] = make(map[string]string)
+			maps.Copy(userConfig.NodeTemplates[mode], templates)
+		}
+
+		maps.Copy(userConfig.Headers, cfg.Subscription.Defaults.Headers)
+	}
 	cfg.Logger.Trace("User config before merging", "user", user, "config", fmt.Sprintf("%+v", userConfig))
 
 	// Apply group settings if specified
 	if userConfig.Group != "" {
 		if groupConfig, ok := cfg.Subscription.Groups[userConfig.Group]; ok {
 			cfg.Logger.Debug("Merging group config", "group", userConfig.Group)
-			// Merge group settings with user settings, user settings take precedence
-			if len(userConfig.Clients) == 0 {
-				userConfig.Clients = groupConfig.Clients
+			// Полное переопределение, если поле указано в группе
+			if groupConfig.Clients != nil {
+				userConfig.Clients = slices.Clone(groupConfig.Clients)
 			}
-			if len(userConfig.IncludeNodes) == 0 {
-				userConfig.IncludeNodes = groupConfig.IncludeNodes
+			if groupConfig.IncludeNodes != nil {
+				userConfig.IncludeNodes = slices.Clone(groupConfig.IncludeNodes)
 			}
-			if len(userConfig.NodeTemplates) == 0 {
-				userConfig.NodeTemplates = make(map[string]string)
-				maps.Copy(userConfig.NodeTemplates, groupConfig.NodeTemplates)
-			} else {
-				// Merge templates, user templates override group templates
-				for k, v := range groupConfig.NodeTemplates {
-					if _, exists := userConfig.NodeTemplates[k]; !exists {
-						userConfig.NodeTemplates[k] = v
+			if groupConfig.NodeTemplates != nil {
+				userConfig.NodeTemplates = make(map[string]map[string]string)
+				for mode, templates := range groupConfig.NodeTemplates {
+					userConfig.NodeTemplates[mode] = make(map[string]string)
+					if templates != nil {
+						maps.Copy(userConfig.NodeTemplates[mode], templates)
 					}
 				}
 			}
-
-			// Merge headers, user headers override group headers
-			if len(userConfig.Headers) == 0 {
+			if groupConfig.Headers != nil {
 				userConfig.Headers = make(map[string]string)
-				for k, v := range groupConfig.Headers {
-					userConfig.Headers[k] = v
-				}
-			} else {
-				for k, v := range groupConfig.Headers {
-					if _, exists := userConfig.Headers[k]; !exists {
-						userConfig.Headers[k] = v
-					}
-				}
+				maps.Copy(userConfig.Headers, groupConfig.Headers)
 			}
 		} else {
 			cfg.Logger.Warn("Group not found for user", "group", userConfig.Group, "user", user)
@@ -102,29 +114,27 @@ func SubscriptionHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Apply defaults for missing fields
+	// Apply defaults for missing fields only if not overridden by group
 	if len(userConfig.Clients) == 0 {
-		userConfig.Clients = cfg.Subscription.Defaults.Clients
+		userConfig.Clients = slices.Clone(cfg.Subscription.Defaults.Clients)
 		cfg.Logger.Debug("Applied default clients for user", "user", user)
 	}
 	if len(userConfig.IncludeNodes) == 0 {
-		userConfig.IncludeNodes = cfg.Subscription.Defaults.IncludeNodes
+		userConfig.IncludeNodes = slices.Clone(cfg.Subscription.Defaults.IncludeNodes)
 		cfg.Logger.Debug("Applied default nodes for user", "user", user)
 	}
 	if len(userConfig.NodeTemplates) == 0 {
-		userConfig.NodeTemplates = cfg.Subscription.Defaults.NodeTemplates
+		userConfig.NodeTemplates = make(map[string]map[string]string)
+		for mode, templates := range cfg.Subscription.Defaults.NodeTemplates {
+			userConfig.NodeTemplates[mode] = make(map[string]string)
+			maps.Copy(userConfig.NodeTemplates[mode], templates)
+		}
 		cfg.Logger.Debug("Applied default templates for user", "user", user)
 	}
 	if len(userConfig.Headers) == 0 {
 		userConfig.Headers = make(map[string]string)
 		maps.Copy(userConfig.Headers, cfg.Subscription.Defaults.Headers)
 		cfg.Logger.Debug("Applied default headers for user", "user", user)
-	} else {
-		for k, v := range cfg.Subscription.Defaults.Headers {
-			if _, exists := userConfig.Headers[k]; !exists {
-				userConfig.Headers[k] = v
-			}
-		}
 	}
 
 	if !slices.Contains(userConfig.Clients, client) {
@@ -148,18 +158,24 @@ func SubscriptionHandler(w http.ResponseWriter, r *http.Request) {
 
 	for _, node := range userConfig.IncludeNodes {
 		cfg.Logger.Trace("Processing node for user", "node", node, "user", user)
-		templateName, ok := userConfig.NodeTemplates[node]
-		if !ok {
-			templateName, ok = cfg.Subscription.Defaults.NodeTemplates[node]
-			if !ok {
-				cfg.Logger.Warn("No template specified for node in user or defaults, skipping", "node", node, "user", user)
-				continue
-			}
+		// Get template name for the specific mode
+		modeTemplates, modeOk := userConfig.NodeTemplates[mode]
+		if !modeOk || modeTemplates == nil {
+			cfg.Logger.Debug("No templates for mode", "mode", mode, "user", user)
+			continue
+		}
+		templateName, ok := modeTemplates[node]
+		if !ok || templateName == "" {
+			cfg.Logger.Debug("No template specified for node in mode or empty name", "node", node, "mode", mode, "user", user)
+			continue
 		}
 
-		template, ok := tmpls[client][templateName]
+		// Prepend mode-specific directory (base/ or advance/)
+		templatePath := filepath.Join(mode, templateName)
+
+		template, ok := tmpls[client][templatePath]
 		if !ok {
-			cfg.Logger.Warn("Template not found for client for user", "template", templateName, "client", client, "user", user)
+			cfg.Logger.Warn("Template not found for client for user", "template", templatePath, "client", client, "user", user)
 			continue
 		}
 
@@ -177,6 +193,13 @@ func SubscriptionHandler(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
+		// Get domain for the node
+		domain, ok := cfg.Subscription.Domains[node]
+		if !ok {
+			cfg.Logger.Warn("No domain specified for node", "node", node, "user", user)
+			continue
+		}
+
 		totalUplink += nodeTraffic.Uplink
 		totalDownlink += nodeTraffic.Downlink
 		if nodeTraffic.SubEnd > maxSubEnd {
@@ -186,9 +209,11 @@ func SubscriptionHandler(w http.ResponseWriter, r *http.Request) {
 			maxTrafficCap = nodeTraffic.TrafficCap
 		}
 
+		// Replace placeholders
 		configStr := strings.ReplaceAll(template, "{user_id}", userID)
+		configStr = strings.ReplaceAll(configStr, "{domain}", domain)
 		configs = append(configs, configStr)
-		cfg.Logger.Trace("Generated config for node", "node", node, "user", user)
+		cfg.Logger.Trace("Generated config for node", "node", node, "user", user, "domain", domain)
 	}
 
 	if len(configs) == 0 {
@@ -199,8 +224,16 @@ func SubscriptionHandler(w http.ResponseWriter, r *http.Request) {
 	cfg.Logger.Debug("Generated configurations", "count", len(configs), "user", user)
 
 	var output any
-	if client == "mihomo" {
-		baseTemplate, ok := tmpls[client]["base"]
+	if mode == "base" {
+		// For all clients in base mode, combine configs as text and encode in base64
+		combinedConfig := strings.Join(configs, "\n")
+		encodedConfig := base64.StdEncoding.EncodeToString([]byte(combinedConfig))
+		output = encodedConfig
+		w.Header().Set("Content-Type", "text/plain")
+		cfg.Logger.Trace("Prepared base64-encoded config for base mode", "user", user, "client", client)
+	} else if client == "mihomo" {
+		// For mihomo in advanced mode, combine into YAML proxies
+		baseTemplate, ok := tmpls[client]["base/base.yaml"]
 		if !ok {
 			cfg.Logger.Warn("Base template not found for client for user", "client", client, "user", user)
 			http.Error(w, "base template not found", http.StatusInternalServerError)
@@ -213,7 +246,7 @@ func SubscriptionHandler(w http.ResponseWriter, r *http.Request) {
 			indentedLines := make([]string, 0, len(lines))
 			for _, line := range lines {
 				if strings.TrimSpace(line) != "" {
-					indentedLines = append(indentedLines, line)
+					indentedLines = append(indentedLines, "  - "+line)
 				}
 			}
 			configStrings = append(configStrings, strings.Join(indentedLines, "\n"))
@@ -223,6 +256,7 @@ func SubscriptionHandler(w http.ResponseWriter, r *http.Request) {
 		output = []string{configStr}
 		cfg.Logger.Trace("Combined proxies for mihomo", "user", user)
 	} else {
+		// For xray and singbox in advanced mode, return JSON array
 		var parsedConfigs []any
 		for _, configStr := range configs {
 			var config any
@@ -246,6 +280,10 @@ func SubscriptionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for k, v := range clientFormats[client].Header {
+		// Skip setting Content-Type for base mode, as it's already set to text/plain
+		if mode == "base" && k == "Content-Type" {
+			continue
+		}
 		w.Header().Set(k, v)
 	}
 
@@ -256,8 +294,15 @@ func SubscriptionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg.Logger.Trace("Set response headers", "user", user)
 
-	switch clientFormats[client].Format {
-	case "json":
+	switch {
+	case mode == "base":
+		if _, err := w.Write([]byte(output.(string))); err != nil {
+			cfg.Logger.Error("Failed to write base64-encoded response", "user", user, "error", err)
+			http.Error(w, fmt.Sprintf("failed to write response: %v", err), http.StatusInternalServerError)
+			return
+		}
+		cfg.Logger.Debug("Sent base64-encoded response", "user", user)
+	case clientFormats[client].Format == "json":
 		formattedJSON, err := json.MarshalIndent(output, "", "  ")
 		if err != nil {
 			cfg.Logger.Error("Failed to marshal JSON for client for user", "client", client, "user", user, "error", err)
@@ -270,7 +315,7 @@ func SubscriptionHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cfg.Logger.Debug("Sent JSON response", "user", user)
-	case "yaml":
+	case clientFormats[client].Format == "yaml":
 		if _, err := w.Write([]byte(output.([]string)[0])); err != nil {
 			cfg.Logger.Error("Failed to write YAML response", "user", user, "error", err)
 			http.Error(w, fmt.Sprintf("failed to write response: %v", err), http.StatusInternalServerError)
