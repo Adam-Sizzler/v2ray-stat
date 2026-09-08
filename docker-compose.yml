@@ -25,6 +25,7 @@ services:
     <<: [*common, *logging, *env]
     volumes:
       - valkey-socket:/var/run/valkey
+      - ./configs/notifications/notifications-config.yml:/opt/app/configs/notifications/notifications-config.yml:ro
     ports:
       - 127.0.0.1:3000:${APP_PORT:-3000}
       - 127.0.0.1:3001:${METRICS_PORT:-3001}

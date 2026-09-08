@@ -1,106 +1,165 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# Notifications Configuration
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# This file controls which events trigger notifications and through which channels.
+# By default, all events are ENABLED for both Telegram and Webhook.
+#
+# To disable a specific event, set the channel to false.
+#
+# ──────────────────────────────────────────────────────────────────────────────
+# Example:
+# ──────────────────────────────────────────────────────────────────────────────
+#
+#   events:
+#     user.created:
+#       telegram: true    # Send Telegram notification
+#       webhook: false    # Don't send webhook
+#
+#     user.expired:
+#       telegram: false   # Disable Telegram for this event
+#       webhook: true     # Keep webhook enabled
+#       additionalWebhookUrls:
+#         - https://example.com/webhook
+#
+# ══════════════════════════════════════════════════════════════════════════════
+
+x-both-enabled: &bothEnabled
+  telegram: true
+  webhook: true
+
+x-both-disabled: &bothDisabled
+  telegram: false
+  webhook: false
+
 events:
+  # ════════════════════════════════════════════════════════════════════════════
+  # USER EVENTS
+  # ════════════════════════════════════════════════════════════════════════════
+
   user.created:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   user.modified:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   user.deleted:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   user.revoked:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   user.disabled:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   user.enabled:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   user.limited:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   user.expired:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   user.traffic_reset:
-    telegram: true
-    webhook: true
-  user.first_connected:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   user.expiration:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
+  user.first_connected:
+    <<: *bothEnabled
+
   user.bandwidth_usage_threshold_reached:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   user.not_connected:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # USER HWID DEVICE EVENTS
+  # ════════════════════════════════════════════════════════════════════════════
+
   user_hwid_devices.added:
     telegram: false
     webhook: true
+
   user_hwid_devices.deleted:
     telegram: false
     webhook: true
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # NODE EVENTS
+  # ════════════════════════════════════════════════════════════════════════════
+
   node.created:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   node.modified:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   node.disabled:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   node.enabled:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   node.deleted:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   node.connection_lost:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   node.connection_restored:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   node.traffic_notify:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # SERVICE EVENTS
+  # ════════════════════════════════════════════════════════════════════════════
+
   service.panel_started:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   service.login_attempt_failed:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   service.login_attempt_success:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   service.subpage_config_changed:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # ERROR EVENTS
+  # ════════════════════════════════════════════════════════════════════════════
+
   errors.bandwidth_usage_threshold_reached_max_notifications:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # CRM EVENTS (Infra Billing)
+  # ════════════════════════════════════════════════════════════════════════════
+
   crm.infra_billing_node_payment_in_7_days:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   crm.infra_billing_node_payment_in_48hrs:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   crm.infra_billing_node_payment_in_24hrs:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   crm.infra_billing_node_payment_due_today:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   crm.infra_billing_node_payment_overdue_24hrs:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   crm.infra_billing_node_payment_overdue_48hrs:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled
+
   crm.infra_billing_node_payment_overdue_7_days:
-    telegram: true
-    webhook: true
+    <<: *bothEnabled

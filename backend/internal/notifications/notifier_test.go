@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -174,3 +175,40 @@ func TestSendWebhookWithAdditionalURLs(t *testing.T) {
 		t.Errorf("server2 expected 1 request, got %d", receivedRequests["server2"])
 	}
 }
+
+func TestNotificationsConfigFileParsingWithAnchors(t *testing.T) {
+	yamlPath := "../../../configs/notifications/notifications-config.yml"
+	content, err := os.ReadFile(yamlPath)
+	if err != nil {
+		t.Fatalf("failed to read notifications-config.yml: %v", err)
+	}
+
+	var parsed struct {
+		Events map[string]config.NotificationEventChannelConfig `yaml:"events"`
+	}
+	if err := yaml.Unmarshal(content, &parsed); err != nil {
+		t.Fatalf("failed to unmarshal yaml with anchors: %v", err)
+	}
+
+	if len(parsed.Events) == 0 {
+		t.Fatalf("expected parsed events to not be empty")
+	}
+
+	cfg := config.NotificationsConfig{
+		EventChannels: parsed.Events,
+	}
+
+	// Verify user.expiration and user.expired are enabled for telegram
+	if !cfg.EventChannelEnabled("user.expiration", "telegram") {
+		t.Errorf("expected user.expiration telegram to be enabled")
+	}
+	if !cfg.EventChannelEnabled("user.expired", "telegram") {
+		t.Errorf("expected user.expired telegram to be enabled")
+	}
+
+	// Verify user_hwid_devices.added has telegram false
+	if cfg.EventChannelEnabled("user_hwid_devices.added", "telegram") {
+		t.Errorf("expected user_hwid_devices.added telegram to be disabled")
+	}
+}
+
