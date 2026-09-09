@@ -1,6 +1,6 @@
 # Multistage build for exodus panel (frontend + backend)
-FROM node:24-alpine AS panel-ui
-WORKDIR /ui
+FROM node:24-alpine AS panel-frontend
+WORKDIR /frontend
 ENV NODE_OPTIONS=--max-old-space-size=4096
 
 ARG SINGBOX_ASSETS_URL=https://adam-sizzler.github.io/s-validator
@@ -24,7 +24,7 @@ RUN if [ ! -f public/assets/main.wasm ] || [ ! -f public/assets/wasm_exec.js ] |
     fi
 
 ARG BUILD_BUST=1
-RUN --mount=type=cache,target=/root/.npm --mount=type=cache,target=/ui/node_modules/.vite/cache \
+RUN --mount=type=cache,target=/root/.npm --mount=type=cache,target=/frontend/node_modules/.vite/cache \
     rm -rf dist && npm run cb
 
 FROM golang:1.27.1-alpine AS builder
@@ -96,8 +96,8 @@ RUN ln -s /opt/app/exodus /usr/local/bin/exodus && \
     ln -s /opt/app/exodus /usr/local/bin/cli
 
 # Copy built frontend
-COPY --from=panel-ui /ui/dist /opt/app/ui
-COPY --from=builder /usr/local/go/lib/wasm/wasm_exec.js /opt/app/ui/assets/wasm_exec.js
+COPY --from=panel-frontend /frontend/dist /opt/app/frontend
+COPY --from=builder /usr/local/go/lib/wasm/wasm_exec.js /opt/app/frontend/assets/wasm_exec.js
 
 # Create directories for data and certificates
 RUN mkdir -p /opt/app/data /opt/app/certs

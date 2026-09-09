@@ -163,7 +163,7 @@ var defaultConfig = BackendConfig{
 		ExportToStreamMaxLen:         3000,
 	},
 	Backend: BackendAppConfig{
-		StaticDir:         "/opt/app/ui",
+		StaticDir:         "/opt/app/frontend",
 		BasePath:          "/",
 		AllowInsecureHTTP: false,
 		TrustedProxies:    []string{},
