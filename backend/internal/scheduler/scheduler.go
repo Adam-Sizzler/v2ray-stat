@@ -3,7 +3,6 @@ package scheduler
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"sync"
 	"time"
 
@@ -45,6 +44,7 @@ func Start(ctx context.Context, wg *sync.WaitGroup, db *sql.DB, cfg *config.Back
 	s.runJob(ctx, "findExceededTrafficUsageUsers", s.runExceededUsersReview)
 
 	c.Start()
+	cfg.Logger.RoleService(logger.RoleScheduler, "NodeHealthCheckTask").Info("Restarting all nodes on application start.")
 	cfg.Logger.RoleService(logger.RoleScheduler, logger.ServiceScheduler).Info("Scheduler started with go-cron engine")
 
 	wg.Add(1)
@@ -101,30 +101,21 @@ func (s *Scheduler) logJobStates() {
 		return
 	}
 	jobs := []struct {
-		name    string
-		enabled bool
+		taskName string
+		message  string
+		enabled  bool
 	}{
-		{name: "cleanOldUsageRecords", enabled: s.cfg.Scheduler.ServiceCleanUsageHistory},
-		{name: "expireUserNotifications", enabled: s.cfg.Scheduler.NotificationsEnabled},
-		{name: "findUsersForThresholdNotification", enabled: s.cfg.Scheduler.NotificationsEnabled && s.cfg.Scheduler.BandwidthUsageNotificationsEnabled},
-		{name: "findNotConnectedUsersNotification", enabled: s.cfg.Scheduler.NotificationsEnabled && s.cfg.Scheduler.NotConnectedUsersNotificationsEnabled},
-		{name: "resetNodeTraffic", enabled: true},
-		{name: "reviewNodes", enabled: true},
-		{name: "vacuumTables", enabled: true},
-		{name: "infraBillingNodesNotifications", enabled: true},
-		{name: "trafficResetDay (00:05)", enabled: true},
-		{name: "trafficResetWeek (Mon 00:15)", enabled: true},
-		{name: "trafficResetMonth (1st 00:20)", enabled: true},
-		{name: "srsListsCheck (every 12h)", enabled: true},
-		{name: "findExpiredUsers (every 30s)", enabled: true},
-		{name: "findExceededTrafficUsageUsers (every 45s)", enabled: true},
+		{taskName: "ExportNodeConnectionsTask", message: "Export node connections job disabled.", enabled: false},
+		{taskName: "FindUsersForExpireNotificationsTask", message: "Job disabled.", enabled: s.cfg.Scheduler.NotificationsEnabled},
+		{taskName: "FindUsersForThresholdNotificationTask", message: "Find users for threshold notification job disabled.", enabled: s.cfg.Scheduler.NotificationsEnabled && s.cfg.Scheduler.BandwidthUsageNotificationsEnabled},
+		{taskName: "FindNotConnectedUsersNotificationTask", message: "Job disabled.", enabled: s.cfg.Scheduler.NotificationsEnabled && s.cfg.Scheduler.NotConnectedUsersNotificationsEnabled},
+		{taskName: "CleanOldUsageRecordsTask", message: "Clean old usage records job disabled.", enabled: s.cfg.Scheduler.ServiceCleanUsageHistory},
 	}
-	log := s.cfg.Logger.RoleService(logger.RoleScheduler, logger.ServiceJobs)
 	for _, job := range jobs {
 		if job.enabled {
-			log.Debug("Job enabled", "job", job.name)
+			s.cfg.Logger.RoleService(logger.RoleScheduler, job.taskName).Debug("Job enabled")
 		} else {
-			log.Info(fmt.Sprintf("%s job disabled.", job.name))
+			s.cfg.Logger.RoleService(logger.RoleScheduler, job.taskName).Info(job.message)
 		}
 	}
 }

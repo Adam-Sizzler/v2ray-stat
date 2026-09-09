@@ -87,6 +87,7 @@ func NewWorker(cfg *config.BackendConfig, db *sql.DB) (*Worker, error) {
 	}
 	worker.processor = processor
 	if cfg.Logger != nil {
+		cfg.Logger.RoleService(logger.RoleWorkers, "PushFromRedisQueueProcessor").Info("User usage records will be recorded to the database.")
 		cfg.Logger.RoleService(logger.RoleWorkers, logger.ServiceQueues).Info("1 queues connected", "queue", pushToDBQueueName, "concurrency", cfg.Redis.PushToDBQueueConcurrency)
 	}
 	return worker, nil

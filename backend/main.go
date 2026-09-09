@@ -136,7 +136,7 @@ func main() {
 
 	cfg.Logger.PrintStartupBanner(logger.BannerOptions{
 		Title:          "Exodus Backend",
-		Version:        constant.Version,
+		Version:        constant.GetVersion(),
 		DocsURL:        "https://docs.ex",
 		CommunityURL:   "https://t.me/exodus",
 		HTTPPort:       cfg.Backend.AppPort,
@@ -148,7 +148,7 @@ func main() {
 
 	panelsettings.LogScopeCatalog(&cfg)
 
-	cfg.Logger.RoleService(logger.RoleAPI, logger.ServiceHealthCheck).Info("Health checks initialized")
+	cfg.Logger.RoleService(logger.RoleAPI, logger.ServiceHealthCheck).Debug("Health checks initialized")
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)

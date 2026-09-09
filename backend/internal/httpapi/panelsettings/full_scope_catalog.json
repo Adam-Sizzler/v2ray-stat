@@ -1,0 +1,1587 @@
+{
+  "wildcard": "*",
+  "resources": [
+    {
+      "resource": "config-profiles",
+      "resourceScopes": [
+        "config-profiles:*",
+        "config-profiles:read",
+        "config-profiles:write"
+      ],
+      "endpoints": [
+        {
+          "key": "config-profiles:list-tags",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/config-profiles/tags",
+          "description": "Get tags of Config Profiles"
+        },
+        {
+          "key": "config-profiles:set-tags",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/config-profiles/tags",
+          "description": "Set tags of Config Profile"
+        },
+        {
+          "key": "config-profiles:list",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/config-profiles",
+          "description": "Get config profiles"
+        },
+        {
+          "key": "config-profiles:create",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/config-profiles",
+          "description": "Create config profile"
+        },
+        {
+          "key": "config-profiles:update",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/config-profiles",
+          "description": "Update Core Config in specific config profile"
+        },
+        {
+          "key": "config-profiles:list-inbounds",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/config-profiles/inbounds",
+          "description": "Get all inbounds from all config profiles"
+        },
+        {
+          "key": "config-profiles:list-profile-inbounds",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/config-profiles/{uuid}/inbounds",
+          "description": "Get inbounds by profile uuid"
+        },
+        {
+          "key": "config-profiles:get",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/config-profiles/{uuid}",
+          "description": "Get config profile by uuid"
+        },
+        {
+          "key": "config-profiles:delete",
+          "kind": "write",
+          "method": "DELETE",
+          "path": "/api/config-profiles/{uuid}",
+          "description": "Delete config profile"
+        },
+        {
+          "key": "config-profiles:get-computed",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/config-profiles/{uuid}/computed-config",
+          "description": "Get computed config profile by uuid"
+        },
+        {
+          "key": "config-profiles:reorder",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/config-profiles/actions/reorder",
+          "description": "Reorder config profiles"
+        }
+      ]
+    },
+    {
+      "resource": "snippets",
+      "resourceScopes": [
+        "snippets:*",
+        "snippets:read",
+        "snippets:write"
+      ],
+      "endpoints": [
+        {
+          "key": "snippets:list",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/snippets",
+          "description": "Get snippets"
+        },
+        {
+          "key": "snippets:delete",
+          "kind": "write",
+          "method": "DELETE",
+          "path": "/api/snippets",
+          "description": "Delete snippet"
+        },
+        {
+          "key": "snippets:create",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/snippets",
+          "description": "Create snippet"
+        },
+        {
+          "key": "snippets:update",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/snippets",
+          "description": "Update snippet"
+        },
+        {
+          "key": "snippets:sync",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/snippets/actions/sync",
+          "description": "Sync snippet to affected config profiles"
+        }
+      ]
+    },
+    {
+      "resource": "connections",
+      "resourceScopes": [
+        "connections:*",
+        "connections:read",
+        "connections:write"
+      ],
+      "endpoints": [
+        {
+          "key": "connections:by-user",
+          "kind": "read",
+          "method": "POST",
+          "path": "/api/connections/by-user/{userId}",
+          "description": "Request Connections for User"
+        },
+        {
+          "key": "connections:by-user-result",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/connections/by-user/{jobId}",
+          "description": "Get Connections for User by Job ID"
+        },
+        {
+          "key": "connections:drop",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/connections/drop",
+          "description": "Drop Connections for Users or IPs"
+        },
+        {
+          "key": "connections:by-node",
+          "kind": "read",
+          "method": "POST",
+          "path": "/api/connections/by-node/{nodeUuid}",
+          "description": "Request Connections for Node"
+        },
+        {
+          "key": "connections:by-node-result",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/connections/by-node/{jobId}",
+          "description": "Get Connections for Node by Job ID"
+        },
+        {
+          "key": "connections:geocheck",
+          "kind": "read",
+          "method": "POST",
+          "path": "/api/connections/geocheck/{nodeUuid}",
+          "description": "Request Geocheck for Node"
+        },
+        {
+          "key": "connections:geocheck-result",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/connections/geocheck/{jobId}",
+          "description": "Get Geocheck for Node by Job ID"
+        }
+      ]
+    },
+    {
+      "resource": "external-squads",
+      "resourceScopes": [
+        "external-squads:*",
+        "external-squads:read",
+        "external-squads:write"
+      ],
+      "endpoints": [
+        {
+          "key": "external-squads:list-tags",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/external-squads/tags",
+          "description": "Get tags of External Squads"
+        },
+        {
+          "key": "external-squads:set-tags",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/external-squads/tags",
+          "description": "Set tags of External Squad"
+        },
+        {
+          "key": "external-squads:list",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/external-squads",
+          "description": "Get all external squads"
+        },
+        {
+          "key": "external-squads:create",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/external-squads",
+          "description": "Create external squad"
+        },
+        {
+          "key": "external-squads:update",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/external-squads",
+          "description": "Update external squad"
+        },
+        {
+          "key": "external-squads:get",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/external-squads/{uuid}",
+          "description": "Get external squad by uuid"
+        },
+        {
+          "key": "external-squads:delete",
+          "kind": "write",
+          "method": "DELETE",
+          "path": "/api/external-squads/{uuid}",
+          "description": "Delete external squad"
+        },
+        {
+          "key": "external-squads:add-users",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/external-squads/{uuid}/bulk-actions/add-users",
+          "description": "Add all users to external squad"
+        },
+        {
+          "key": "external-squads:remove-users",
+          "kind": "write",
+          "method": "DELETE",
+          "path": "/api/external-squads/{uuid}/bulk-actions/remove-users",
+          "description": "Delete users from external squad"
+        },
+        {
+          "key": "external-squads:reorder",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/external-squads/actions/reorder",
+          "description": "Reorder external squads"
+        }
+      ]
+    },
+    {
+      "resource": "hosts",
+      "resourceScopes": [
+        "hosts:*",
+        "hosts:read",
+        "hosts:write"
+      ],
+      "endpoints": [
+        {
+          "key": "hosts:list-tags",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/hosts/tags",
+          "description": "Get tags of hosts"
+        },
+        {
+          "key": "hosts:create",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/hosts",
+          "description": "Create a new host"
+        },
+        {
+          "key": "hosts:update",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/hosts",
+          "description": "Update a host"
+        },
+        {
+          "key": "hosts:list",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/hosts",
+          "description": "Get hosts"
+        },
+        {
+          "key": "hosts:get",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/hosts/{uuid}",
+          "description": "Get a host by UUID"
+        },
+        {
+          "key": "hosts:delete",
+          "kind": "write",
+          "method": "DELETE",
+          "path": "/api/hosts/{uuid}",
+          "description": "Delete a host by UUID"
+        },
+        {
+          "key": "hosts:reorder",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/hosts/actions/reorder",
+          "description": "Reorder hosts"
+        },
+        {
+          "key": "hosts:bulk-delete",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/hosts/bulk/delete",
+          "description": "Delete hosts by UUIDs"
+        },
+        {
+          "key": "hosts:bulk-disable",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/hosts/bulk/disable",
+          "description": "Disable hosts by UUIDs"
+        },
+        {
+          "key": "hosts:bulk-enable",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/hosts/bulk/enable",
+          "description": "Enable hosts by UUIDs"
+        },
+        {
+          "key": "hosts:bulk-update",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/hosts/bulk/update",
+          "description": "Update many hosts"
+        }
+      ]
+    },
+    {
+      "resource": "hwid-user-devices",
+      "resourceScopes": [
+        "hwid-user-devices:*",
+        "hwid-user-devices:read",
+        "hwid-user-devices:write"
+      ],
+      "endpoints": [
+        {
+          "key": "hwid-user-devices:list",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/hwid/devices",
+          "description": "Get HWID devices"
+        },
+        {
+          "key": "hwid-user-devices:create",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/hwid/devices",
+          "description": "Create a user HWID device"
+        },
+        {
+          "key": "hwid-user-devices:delete",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/hwid/devices/delete",
+          "description": "Delete a user HWID device"
+        },
+        {
+          "key": "hwid-user-devices:delete-all",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/hwid/devices/delete-all",
+          "description": "Delete all user HWID devices"
+        },
+        {
+          "key": "hwid-user-devices:stats",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/hwid/devices/stats",
+          "description": "Get HWID devices stats"
+        },
+        {
+          "key": "hwid-user-devices:top-users",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/hwid/devices/top-users",
+          "description": "Get top users by HWID devices"
+        },
+        {
+          "key": "hwid-user-devices:list-by-user",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/hwid/devices/{userId}",
+          "description": "Get user HWID devices"
+        }
+      ]
+    },
+    {
+      "resource": "infra-billing",
+      "resourceScopes": [
+        "infra-billing:*",
+        "infra-billing:read",
+        "infra-billing:write"
+      ],
+      "endpoints": [
+        {
+          "key": "infra-billing:list-providers",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/infra-billing/providers",
+          "description": "Get all infra providers"
+        },
+        {
+          "key": "infra-billing:create-provider",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/infra-billing/providers",
+          "description": "Create infra provider"
+        },
+        {
+          "key": "infra-billing:update-provider",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/infra-billing/providers",
+          "description": "Update infra provider"
+        },
+        {
+          "key": "infra-billing:get-provider",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/infra-billing/providers/{uuid}",
+          "description": "Get infra provider by uuid"
+        },
+        {
+          "key": "infra-billing:delete-provider",
+          "kind": "write",
+          "method": "DELETE",
+          "path": "/api/infra-billing/providers/{uuid}",
+          "description": "Delete infra provider by uuid"
+        },
+        {
+          "key": "infra-billing:create-bill-record",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/infra-billing/history",
+          "description": "Create infra billing history"
+        },
+        {
+          "key": "infra-billing:list-bill-records",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/infra-billing/history",
+          "description": "Get infra billing history"
+        },
+        {
+          "key": "infra-billing:delete-bill-record",
+          "kind": "write",
+          "method": "DELETE",
+          "path": "/api/infra-billing/history/{uuid}",
+          "description": "Delete infra billing history"
+        },
+        {
+          "key": "infra-billing:list-billing-nodes",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/infra-billing/nodes",
+          "description": "Get infra billing nodes"
+        },
+        {
+          "key": "infra-billing:update-billing-node",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/infra-billing/nodes",
+          "description": "Update infra billing nodes"
+        },
+        {
+          "key": "infra-billing:create-billing-node",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/infra-billing/nodes",
+          "description": "Create infra billing node"
+        },
+        {
+          "key": "infra-billing:delete-billing-node",
+          "kind": "write",
+          "method": "DELETE",
+          "path": "/api/infra-billing/nodes/{uuid}",
+          "description": "Delete infra billing node"
+        }
+      ]
+    },
+    {
+      "resource": "bandwidth-stats",
+      "resourceScopes": [
+        "bandwidth-stats:*",
+        "bandwidth-stats:read",
+        "bandwidth-stats:write"
+      ],
+      "endpoints": [
+        {
+          "key": "bandwidth-stats:internal-squad-usage",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/bandwidth-stats/internal-squads/{uuid}/usage",
+          "description": "Get internal squad users traffic usage for a period"
+        },
+        {
+          "key": "bandwidth-stats:get-a-single-user-daily-traffic-usage-on-the-internal-squad-nodes-for-a-period",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/bandwidth-stats/internal-squads/{squadUuid}/users/{userId}/usage",
+          "description": "Get a single user daily traffic usage on the internal squad nodes for a period"
+        },
+        {
+          "key": "bandwidth-stats:node-usage",
+          "kind": "read",
+          "method": "POST",
+          "path": "/api/bandwidth-stats/nodes/usage",
+          "description": "Get users exceeding a traffic threshold on the given nodes for a period"
+        },
+        {
+          "key": "bandwidth-stats:node-users-usage",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/bandwidth-stats/nodes/{uuid}/users",
+          "description": "Get Node Users Usage by Node UUID"
+        },
+        {
+          "key": "bandwidth-stats:nodes-users-usage",
+          "kind": "read",
+          "method": "POST",
+          "path": "/api/bandwidth-stats/nodes/users",
+          "description": "Get Nodes Users Usage by Nodes UUIDs"
+        },
+        {
+          "key": "bandwidth-stats:user-usage",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/bandwidth-stats/users/{userId}",
+          "description": "Get User Usage by Range"
+        },
+        {
+          "key": "bandwidth-stats:nodes-usage",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/bandwidth-stats/nodes",
+          "description": "Get Nodes Usage by Range"
+        }
+      ]
+    },
+    {
+      "resource": "internal-squads",
+      "resourceScopes": [
+        "internal-squads:*",
+        "internal-squads:read",
+        "internal-squads:write"
+      ],
+      "endpoints": [
+        {
+          "key": "internal-squads:list-tags",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/internal-squads/tags",
+          "description": "Get tags of Internal Squads"
+        },
+        {
+          "key": "internal-squads:set-tags",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/internal-squads/tags",
+          "description": "Set tags of Internal Squad"
+        },
+        {
+          "key": "internal-squads:list",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/internal-squads",
+          "description": "Get all internal squads"
+        },
+        {
+          "key": "internal-squads:create",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/internal-squads",
+          "description": "Create internal squad"
+        },
+        {
+          "key": "internal-squads:update",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/internal-squads",
+          "description": "Update internal squad"
+        },
+        {
+          "key": "internal-squads:get",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/internal-squads/{uuid}",
+          "description": "Get internal squad by uuid"
+        },
+        {
+          "key": "internal-squads:delete",
+          "kind": "write",
+          "method": "DELETE",
+          "path": "/api/internal-squads/{uuid}",
+          "description": "Delete internal squad"
+        },
+        {
+          "key": "internal-squads:accessible-nodes",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/internal-squads/{uuid}/accessible-nodes",
+          "description": "Get internal squad accessible nodes"
+        },
+        {
+          "key": "internal-squads:internal-squad-usage",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/internal-squads/{uuid}/usage",
+          "description": "Get internal squad users traffic usage for a period"
+        },
+        {
+          "key": "internal-squads:add-users",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/internal-squads/{uuid}/bulk-actions/add-users",
+          "description": "Add all users to internal squad"
+        },
+        {
+          "key": "internal-squads:remove-users",
+          "kind": "write",
+          "method": "DELETE",
+          "path": "/api/internal-squads/{uuid}/bulk-actions/remove-users",
+          "description": "Delete users from internal squad"
+        },
+        {
+          "key": "internal-squads:reorder",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/internal-squads/actions/reorder",
+          "description": "Reorder internal squads"
+        },
+        {
+          "key": "internal-squads:add-many-users",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/internal-squads/{uuid}/bulk-actions/add-many-users",
+          "description": "Add many users to internal squad"
+        },
+        {
+          "key": "internal-squads:remove-many-users",
+          "kind": "write",
+          "method": "DELETE",
+          "path": "/api/internal-squads/{uuid}/bulk-actions/remove-many-users",
+          "description": "Delete many users from internal squad"
+        }
+      ]
+    },
+    {
+      "resource": "keygen",
+      "resourceScopes": [
+        "keygen:*",
+        "keygen:read",
+        "keygen:write"
+      ],
+      "endpoints": [
+        {
+          "key": "keygen:get",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/keygen",
+          "description": "Get SECRET_KEY for Exodus Node"
+        }
+      ]
+    },
+    {
+      "resource": "metadata",
+      "resourceScopes": [
+        "metadata:*",
+        "metadata:read",
+        "metadata:write"
+      ],
+      "endpoints": [
+        {
+          "key": "metadata:get-user",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/metadata/user/{userId}",
+          "description": "Get user metadata"
+        },
+        {
+          "key": "metadata:upsert-user",
+          "kind": "write",
+          "method": "PUT",
+          "path": "/api/metadata/user/{userId}",
+          "description": "Update or create User Metadata"
+        },
+        {
+          "key": "metadata:get-node",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/metadata/node/{uuid}",
+          "description": "Get node metadata"
+        },
+        {
+          "key": "metadata:upsert-node",
+          "kind": "write",
+          "method": "PUT",
+          "path": "/api/metadata/node/{uuid}",
+          "description": "Update or create Node Metadata"
+        }
+      ]
+    },
+    {
+      "resource": "node-integrations",
+      "resourceScopes": [
+        "node-integrations:*",
+        "node-integrations:read",
+        "node-integrations:write"
+      ],
+      "endpoints": [
+        {
+          "key": "node-integrations:list",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/node-integrations",
+          "description": "Get all Node Integrations"
+        },
+        {
+          "key": "node-integrations:create",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/node-integrations",
+          "description": "Create Node Integration"
+        },
+        {
+          "key": "node-integrations:update",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/node-integrations",
+          "description": "Update Node Integration"
+        },
+        {
+          "key": "node-integrations:get",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/node-integrations/{uuid}",
+          "description": "Get Node Integration by uuid"
+        },
+        {
+          "key": "node-integrations:delete",
+          "kind": "write",
+          "method": "DELETE",
+          "path": "/api/node-integrations/{uuid}",
+          "description": "Delete Node Integration"
+        }
+      ]
+    },
+    {
+      "resource": "node-plugins",
+      "resourceScopes": [
+        "node-plugins:*",
+        "node-plugins:read",
+        "node-plugins:write"
+      ],
+      "endpoints": [
+        {
+          "key": "node-plugins:torrent-blocker-reports",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/node-plugins/torrent-blocker",
+          "description": "Get Torrent Blocker Reports"
+        },
+        {
+          "key": "node-plugins:torrent-blocker-stats",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/node-plugins/torrent-blocker/stats",
+          "description": "Get Torrent Blocker Reports Stats"
+        },
+        {
+          "key": "node-plugins:truncate",
+          "kind": "write",
+          "method": "DELETE",
+          "path": "/api/node-plugins/torrent-blocker/truncate",
+          "description": "Truncate Torrent Blocker Reports"
+        },
+        {
+          "key": "node-plugins:list-tags",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/node-plugins/tags",
+          "description": "Get tags of Node Plugins"
+        },
+        {
+          "key": "node-plugins:set-tags",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/node-plugins/tags",
+          "description": "Set tags of Node Plugin"
+        },
+        {
+          "key": "node-plugins:shared-lists-list",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/node-plugins/shared-lists",
+          "description": "Get Shared Lists (Preview)"
+        },
+        {
+          "key": "node-plugins:shared-lists-create",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/node-plugins/shared-lists",
+          "description": "Create Shared List"
+        },
+        {
+          "key": "node-plugins:shared-lists-update",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/node-plugins/shared-lists",
+          "description": "Update Shared List"
+        },
+        {
+          "key": "node-plugins:shared-lists-delete",
+          "kind": "write",
+          "method": "DELETE",
+          "path": "/api/node-plugins/shared-lists",
+          "description": "Delete Shared List by name"
+        },
+        {
+          "key": "node-plugins:shared-lists-get",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/node-plugins/shared-lists/by-name",
+          "description": "Get Shared List by name"
+        },
+        {
+          "key": "node-plugins:shared-lists-sync",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/node-plugins/shared-lists/actions/sync",
+          "description": "Sync Shared List to nodes"
+        },
+        {
+          "key": "node-plugins:list",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/node-plugins",
+          "description": "Get all Node Plugins"
+        },
+        {
+          "key": "node-plugins:update",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/node-plugins",
+          "description": "Update Node Plugin"
+        },
+        {
+          "key": "node-plugins:create",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/node-plugins",
+          "description": "Create Node Plugin"
+        },
+        {
+          "key": "node-plugins:get",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/node-plugins/{uuid}",
+          "description": "Get Node Plugin by uuid"
+        },
+        {
+          "key": "node-plugins:delete",
+          "kind": "write",
+          "method": "DELETE",
+          "path": "/api/node-plugins/{uuid}",
+          "description": "Delete Node Plugin"
+        },
+        {
+          "key": "node-plugins:reorder",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/node-plugins/actions/reorder",
+          "description": "Reorder Node Plugins"
+        },
+        {
+          "key": "node-plugins:clone",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/node-plugins/actions/clone",
+          "description": "Clone Node Plugin"
+        },
+        {
+          "key": "node-plugins:sync",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/node-plugins/actions/sync",
+          "description": "Sync Node Plugin to nodes"
+        },
+        {
+          "key": "node-plugins:executor",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/node-plugins/executor",
+          "description": "Execute command on node plugins"
+        }
+      ]
+    },
+    {
+      "resource": "nodes",
+      "resourceScopes": [
+        "nodes:*",
+        "nodes:read",
+        "nodes:write"
+      ],
+      "endpoints": [
+        {
+          "key": "nodes:list-tags",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/nodes/tags",
+          "description": "Get nodes tags"
+        },
+        {
+          "key": "nodes:create",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/nodes",
+          "description": "Create a new node"
+        },
+        {
+          "key": "nodes:list",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/nodes",
+          "description": "Get nodes"
+        },
+        {
+          "key": "nodes:update",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/nodes",
+          "description": "Update node"
+        },
+        {
+          "key": "nodes:get",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/nodes/{uuid}",
+          "description": "Get node by UUID"
+        },
+        {
+          "key": "nodes:delete",
+          "kind": "write",
+          "method": "DELETE",
+          "path": "/api/nodes/{uuid}",
+          "description": "Delete a node"
+        },
+        {
+          "key": "nodes:enable",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/nodes/{uuid}/actions/enable",
+          "description": "Enable a node"
+        },
+        {
+          "key": "nodes:disable",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/nodes/{uuid}/actions/disable",
+          "description": "Disable a node"
+        },
+        {
+          "key": "nodes:restart",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/nodes/{uuid}/actions/restart",
+          "description": "Restart node"
+        },
+        {
+          "key": "nodes:reset-traffic",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/nodes/{uuid}/actions/reset-traffic",
+          "description": "Reset Node Traffic"
+        },
+        {
+          "key": "nodes:restart-all",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/nodes/actions/restart-all",
+          "description": "Restart all nodes"
+        },
+        {
+          "key": "nodes:reorder",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/nodes/actions/reorder",
+          "description": "Reorder nodes"
+        },
+        {
+          "key": "nodes:bulk-profile-modification",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/nodes/bulk-actions/profile-modification",
+          "description": "Modify Inbounds & Profile for many nodes"
+        },
+        {
+          "key": "nodes:bulk-actions",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/nodes/bulk-actions",
+          "description": "Perform actions for many nodes"
+        },
+        {
+          "key": "nodes:bulk-update",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/nodes/bulk-actions/update",
+          "description": "Update many nodes"
+        }
+      ]
+    },
+    {
+      "resource": "subscription-page-configs",
+      "resourceScopes": [
+        "subscription-page-configs:*",
+        "subscription-page-configs:read",
+        "subscription-page-configs:write"
+      ],
+      "endpoints": [
+        {
+          "key": "subscription-page-configs:list-tags",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/subscription-page-configs/tags",
+          "description": "Get tags of Subpage Configs"
+        },
+        {
+          "key": "subscription-page-configs:set-tags",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/subscription-page-configs/tags",
+          "description": "Set tags of Subpage Config"
+        },
+        {
+          "key": "subscription-page-configs:list",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/subscription-page-configs",
+          "description": "Get all subscription page configs"
+        },
+        {
+          "key": "subscription-page-configs:update",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/subscription-page-configs",
+          "description": "Update subscription page config"
+        },
+        {
+          "key": "subscription-page-configs:create",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/subscription-page-configs",
+          "description": "Create subscription page config"
+        },
+        {
+          "key": "subscription-page-configs:get",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/subscription-page-configs/{uuid}",
+          "description": "Get subscription page config by uuid"
+        },
+        {
+          "key": "subscription-page-configs:delete",
+          "kind": "write",
+          "method": "DELETE",
+          "path": "/api/subscription-page-configs/{uuid}",
+          "description": "Delete subscription page config"
+        },
+        {
+          "key": "subscription-page-configs:reorder",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/subscription-page-configs/actions/reorder",
+          "description": "Reorder subscription page configs"
+        },
+        {
+          "key": "subscription-page-configs:clone",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/subscription-page-configs/actions/clone",
+          "description": "Clone subscription page config"
+        }
+      ]
+    },
+    {
+      "resource": "subscription-settings",
+      "resourceScopes": [
+        "subscription-settings:*",
+        "subscription-settings:read",
+        "subscription-settings:write"
+      ],
+      "endpoints": [
+        {
+          "key": "subscription-settings:get",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/subscription-settings",
+          "description": "Get subscription settings"
+        },
+        {
+          "key": "subscription-settings:update",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/subscription-settings",
+          "description": "Update subscription settings"
+        }
+      ]
+    },
+    {
+      "resource": "subscription-template",
+      "resourceScopes": [
+        "subscription-template:*",
+        "subscription-template:read",
+        "subscription-template:write"
+      ],
+      "endpoints": [
+        {
+          "key": "subscription-template:list-tags",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/subscription-templates/tags",
+          "description": "Get tags of Subscription Templates"
+        },
+        {
+          "key": "subscription-template:set-tags",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/subscription-templates/tags",
+          "description": "Set tags of Subscription Template"
+        },
+        {
+          "key": "subscription-template:list",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/subscription-templates",
+          "description": "Get all subscription templates (wihout content)"
+        },
+        {
+          "key": "subscription-template:update",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/subscription-templates",
+          "description": "Update subscription template"
+        },
+        {
+          "key": "subscription-template:create",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/subscription-templates",
+          "description": "Create subscription template"
+        },
+        {
+          "key": "subscription-template:get",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/subscription-templates/{uuid}",
+          "description": "Get subscription template by uuid"
+        },
+        {
+          "key": "subscription-template:delete",
+          "kind": "write",
+          "method": "DELETE",
+          "path": "/api/subscription-templates/{uuid}",
+          "description": "Delete subscription template"
+        },
+        {
+          "key": "subscription-template:reorder",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/subscription-templates/actions/reorder",
+          "description": "Reorder subscription templates"
+        }
+      ]
+    },
+    {
+      "resource": "subscriptions",
+      "resourceScopes": [
+        "subscriptions:*",
+        "subscriptions:read",
+        "subscriptions:write"
+      ],
+      "endpoints": [
+        {
+          "key": "subscriptions:list",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/subscriptions",
+          "description": "Get all subscriptions"
+        },
+        {
+          "key": "subscriptions:by-username",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/subscriptions/by-username/{username}",
+          "description": "Get subscription by username"
+        },
+        {
+          "key": "subscriptions:by-short-uuid-protected",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/subscriptions/by-short-uuid/{shortUuid}",
+          "description": "Get subscription by short uuid (protected route)"
+        },
+        {
+          "key": "subscriptions:by-id",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/subscriptions/by-id/{userId}",
+          "description": "Get subscription by User ID"
+        },
+        {
+          "key": "subscriptions:raw",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/subscriptions/by-short-uuid/{shortUuid}/raw",
+          "description": "Get Raw Subscription by Short UUID"
+        },
+        {
+          "key": "subscriptions:subpage-config",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/subscriptions/subpage-config/{shortUuid}",
+          "description": "Get Subpage Config by Short UUID"
+        },
+        {
+          "key": "subscriptions:connection-keys",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/subscriptions/connection-keys/{userId}",
+          "description": "Get connection keys (base64 format) by user id"
+        }
+      ]
+    },
+    {
+      "resource": "system",
+      "resourceScopes": [
+        "system:*",
+        "system:read",
+        "system:write"
+      ],
+      "endpoints": [
+        {
+          "key": "system:metadata",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/system/metadata",
+          "description": "Get Exodus Information"
+        },
+        {
+          "key": "system:configuration",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/system/configuration",
+          "description": "Get Exodus Configuration"
+        },
+        {
+          "key": "system:stats",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/system/stats",
+          "description": "Get Stats"
+        },
+        {
+          "key": "system:bandwidth-stats",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/system/stats/bandwidth",
+          "description": "Get Bandwidth Stats"
+        },
+        {
+          "key": "system:nodes-statistics",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/system/stats/nodes",
+          "description": "Get Nodes Statistics"
+        },
+        {
+          "key": "system:exodus-health",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/system/health",
+          "description": "Get Exodus Health"
+        },
+        {
+          "key": "system:nodes-metrics",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/system/nodes/metrics",
+          "description": "Get Nodes Metrics"
+        },
+        {
+          "key": "system:generate-x25519",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/system/tools/x25519/generate",
+          "description": "Generate 30 X25519 keypairs"
+        },
+        {
+          "key": "system:test-srr-matcher",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/system/testers/srr-matcher",
+          "description": "Test SRR Matcher"
+        },
+        {
+          "key": "system:recap",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/system/stats/recap",
+          "description": "Get Recap"
+        },
+        {
+          "key": "system:digest",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/system/stats/digest",
+          "description": "Get Stats Digest"
+        },
+        {
+          "key": "system:http",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/system/stats/http",
+          "description": "Get HTTP Stats"
+        }
+      ]
+    },
+    {
+      "resource": "subscription-request-history",
+      "resourceScopes": [
+        "subscription-request-history:*",
+        "subscription-request-history:read",
+        "subscription-request-history:write"
+      ],
+      "endpoints": [
+        {
+          "key": "subscription-request-history:list",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/subscription-request-history",
+          "description": "Get all subscription request history"
+        },
+        {
+          "key": "subscription-request-history:stats",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/subscription-request-history/stats",
+          "description": "Get subscription request history stats"
+        }
+      ]
+    },
+    {
+      "resource": "users",
+      "resourceScopes": [
+        "users:*",
+        "users:read",
+        "users:write"
+      ],
+      "endpoints": [
+        {
+          "key": "users:create",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/users",
+          "description": "Create a new user"
+        },
+        {
+          "key": "users:update",
+          "kind": "write",
+          "method": "PATCH",
+          "path": "/api/users",
+          "description": "Update a user"
+        },
+        {
+          "key": "users:list",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/users",
+          "description": "Get all users using offset-based pagination"
+        },
+        {
+          "key": "users:delete",
+          "kind": "write",
+          "method": "DELETE",
+          "path": "/api/users/{userId}",
+          "description": "Delete user"
+        },
+        {
+          "key": "users:by-id",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/users/{userId}",
+          "description": "Get user by ID"
+        },
+        {
+          "key": "users:stream",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/users/stream",
+          "description": "Get all users using cursor-based (keyset) pagination with filtering options"
+        },
+        {
+          "key": "users:list-tags",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/users/tags",
+          "description": "Get users tags"
+        },
+        {
+          "key": "users:accessible-nodes",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/users/{userId}/accessible-nodes",
+          "description": "Get user accessible nodes"
+        },
+        {
+          "key": "users:subscription-request-history",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/users/{userId}/subscription-request-history",
+          "description": "Get user subscription request history, recent 24 records"
+        },
+        {
+          "key": "users:by-short-uuid",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/users/by-short-uuid/{shortUuid}",
+          "description": "Get user by Short UUID"
+        },
+        {
+          "key": "users:by-username",
+          "kind": "read",
+          "method": "GET",
+          "path": "/api/users/by-username/{username}",
+          "description": "Get user by username"
+        },
+        {
+          "key": "users:revoke-subscription",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/users/{userId}/actions/revoke",
+          "description": "Revoke user subscription"
+        },
+        {
+          "key": "users:disable",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/users/{userId}/actions/disable",
+          "description": "Disable user"
+        },
+        {
+          "key": "users:enable",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/users/{userId}/actions/enable",
+          "description": "Enable user"
+        },
+        {
+          "key": "users:reset-traffic",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/users/{userId}/actions/reset-traffic",
+          "description": "Reset user traffic"
+        },
+        {
+          "key": "users:extend",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/users/{userId}/actions/extend",
+          "description": "Extend user expiration date"
+        },
+        {
+          "key": "users:resolve",
+          "kind": "read",
+          "method": "POST",
+          "path": "/api/users/resolve",
+          "description": "Resolve a user"
+        },
+        {
+          "key": "users:bulk-delete-by-status",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/users/bulk/delete-by-status",
+          "description": "Bulk delete users by status"
+        },
+        {
+          "key": "users:bulk-delete",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/users/bulk/delete",
+          "description": "Bulk delete users by User IDs"
+        },
+        {
+          "key": "users:bulk-revoke-subscription",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/users/bulk/revoke-subscription",
+          "description": "Revoke users subscription by User IDs"
+        },
+        {
+          "key": "users:bulk-reset-traffic",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/users/bulk/reset-traffic",
+          "description": "Bulk reset traffic users by User IDs"
+        },
+        {
+          "key": "users:bulk-update-users",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/users/bulk/update",
+          "description": "Bulk update users by User IDs"
+        },
+        {
+          "key": "users:bulk-update-squads",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/users/bulk/update-squads",
+          "description": "Bulk update users internal squads by User IDs"
+        },
+        {
+          "key": "users:bulk-extend-expiration-date",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/users/bulk/extend-expiration-date",
+          "description": "Extend expiration date for specified users by days"
+        },
+        {
+          "key": "users:bulk-all-update-users",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/users/bulk/all/update",
+          "description": "Bulk update all users"
+        },
+        {
+          "key": "users:bulk-all-reset-traffic",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/users/bulk/all/reset-traffic",
+          "description": "Reset user used traffic for all users"
+        },
+        {
+          "key": "users:bulk-all-extend-expiration-date",
+          "kind": "write",
+          "method": "POST",
+          "path": "/api/users/bulk/all/extend-expiration-date",
+          "description": "Extend expiration date for all users by days"
+        }
+      ]
+    }
+  ]
+}

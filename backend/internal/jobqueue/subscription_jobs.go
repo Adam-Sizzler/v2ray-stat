@@ -105,6 +105,7 @@ func StartSubscriptionQueues(ctx context.Context, wg *sync.WaitGroup, db *sql.DB
 	subscriptionDispatcherMu.Unlock()
 
 	if cfg != nil && cfg.Logger != nil {
+		cfg.Logger.RoleService(logger.RoleWorkers, "SubscriptionRequestsQueueProcessor").Info("Subscription request records will be recorded to the database.")
 		cfg.Logger.RoleService(logger.RoleWorkers, logger.ServiceUsersQueue).Info("1 queues connected", "queue", subscriptionQueueName, "concurrency", cfg.Redis.SubscriptionQueueConcurrency)
 	}
 

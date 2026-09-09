@@ -120,7 +120,7 @@ func (nm *NodeMonitor) Start(ctx context.Context, wg *sync.WaitGroup) {
 			nm.cfg.Logger.Debug("Node monitor manual sync requested")
 			nm.syncNodes()
 		case deployReq := <-nm.deployNow:
-			nm.cfg.Logger.Info(
+			nm.cfg.Logger.Debug(
 				"Node monitor deploy requested",
 				"restart", deployReq.Restart,
 				"force_restart", deployReq.ForceRestart,

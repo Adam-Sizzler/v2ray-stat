@@ -16,7 +16,7 @@ func (nm *NodeMonitor) deployToConnectedNodes(restart bool, forceRestart bool, r
 	if nm == nil {
 		return
 	}
-	nm.cfg.Logger.Info("Deploying node configs", "restart", restart, "force_restart", forceRestart, "requested_node_targets", len(requestedNodeUUIDs))
+	nm.cfg.Logger.Debug("Deploying node configs", "restart", restart, "force_restart", forceRestart, "requested_node_targets", len(requestedNodeUUIDs))
 
 	dbNodes, err := nm.loadActiveNodes()
 	if err != nil {

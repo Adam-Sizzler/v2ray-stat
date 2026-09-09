@@ -3,10 +3,12 @@ package httpapi
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"exodus/internal/config"
+	"exodus/internal/logger"
 	"exodus/internal/db"
 	"exodus/internal/httpapi/asynqmon"
 	"exodus/internal/httpapi/auth"
@@ -114,6 +116,13 @@ func isPublicPath(path string, cfg *config.BackendConfig) bool {
 
 func RegisterPublicRoutes(mux *http.ServeMux, db, backgroundDB *sql.DB, cfg *config.BackendConfig) {
 	mux.HandleFunc("/api/node-ssh/ws", nodessh.NodeSSHWSHandler(db, cfg))
+	if cfg != nil && cfg.Logger != nil {
+		wsPath := "/api/node-ssh/ws"
+		if cfg.Backend.IsCustom() {
+			wsPath = cfg.Backend.Trimmed() + wsPath
+		}
+		cfg.Logger.RoleService(logger.RoleAPI, "SshTerminalGateway").Info(fmt.Sprintf("ws mounted on %s", wsPath))
+	}
 	mux.HandleFunc("/api/auth/bootstrap", auth.AuthBootstrapHandler(db, cfg))
 	mux.HandleFunc("/api/auth/setup", auth.AuthSetupHandler(db, cfg))
 	mux.HandleFunc("/api/auth/status", auth.AuthStatusHandler(db, cfg))
