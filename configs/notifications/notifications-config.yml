@@ -5,7 +5,9 @@
 # This file controls which events trigger notifications and through which channels.
 # By default, all events are ENABLED for both Telegram and Webhook.
 #
-# To disable a specific event, set the channel to false.
+# To disable a specific event, uncomment it and set the channel to false.
+#
+# Full event list: https://github.com/adam-sizzler/exodus/blob/main/backend/internal/notifications/events.go
 #
 # ──────────────────────────────────────────────────────────────────────────────
 # Example:
@@ -19,8 +21,10 @@
 #     user.expired:
 #       telegram: false   # Disable Telegram for this event
 #       webhook: true     # Keep webhook enabled
+#       # Additional webhook URLs to send to, this will be added to the default webhook URLs (WEBHOOK_URL)
 #       additionalWebhookUrls:
 #         - https://example.com/webhook
+#         - https://example.com/webhook2
 #
 # ══════════════════════════════════════════════════════════════════════════════
 
