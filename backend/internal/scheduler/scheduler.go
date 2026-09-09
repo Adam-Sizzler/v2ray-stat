@@ -100,7 +100,8 @@ func (s *Scheduler) logJobStates() {
 	if s == nil || s.cfg == nil || s.cfg.Logger == nil {
 		return
 	}
-	jobs := []struct {
+	// Configurable task state logs (matching task naming and startup status)
+	tasks := []struct {
 		taskName string
 		message  string
 		enabled  bool
@@ -111,12 +112,30 @@ func (s *Scheduler) logJobStates() {
 		{taskName: "FindNotConnectedUsersNotificationTask", message: "Job disabled.", enabled: s.cfg.Scheduler.NotificationsEnabled && s.cfg.Scheduler.NotConnectedUsersNotificationsEnabled},
 		{taskName: "CleanOldUsageRecordsTask", message: "Clean old usage records job disabled.", enabled: s.cfg.Scheduler.ServiceCleanUsageHistory},
 	}
-	for _, job := range jobs {
-		if job.enabled {
-			s.cfg.Logger.RoleService(logger.RoleScheduler, job.taskName).Debug("Job enabled")
+	for _, task := range tasks {
+		if task.enabled {
+			s.cfg.Logger.RoleService(logger.RoleScheduler, task.taskName).Debug("Job enabled")
 		} else {
-			s.cfg.Logger.RoleService(logger.RoleScheduler, job.taskName).Info(job.message)
+			s.cfg.Logger.RoleService(logger.RoleScheduler, task.taskName).Info(task.message)
 		}
+	}
+
+	// Always-enabled internal maintenance jobs (debug level)
+	internalJobs := []string{
+		"resetNodeTraffic",
+		"reviewNodes",
+		"vacuumTables",
+		"infraBillingNodesNotifications",
+		"trafficResetDay (00:05)",
+		"trafficResetWeek (Mon 00:15)",
+		"trafficResetMonth (1st 00:20)",
+		"srsListsCheck (every 12h)",
+		"findExpiredUsers (every 30s)",
+		"findExceededTrafficUsageUsers (every 45s)",
+	}
+	jobsLog := s.cfg.Logger.RoleService(logger.RoleScheduler, logger.ServiceJobs)
+	for _, name := range internalJobs {
+		jobsLog.Debug("Job enabled", "job", name)
 	}
 }
 
