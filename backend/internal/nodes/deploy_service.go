@@ -157,7 +157,7 @@ func (nm *NodeMonitor) deployToConnectedNodes(restart bool, forceRestart bool, r
 			compressedModulesSize = float64(gzBuf.Len())
 		}
 		modulesDuration := time.Since(modulesStart).Milliseconds()
-		nm.cfg.Logger.RoleService(logger.RoleWorkers, "AxiosService").Info(fmt.Sprintf("[ZSTD] [SYNC-NODE-PLUGINS] %dms | %.2f B -> %.2f B", modulesDuration, rawModulesSize, compressedModulesSize))
+		nm.cfg.Logger.RoleService(logger.RoleWorkers, "NodeTransport").Info(fmt.Sprintf("[GZIP] [SYNC-NODE-PLUGINS] %dms | %.2f B -> %.2f B", modulesDuration, rawModulesSize, compressedModulesSize))
 
 		configStart := time.Now()
 		rawConfigSize := float64(len(configJSON))
@@ -169,7 +169,7 @@ func (nm *NodeMonitor) deployToConnectedNodes(restart bool, forceRestart bool, r
 			compressedConfigSize = float64(gzBuf.Len())
 		}
 		configDuration := time.Since(configStart).Milliseconds()
-		nm.cfg.Logger.RoleService(logger.RoleWorkers, "AxiosService").Info(fmt.Sprintf("[ZSTD] [START XRAY] %dms | %.2f B -> %.2f B", configDuration, rawConfigSize, compressedConfigSize))
+		nm.cfg.Logger.RoleService(logger.RoleWorkers, "NodeTransport").Info(fmt.Sprintf("[GZIP] [START CORE] %dms | %.2f B -> %.2f B", configDuration, rawConfigSize, compressedConfigSize))
 
 		restartFlag := restart
 		forceRestartFlag := forceRestart
