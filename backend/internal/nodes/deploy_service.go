@@ -169,7 +169,7 @@ func (nm *NodeMonitor) deployToConnectedNodes(restart bool, forceRestart bool, r
 			compressedConfigSize = float64(gzBuf.Len())
 		}
 		configDuration := time.Since(configStart).Milliseconds()
-		nm.cfg.Logger.RoleService(logger.RoleWorkers, "NodeTransport").Info(fmt.Sprintf("[GZIP] [START CORE] %dms | %.2f B -> %.2f B", configDuration, rawConfigSize, compressedConfigSize))
+		nm.cfg.Logger.RoleService(logger.RoleWorkers, "NodeTransport").Info(fmt.Sprintf("[GZIP] [START SINGBOX] %dms | %.2f B -> %.2f B", configDuration, rawConfigSize, compressedConfigSize))
 
 		restartFlag := restart
 		forceRestartFlag := forceRestart
