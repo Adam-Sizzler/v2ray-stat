@@ -207,7 +207,7 @@ func (nm *NodeMonitor) connectAndStream(state *nodeState) bool {
 
 	nm.updateConnectionStatus(state.nodeName, false, true, "")
 
-	nm.cfg.Logger.Info("Node control-plane connected", "node", state.nodeName, "address", state.address, "port", state.port)
+	nm.cfg.Logger.Debug("Node control-plane connected", "node", state.nodeName, "address", state.address, "port", state.port)
 	nm.RequestDeploy(true, state.nodeUUID)
 
 	nm.receiveStream(state)

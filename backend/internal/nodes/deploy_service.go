@@ -1,12 +1,15 @@
 package users
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
+	"exodus/internal/logger"
 	"exodus/internal/proto"
 
 	"google.golang.org/grpc/codes"
@@ -77,12 +80,18 @@ func (nm *NodeMonitor) deployToConnectedNodes(restart bool, forceRestart bool, r
 	// so it's loaded once instead of once per node (was a per-target N+1).
 	sharedLists := nm.loadSharedLists(nm.globalCtx)
 
+	batchStart := time.Now()
+	var lastProfileUUID string
+
 	for _, target := range targets {
 		start := time.Now()
-		configJSON, err := nm.buildNodeConfigForDeploy(nm.globalCtx, target.uuid)
+		configJSON, profileUUID, err := nm.buildNodeConfigForDeploy(nm.globalCtx, target.uuid)
 		if err != nil {
 			nm.cfg.Logger.Warn("Failed to build node deploy config", "node", target.name, "node_uuid", target.uuid, "error", err)
 			continue
+		}
+		if profileUUID != "" {
+			lastProfileUUID = profileUUID
 		}
 
 		var parsedConfig struct {
@@ -90,8 +99,10 @@ func (nm *NodeMonitor) deployToConnectedNodes(restart bool, forceRestart bool, r
 		}
 		_ = json.Unmarshal(configJSON, &parsedConfig)
 		inboundsCount := len(parsedConfig.Inbounds)
-		nm.cfg.Logger.Info(fmt.Sprintf("Node %s (%s) has %d active inbounds.", target.name, target.uuid, inboundsCount))
-		nm.cfg.Logger.Info(fmt.Sprintf("Generated config for node %s in %v", target.name, time.Since(start)))
+		nm.cfg.Logger.RoleService(logger.RoleWorkers, "StartAllNodesByProfileQueueProcessor").Info(fmt.Sprintf("Node %s has %d active inbounds.", target.uuid, inboundsCount))
+
+		genDuration := time.Since(start).Milliseconds()
+		nm.cfg.Logger.RoleService(logger.RoleWorkers, "StartAllNodesByProfileQueueProcessor").Info(fmt.Sprintf("Generated config for nodes by Profile in %dms", genDuration))
 
 		pluginConfig, modulesErr := nm.loadNodePluginRuntimeConfig(nm.globalCtx, target.uuid)
 		if modulesErr != nil {
@@ -133,6 +144,32 @@ func (nm *NodeMonitor) deployToConnectedNodes(restart bool, forceRestart bool, r
 				modules.HaproxyUsers = haproxyUsers
 			}
 		}
+
+		// Payload compression measurements matching transport logging
+		modulesStart := time.Now()
+		modulesBytes, _ := json.Marshal(modules)
+		rawModulesSize := float64(len(modulesBytes))
+		compressedModulesSize := rawModulesSize
+		var gzBuf bytes.Buffer
+		gzWriter := gzip.NewWriter(&gzBuf)
+		if _, err := gzWriter.Write(modulesBytes); err == nil {
+			_ = gzWriter.Close()
+			compressedModulesSize = float64(gzBuf.Len())
+		}
+		modulesDuration := time.Since(modulesStart).Milliseconds()
+		nm.cfg.Logger.RoleService(logger.RoleWorkers, "AxiosService").Info(fmt.Sprintf("[ZSTD] [SYNC-NODE-PLUGINS] %dms | %.2f B -> %.2f B", modulesDuration, rawModulesSize, compressedModulesSize))
+
+		configStart := time.Now()
+		rawConfigSize := float64(len(configJSON))
+		compressedConfigSize := rawConfigSize
+		gzBuf.Reset()
+		gzWriter = gzip.NewWriter(&gzBuf)
+		if _, err := gzWriter.Write(configJSON); err == nil {
+			_ = gzWriter.Close()
+			compressedConfigSize = float64(gzBuf.Len())
+		}
+		configDuration := time.Since(configStart).Milliseconds()
+		nm.cfg.Logger.RoleService(logger.RoleWorkers, "AxiosService").Info(fmt.Sprintf("[ZSTD] [START XRAY] %dms | %.2f B -> %.2f B", configDuration, rawConfigSize, compressedConfigSize))
 
 		restartFlag := restart
 		forceRestartFlag := forceRestart
@@ -186,6 +223,11 @@ func (nm *NodeMonitor) deployToConnectedNodes(restart bool, forceRestart bool, r
 			nm.updateConnectionStatus(target.name, false, true, "")
 		}
 
-		nm.cfg.Logger.Info("Node config deployed", "node", target.name, "restart", restart, "force_restart", forceRestart, "message", resp.Message)
+		nm.cfg.Logger.Debug("Node config deployed", "node", target.name, "restart", restart, "force_restart", forceRestart, "message", resp.Message)
+	}
+
+	if lastProfileUUID != "" {
+		batchDuration := time.Since(batchStart).Milliseconds()
+		nm.cfg.Logger.RoleService(logger.RoleWorkers, "StartAllNodesByProfileQueueProcessor").Info(fmt.Sprintf("Started all nodes with profile %s in %dms", lastProfileUUID, batchDuration))
 	}
 }

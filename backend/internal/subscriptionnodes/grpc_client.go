@@ -177,7 +177,7 @@ func (sm *SubNodeMonitor) connectAndStream(state *subNodeState) bool {
 	sm.pushAssignedSubpageConfig(state)
 
 	sm.updateConnectionStatus(state.nodeName, true, false, "Connected")
-	sm.cfg.Logger.Info("Subscription node connected", "node", state.nodeName, "address", state.address, "port", state.port)
+	sm.cfg.Logger.Debug("Subscription node connected", "node", state.nodeName, "address", state.address, "port", state.port)
 
 	sm.receiveStream(state)
 	return true

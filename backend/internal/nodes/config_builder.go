@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
+
+	"exodus/internal/logger"
 
 	"github.com/iancoleman/orderedmap"
 )
@@ -304,9 +307,9 @@ func (nm *NodeMonitor) loadNodeHaproxyUsers(ctx context.Context, nodeUUID string
 	return items, matched, rows.Err()
 }
 
-func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID string) (json.RawMessage, error) {
+func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID string) (json.RawMessage, string, error) {
 	if strings.TrimSpace(nodeUUID) == "" {
-		return nil, fmt.Errorf("node uuid is empty")
+		return nil, "", fmt.Errorf("node uuid is empty")
 	}
 
 	if ctx == nil {
@@ -314,17 +317,18 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 	}
 
 	var profileConfig json.RawMessage
+	var profileUUID string
 	row := nm.db.QueryRowContext(ctx, `
-		SELECT cp.config
+		SELECT cp.uuid, cp.config
 		FROM nodes n
 		JOIN config_profiles cp ON cp.uuid = n.active_config_profile_uuid
 		WHERE n.uuid = $1 AND n.is_disabled = false
 	`, nodeUUID)
-	if err := row.Scan(&profileConfig); err != nil {
+	if err := row.Scan(&profileUUID, &profileConfig); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("node %s has no active config profile", nodeUUID)
+			return nil, "", fmt.Errorf("node %s has no active config profile", nodeUUID)
 		}
-		return nil, err
+		return nil, "", err
 	}
 
 	rows, err := nm.db.QueryContext(ctx, `
@@ -334,7 +338,7 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 		WHERE cpitn.node_uuid = $1
 	`, nodeUUID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer rows.Close()
 
@@ -342,16 +346,16 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 	for rows.Next() {
 		var item nodeInboundBinding
 		if err := rows.Scan(&item.InboundUUID, &item.Tag); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		bindings = append(bindings, item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	if len(bindings) == 0 {
-		return nil, fmt.Errorf("node %s has no active inbounds", nodeUUID)
+		return nil, "", fmt.Errorf("node %s has no active inbounds", nodeUUID)
 	}
 
 	bindingByInboundUUID := make(map[string]nodeInboundBinding, len(bindings))
@@ -369,6 +373,7 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 	usersByTag := make(map[string][]inboundUserCredentials, len(activeTags))
 	dedup := make(map[string]map[int64]struct{}, len(activeTags))
 
+	startUsers := time.Now()
 	userRows, err := nm.db.QueryContext(ctx, `
 		SELECT
 			isi.inbound_uuid,
@@ -388,7 +393,7 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 		ORDER BY u.id ASC
 	`, inboundUUIDs)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer userRows.Close()
 
@@ -409,7 +414,7 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 			&user.Hysteria2Pass,
 			&user.AnytlsPassword,
 		); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		binding, ok := bindingByInboundUUID[inboundUUID]
 		tag := normalizeTagValue(binding.Tag)
@@ -427,23 +432,32 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 		usersByTag[tag] = append(usersByTag[tag], user)
 	}
 	if err := userRows.Err(); err != nil {
-		return nil, err
+		return nil, "", err
+	}
+
+	uniqueUserCount := 0
+	for _, set := range dedup {
+		uniqueUserCount += len(set)
+	}
+	usersDuration := time.Since(startUsers).Milliseconds()
+	if nm.cfg != nil && nm.cfg.Logger != nil {
+		nm.cfg.Logger.RoleService(logger.RoleWorkers, "UsersRepository").Info(fmt.Sprintf("[getUsersForConfigStream] %dms, length: %d", usersDuration, uniqueUserCount))
 	}
 
 	parsed := orderedmap.New()
 	if err := json.Unmarshal(profileConfig, parsed); err != nil {
-		return nil, fmt.Errorf("invalid profile config json: %w", err)
+		return nil, "", fmt.Errorf("invalid profile config json: %w", err)
 	}
 
 	nm.expandSnippets(ctx, parsed)
 
 	rawInboundsRaw, ok := parsed.Get("inbounds")
 	if !ok {
-		return nil, fmt.Errorf("profile config has no valid inbounds array")
+		return nil, "", fmt.Errorf("profile config has no valid inbounds array")
 	}
 	rawInbounds, ok := rawInboundsRaw.([]any)
 	if !ok {
-		return nil, fmt.Errorf("profile config has no valid inbounds array")
+		return nil, "", fmt.Errorf("profile config has no valid inbounds array")
 	}
 
 	matchedActiveTags := 0
@@ -480,9 +494,9 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 
 	finalConfig, err := json.Marshal(parsed)
 	if err != nil {
-		return nil, fmt.Errorf("marshal deploy config: %w", err)
+		return nil, "", fmt.Errorf("marshal deploy config: %w", err)
 	}
-	return finalConfig, nil
+	return finalConfig, profileUUID, nil
 }
 
 func normalizeInboundType(inbound any) string {

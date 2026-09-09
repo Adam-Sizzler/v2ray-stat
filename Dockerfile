@@ -53,6 +53,7 @@ RUN CGO_ENABLED=0 \
         -tags "none" \
         -trimpath \
         -buildvcs=false \
+        -ldflags "-s -w -X exodus/internal/constant.Version=${__EX_METADATA_VERSION}" \
         -o /build/exodus \
         .
 

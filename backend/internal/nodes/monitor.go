@@ -301,7 +301,7 @@ func (nm *NodeMonitor) startNode(dbNode db.DBNode) {
 
 	go nm.monitorNode(state)
 
-	nm.cfg.Logger.Info("Started monitoring node", "node", dbNode.Name, "address", dbNode.Address, "port", dbNode.Port, "schema", dbNode.APISchema, "path", dbNode.APIPath)
+	nm.cfg.Logger.Debug("Started monitoring node", "node", dbNode.Name, "address", dbNode.Address, "port", dbNode.Port, "schema", dbNode.APISchema, "path", dbNode.APIPath)
 }
 
 func (nm *NodeMonitor) Stop() {

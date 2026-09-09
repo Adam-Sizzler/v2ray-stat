@@ -166,7 +166,7 @@ func (sm *SubNodeMonitor) startNode(dbNode dbSubNode) {
 	sm.updateConnectionStatus(dbNode.Name, false, true, "Connecting...")
 	go sm.monitorNode(state)
 
-	sm.cfg.Logger.Info(
+	sm.cfg.Logger.Debug(
 		"Started monitoring subscription node",
 		"node", dbNode.Name,
 		"address", dbNode.Address,
