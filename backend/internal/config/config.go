@@ -542,7 +542,6 @@ func loadNotificationsYAMLConfig(cfg *BackendConfig) {
 		candidates = append(candidates, explicitPath)
 	} else {
 		candidates = append(candidates,
-			"/opt/app/configs/notifications/notifications-config.yml",
 			"/var/lib/exodus/configs/notifications/notifications-config.yml",
 			"configs/notifications/notifications-config.yml",
 		)

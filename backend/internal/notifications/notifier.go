@@ -59,6 +59,8 @@ const (
 	EventLoginAttemptFailed         = "service.login_attempt_failed"
 	EventLoginAttemptSuccess        = "service.login_attempt_success"
 	EventServiceSubpageChanged      = "service.subpage_config_changed"
+	EventApiTokenCreated            = "service.api_token_created"
+	EventApiTokenDeleted            = "service.api_token_deleted"
 	EventBandwidthMaxNotification   = "errors.bandwidth_usage_threshold_reached_max_notifications"
 	EventInfraBillingIn7Days        = "crm.infra_billing_node_payment_in_7_days"
 	EventInfraBillingIn48Hours      = "crm.infra_billing_node_payment_in_48hrs"
@@ -610,6 +612,36 @@ func formatServiceMessage(event Event) string {
 			telegramSeparator,
 			html.EscapeString(stringValue(subpageConfig, "action")),
 			html.EscapeString(stringValue(subpageConfig, "uuid")),
+		)
+	case EventApiTokenCreated:
+		apiToken := nestedMap(event.Data, "apiToken")
+		if len(apiToken) == 0 {
+			apiToken = event.Data
+		}
+		expireAt := formatTelegramDateTime(stringValue(apiToken, "expireAt"))
+		scopes := stringSliceValue(apiToken, "scopes")
+		return fmt.Sprintf(
+			"<tg-emoji emoji-id='5334882760735598374'>📝</tg-emoji> <b>#api_token_created</b>\n%s\n<b>Name:</b> <code>%s</code>\n<b>Expire at:</b> <code>%s</code>\n<b>Scopes:</b> <code>%d</code>\n<b>UUID:</b> <code>%s</code>",
+			telegramSeparator,
+			html.EscapeString(stringValue(apiToken, "name")),
+			html.EscapeString(expireAt),
+			len(scopes),
+			html.EscapeString(stringValue(apiToken, "uuid")),
+		)
+	case EventApiTokenDeleted:
+		apiToken := nestedMap(event.Data, "apiToken")
+		if len(apiToken) == 0 {
+			apiToken = event.Data
+		}
+		expireAt := formatTelegramDateTime(stringValue(apiToken, "expireAt"))
+		scopes := stringSliceValue(apiToken, "scopes")
+		return fmt.Sprintf(
+			"<tg-emoji emoji-id='5334882760735598374'>📝</tg-emoji> <b>#api_token_deleted</b>\n%s\n<b>Name:</b> <code>%s</code>\n<b>Expire at:</b> <code>%s</code>\n<b>Scopes:</b> <code>%d</code>\n<b>UUID:</b> <code>%s</code>",
+			telegramSeparator,
+			html.EscapeString(stringValue(apiToken, "name")),
+			html.EscapeString(expireAt),
+			len(scopes),
+			html.EscapeString(stringValue(apiToken, "uuid")),
 		)
 	case EventBandwidthMaxNotification:
 		return fmt.Sprintf(

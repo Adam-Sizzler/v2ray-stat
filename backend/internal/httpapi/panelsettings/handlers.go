@@ -3,6 +3,7 @@ package panelsettings
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"exodus/internal/config"
 	"exodus/internal/httpapi/shared"
+	"exodus/internal/notifications"
 	panelsettingsDefaults "exodus/internal/panelsettings"
 	"exodus/internal/security"
 
@@ -212,6 +214,19 @@ func PanelAPITokensHandler(db *sql.DB, cfg *config.BackendConfig) http.HandlerFu
 				return
 			}
 
+			notifications.Emit(r.Context(), cfg, notifications.Event{
+				Scope: notifications.ScopeService,
+				Event: notifications.EventApiTokenCreated,
+				Data: map[string]any{
+					"apiToken": map[string]any{
+						"name":     record.Name,
+						"uuid":     record.UUID,
+						"expireAt": record.ExpireAt.UTC().Format(time.RFC3339),
+						"scopes":   record.Scopes,
+					},
+				},
+			})
+
 			shared.WriteJSON(w, http.StatusCreated, map[string]any{
 				"response": toAPITokenResponse(record, true),
 			})
@@ -309,22 +324,37 @@ func PanelAPITokenByUUIDHandler(db *sql.DB, cfg *config.BackendConfig) http.Hand
 			return
 		}
 
-		result, execErr := db.ExecContext(r.Context(), "DELETE FROM api_tokens WHERE uuid = $1", tokenUUID)
-		if execErr != nil {
-			cfg.Logger.Error("Failed to delete api token", "uuid", tokenUUID, "error", execErr)
-			shared.SendAPIError(w, shared.ErrDeleteApiTokenFailed.WithCause(execErr), cfg)
+		var (
+			tokenName string
+			expireAt  time.Time
+			scopesRaw string
+		)
+		err := db.QueryRowContext(r.Context(), `
+			DELETE FROM api_tokens WHERE uuid = $1
+			RETURNING name, expire_at, array_to_json(COALESCE(scopes, ARRAY['*']::text[]))::text
+		`, tokenUUID).Scan(&tokenName, &expireAt, &scopesRaw)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				shared.SendAPIError(w, shared.ErrAPITokenNotFound, cfg)
+				return
+			}
+			cfg.Logger.Error("Failed to delete api token", "uuid", tokenUUID, "error", err)
+			shared.SendAPIError(w, shared.ErrDeleteApiTokenFailed.WithCause(err), cfg)
 			return
 		}
-		rowsAffected, execErr := result.RowsAffected()
-		if execErr != nil {
-			cfg.Logger.Error("Failed to read rows affected for api token deletion", "uuid", tokenUUID, "error", execErr)
-			shared.SendAPIError(w, shared.ErrDeleteApiTokenFailed.WithCause(execErr), cfg)
-			return
-		}
-		if rowsAffected == 0 {
-			shared.SendAPIError(w, shared.ErrAPITokenNotFound, cfg)
-			return
-		}
+
+		notifications.Emit(r.Context(), cfg, notifications.Event{
+			Scope: notifications.ScopeService,
+			Event: notifications.EventApiTokenDeleted,
+			Data: map[string]any{
+				"apiToken": map[string]any{
+					"name":     tokenName,
+					"uuid":     tokenUUID,
+					"expireAt": expireAt.UTC().Format(time.RFC3339),
+					"scopes":   parseAPITokenScopes(scopesRaw),
+				},
+			},
+		})
 
 		w.WriteHeader(http.StatusNoContent)
 	}

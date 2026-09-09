@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -206,9 +207,71 @@ func TestNotificationsConfigFileParsingWithAnchors(t *testing.T) {
 		t.Errorf("expected user.expired telegram to be enabled")
 	}
 
-	// Verify user_hwid_devices.added has telegram false
-	if cfg.EventChannelEnabled("user_hwid_devices.added", "telegram") {
-		t.Errorf("expected user_hwid_devices.added telegram to be disabled")
+	// Verify user_hwid_devices.added has telegram enabled per reference config
+	if !cfg.EventChannelEnabled("user_hwid_devices.added", "telegram") {
+		t.Errorf("expected user_hwid_devices.added telegram to be enabled")
+	}
+
+	// Verify service.api_token_created and service.api_token_deleted are enabled
+	if !cfg.EventChannelEnabled("service.api_token_created", "telegram") {
+		t.Errorf("expected service.api_token_created telegram to be enabled")
+	}
+	if !cfg.EventChannelEnabled("service.api_token_deleted", "telegram") {
+		t.Errorf("expected service.api_token_deleted telegram to be enabled")
+	}
+}
+
+func TestFormatServiceMessageApiToken(t *testing.T) {
+	createdEvent := Event{
+		Event: EventApiTokenCreated,
+		Scope: ScopeService,
+		Data: map[string]any{
+			"apiToken": map[string]any{
+				"name":     "Test Token",
+				"uuid":     "11111111-2222-3333-4444-555555555555",
+				"expireAt": "2026-10-01T12:00:00Z",
+				"scopes":   []string{"users:read", "nodes:read"},
+			},
+		},
+	}
+	msgCreated := formatServiceMessage(createdEvent)
+	if msgCreated == "" {
+		t.Fatalf("expected non-empty formatted message for EventApiTokenCreated")
+	}
+	if !strings.Contains(msgCreated, "#api_token_created") {
+		t.Errorf("expected message to contain #api_token_created, got: %s", msgCreated)
+	}
+	if !strings.Contains(msgCreated, "Test Token") {
+		t.Errorf("expected message to contain token name, got: %s", msgCreated)
+	}
+	if !strings.Contains(msgCreated, "Scopes:</b> <code>2</code>") {
+		t.Errorf("expected message to contain scope count 2, got: %s", msgCreated)
+	}
+
+	deletedEvent := Event{
+		Event: EventApiTokenDeleted,
+		Scope: ScopeService,
+		Data: map[string]any{
+			"apiToken": map[string]any{
+				"name":     "Deleted Token",
+				"uuid":     "22222222-3333-4444-5555-666666666666",
+				"expireAt": "2026-10-01T12:00:00Z",
+				"scopes":   []string{"*"},
+			},
+		},
+	}
+	msgDeleted := formatServiceMessage(deletedEvent)
+	if msgDeleted == "" {
+		t.Fatalf("expected non-empty formatted message for EventApiTokenDeleted")
+	}
+	if !strings.Contains(msgDeleted, "#api_token_deleted") {
+		t.Errorf("expected message to contain #api_token_deleted, got: %s", msgDeleted)
+	}
+	if !strings.Contains(msgDeleted, "Deleted Token") {
+		t.Errorf("expected message to contain token name, got: %s", msgDeleted)
+	}
+	if !strings.Contains(msgDeleted, "Scopes:</b> <code>1</code>") {
+		t.Errorf("expected message to contain scope count 1, got: %s", msgDeleted)
 	}
 }
 

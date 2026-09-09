@@ -24,11 +24,11 @@
 #
 # ══════════════════════════════════════════════════════════════════════════════
 
-x-both-enabled: &bothEnabled
+x-both-enabled: &bothEnabled # Ancor for both channels enabled: use: <<: *bothEnabled
   telegram: true
   webhook: true
 
-x-both-disabled: &bothDisabled
+x-both-disabled: &bothDisabled # Ancor for both channels disabled: use: <<: *bothDisabled
   telegram: false
   webhook: false
 
@@ -37,129 +37,227 @@ events:
   # USER EVENTS
   # ════════════════════════════════════════════════════════════════════════════
 
+  # Triggered when a new user is created
   user.created:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered when user details are modified
   user.modified:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered when a user is deleted
   user.deleted:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered when user subscription is revoked (new credentials generated)
   user.revoked:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered when a user is disabled
   user.disabled:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered when a user is enabled
   user.enabled:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered when user reaches traffic limit
   user.limited:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered when user subscription expires
   user.expired:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered when user traffic is reset
   user.traffic_reset:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # ────────────────────────────────────────────────────────────────────────────
+  # User Expiration Notifications
+  # ────────────────────────────────────────────────────────────────────────────
+
+  # Triggered when user hasn't connected for a configured period
+  # Note: Requires EXPIRATION_NOTIFICATIONS_ENABLED=true in .env
   user.expiration:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # ────────────────────────────────────────────────────────────────────────────
+  # User Connection Events
+  # ────────────────────────────────────────────────────────────────────────────
+
+  # Triggered when user connects for the first time
   user.first_connected:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered when user reaches bandwidth usage threshold (e.g., 80%, 90%)
   user.bandwidth_usage_threshold_reached:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered when user hasn't connected for a configured period
+  # Note: Requires NOT_CONNECTED_USERS_NOTIFICATIONS_ENABLED=true in .env
   user.not_connected:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
   # ════════════════════════════════════════════════════════════════════════════
   # USER HWID DEVICE EVENTS
   # ════════════════════════════════════════════════════════════════════════════
+  # Note: These events are only emitted when HWID Device Limit feature is enabled
+  # Note: Telegram notifications are skipped by default for these events
 
+  # Triggered when a new device is added to user's HWID list
   user_hwid_devices.added:
-    telegram: false
+    telegram: true
     webhook: true
 
+  # Triggered when a device is removed from user's HWID list
   user_hwid_devices.deleted:
-    telegram: false
+    telegram: true
     webhook: true
 
   # ════════════════════════════════════════════════════════════════════════════
   # NODE EVENTS
   # ════════════════════════════════════════════════════════════════════════════
 
+  # Triggered when a new node is created
   node.created:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered when node configuration is modified
   node.modified:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered when a node is disabled
   node.disabled:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered when a node is enabled
   node.enabled:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered when a node is deleted
   node.deleted:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered when connection to a node is lost
   node.connection_lost:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered when connection to a node is restored
   node.connection_restored:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered when node reaches traffic threshold
   node.traffic_notify:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
   # ════════════════════════════════════════════════════════════════════════════
   # SERVICE EVENTS
   # ════════════════════════════════════════════════════════════════════════════
 
+  # Triggered when the panel starts
   service.panel_started:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered on failed login attempt
   service.login_attempt_failed:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered on successful login
   service.login_attempt_success:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered when a subscription page config is changed
   service.subpage_config_changed:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
+
+  # Triggered when a API token is created
+  service.api_token_created:
+    telegram: true
+    webhook: true
+
+  # Triggered when a API token is deleted
+  service.api_token_deleted:
+    telegram: true
+    webhook: true
 
   # ════════════════════════════════════════════════════════════════════════════
   # ERROR EVENTS
   # ════════════════════════════════════════════════════════════════════════════
 
+  # Triggered when max notifications limit reached for bandwidth threshold
   errors.bandwidth_usage_threshold_reached_max_notifications:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
   # ════════════════════════════════════════════════════════════════════════════
   # CRM EVENTS (Infra Billing)
   # ════════════════════════════════════════════════════════════════════════════
 
+  # ────────────────────────────────────────────────────────────────────────────
+  # Upcoming Payment Reminders
+  # ────────────────────────────────────────────────────────────────────────────
+
+  # Triggered 7 days before node payment is due
   crm.infra_billing_node_payment_in_7_days:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered 48 hours before node payment is due
   crm.infra_billing_node_payment_in_48hrs:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered 24 hours before node payment is due
   crm.infra_billing_node_payment_in_24hrs:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered on the day node payment is due
   crm.infra_billing_node_payment_due_today:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # ────────────────────────────────────────────────────────────────────────────
+  # Overdue Payment Alerts
+  # ────────────────────────────────────────────────────────────────────────────
+
+  # Triggered 24 hours after payment was due
   crm.infra_billing_node_payment_overdue_24hrs:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered 48 hours after payment was due
   crm.infra_billing_node_payment_overdue_48hrs:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
 
+  # Triggered 7 days after payment was due (final notice)
   crm.infra_billing_node_payment_overdue_7_days:
-    <<: *bothEnabled
+    telegram: true
+    webhook: true
