@@ -76,7 +76,7 @@ func (s *Scheduler) infraBillingNodesNotifications(ctx context.Context) error {
 
 func (s *Scheduler) getInfraBillingNotifications(ctx context.Context, window infraBillingNotificationWindow) ([]infraBillingNotificationRecord, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT COALESCE(n.name, ibn.name, 'Unknown Node'), ip.name, ip.login_url, ibn.next_billing_at
+		SELECT COALESCE(n.name, ibn.name), ip.name, ip.login_url, ibn.next_billing_at
 		FROM infra_billing_nodes ibn
 		LEFT JOIN nodes n ON n.uuid = ibn.node_uuid
 		INNER JOIN infra_providers ip ON ip.uuid = ibn.provider_uuid
