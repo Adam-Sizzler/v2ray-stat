@@ -73,7 +73,7 @@ func (s *Scheduler) registerJobs(ctx context.Context) {
 	s.registerJob(ctx, CronResetUserTrafficMonthly, "trafficResetMonth", s.trafficResetMonth, true)
 
 	// Notifications
-	s.registerJob(ctx, CronExpireNotifications, "expireUserNotifications", s.findUsersForExpireNotifications, s.cfg.Scheduler.NotificationsEnabled)
+	s.registerJob(ctx, CronExpireNotifications, "expireUserNotifications", s.findUsersForExpireNotifications, s.cfg.Scheduler.NotificationsEnabled && s.cfg.Scheduler.ExpirationNotificationsEnabled)
 	s.registerJob(ctx, CronBandwidthUsageNotifications, "findUsersForThresholdNotification", s.findUsersForThresholdNotification, s.cfg.Scheduler.NotificationsEnabled && s.cfg.Scheduler.BandwidthUsageNotificationsEnabled)
 	s.registerJob(ctx, CronNotConnectedUsersNotifications, "findNotConnectedUsersNotification", s.findNotConnectedUsersNotification, s.cfg.Scheduler.NotificationsEnabled && s.cfg.Scheduler.NotConnectedUsersNotificationsEnabled)
 
@@ -107,7 +107,7 @@ func (s *Scheduler) logJobStates() {
 		enabled  bool
 	}{
 		{taskName: "ExportNodeConnectionsTask", message: "Export node connections job disabled.", enabled: false},
-		{taskName: "FindUsersForExpireNotificationsTask", message: "Job disabled.", enabled: s.cfg.Scheduler.NotificationsEnabled},
+		{taskName: "FindUsersForExpireNotificationsTask", message: "Job disabled.", enabled: s.cfg.Scheduler.NotificationsEnabled && s.cfg.Scheduler.ExpirationNotificationsEnabled},
 		{taskName: "FindUsersForThresholdNotificationTask", message: "Find users for threshold notification job disabled.", enabled: s.cfg.Scheduler.NotificationsEnabled && s.cfg.Scheduler.BandwidthUsageNotificationsEnabled},
 		{taskName: "FindNotConnectedUsersNotificationTask", message: "Job disabled.", enabled: s.cfg.Scheduler.NotificationsEnabled && s.cfg.Scheduler.NotConnectedUsersNotificationsEnabled},
 		{taskName: "CleanOldUsageRecordsTask", message: "Clean old usage records job disabled.", enabled: s.cfg.Scheduler.ServiceCleanUsageHistory},

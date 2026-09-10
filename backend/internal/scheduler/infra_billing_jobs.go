@@ -76,13 +76,13 @@ func (s *Scheduler) infraBillingNodesNotifications(ctx context.Context) error {
 
 func (s *Scheduler) getInfraBillingNotifications(ctx context.Context, window infraBillingNotificationWindow) ([]infraBillingNotificationRecord, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT n.name, ip.name, ip.login_url, ibn.next_billing_at
+		SELECT COALESCE(n.name, ibn.name, 'Unknown Node'), ip.name, ip.login_url, ibn.next_billing_at
 		FROM infra_billing_nodes ibn
-		INNER JOIN nodes n ON n.uuid = ibn.node_uuid
+		LEFT JOIN nodes n ON n.uuid = ibn.node_uuid
 		INNER JOIN infra_providers ip ON ip.uuid = ibn.provider_uuid
 		WHERE ibn.next_billing_at >= $1
 		  AND ibn.next_billing_at < $2
-		ORDER BY ibn.next_billing_at ASC, n.name ASC
+		ORDER BY ibn.next_billing_at ASC, COALESCE(n.name, ibn.name) ASC
 	`, window.Start, window.End)
 	if err != nil {
 		return nil, err
@@ -100,7 +100,7 @@ func (s *Scheduler) getInfraBillingNotifications(ctx context.Context, window inf
 		}
 		item.LoginURL = nullableStringFromSQL(loginURL)
 		if item.LoginURL == "" {
-			item.LoginURL = "https://docs.exodus"
+			item.LoginURL = "https://docs.ex"
 		}
 		items = append(items, item)
 	}
