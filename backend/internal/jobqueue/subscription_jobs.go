@@ -72,7 +72,7 @@ func StartSubscriptionQueues(ctx context.Context, wg *sync.WaitGroup, db *sql.DB
 		Concurrency:       cfg.Redis.SubscriptionQueueConcurrency,
 		VisibilityTimeout: visibility,
 		SchedulerInterval: time.Second,
-		Retention:         500,
+		Retention:         12 * 3600,
 	}, map[string]Handler{
 		jobUpdateUserSubscription: func(ctx context.Context, job Job) error {
 			var payload UpdateUserSubscriptionPayload

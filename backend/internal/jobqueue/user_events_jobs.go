@@ -52,7 +52,7 @@ func StartUserEventsQueue(ctx context.Context, wg *sync.WaitGroup, db *sql.DB, c
 		Concurrency:       50,
 		VisibilityTimeout: visibility,
 		SchedulerInterval: time.Second,
-		Retention:         500,
+		Retention:         12 * 3600,
 	}, map[string]Handler{
 		JobFireUserEvent: func(ctx context.Context, job Job) error {
 			var payload FireUserEventPayload

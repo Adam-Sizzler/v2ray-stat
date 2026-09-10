@@ -72,7 +72,7 @@ func NewWorker(cfg *config.BackendConfig, db *sql.DB) (*Worker, error) {
 		Concurrency:       cfg.Redis.PushToDBQueueConcurrency,
 		VisibilityTimeout: visibility,
 		SchedulerInterval: time.Second,
-		Retention:         500,
+		Retention:         12 * 3600,
 	}, map[string]jobqueue.Handler{
 		recordUserUsageJobName: func(ctx context.Context, job jobqueue.Job) error {
 			var payload recordUserUsagePayload

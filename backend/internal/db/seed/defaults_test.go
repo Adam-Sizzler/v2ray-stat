@@ -9,7 +9,8 @@ func TestCanonicalHashMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to calculate canonical hash: %v", err)
 	}
-	if h != PrevResponseRulesHash {
-		t.Errorf("Canonical hash mismatch!\nGot:      %s\nExpected: %s", h, PrevResponseRulesHash)
+	const expectedNewHash = "f39af20113e4369ecd75f329805af245cd8551ea95c556fe757540da453185f0"
+	if h != expectedNewHash {
+		t.Errorf("Canonical hash mismatch!\nGot:      %s\nExpected: %s", h, expectedNewHash)
 	}
 }
