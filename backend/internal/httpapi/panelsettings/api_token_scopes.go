@@ -1,48 +1,19 @@
 package panelsettings
 
 import (
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 
 	"exodus/internal/config"
+	"exodus/internal/httpapi/scopecatalog"
 )
 
-//go:embed full_scope_catalog.json
-var embeddedScopeCatalogJSON []byte
-
-type apiTokenEndpointScope struct {
-	Key         string `json:"key"`
-	Kind        string `json:"kind"`
-	Method      string `json:"method"`
-	Path        string `json:"path"`
-	Description string `json:"description"`
-}
-
-type apiTokenResourceScopes struct {
-	Resource       string                  `json:"resource"`
-	ResourceScopes []string                `json:"resourceScopes"`
-	Endpoints      []apiTokenEndpointScope `json:"endpoints"`
-}
-
-var (
-	cachedResourcesOnce sync.Once
-	cachedResources     []apiTokenResourceScopes
-)
+type apiTokenEndpointScope = scopecatalog.EndpointScope
+type apiTokenResourceScopes = scopecatalog.ResourceScopes
 
 func buildAPITokenScopes(_ *config.BackendConfig) []apiTokenResourceScopes {
-	cachedResourcesOnce.Do(func() {
-		var doc struct {
-			Wildcard  string                   `json:"wildcard"`
-			Resources []apiTokenResourceScopes `json:"resources"`
-		}
-		if err := json.Unmarshal(embeddedScopeCatalogJSON, &doc); err == nil && len(doc.Resources) > 0 {
-			cachedResources = doc.Resources
-		}
-	})
-	return cachedResources
+	return scopecatalog.GetResources()
 }
 
 func normalizeAPITokenScopes(scopes []string) []string {
@@ -90,25 +61,5 @@ func postgresTextArrayLiteral(items []string) string {
 }
 
 func LogScopeCatalog(cfg *config.BackendConfig) {
-	if cfg == nil || cfg.Logger == nil {
-		return
-	}
-	resources := buildAPITokenScopes(cfg)
-	endpointsCount := 0
-	scopeSet := make(map[string]struct{})
-	scopeSet["*"] = struct{}{}
-	for _, res := range resources {
-		for _, s := range res.ResourceScopes {
-			scopeSet[s] = struct{}{}
-		}
-		for _, ep := range res.Endpoints {
-			endpointsCount++
-			if ep.Key != "" {
-				scopeSet[ep.Key] = struct{}{}
-			}
-		}
-	}
-	cfg.Logger.RoleService("API", "ScopeCatalog").Info(
-		fmt.Sprintf("Scope catalog built: %d endpoints, %d grantable scopes", endpointsCount, len(scopeSet)),
-	)
+	scopecatalog.LogScopeCatalog(cfg)
 }
