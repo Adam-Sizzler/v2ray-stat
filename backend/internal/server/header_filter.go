@@ -3,6 +3,8 @@ package server
 import (
 	"net/http"
 	"strings"
+
+	"github.com/exodus/subscription-page/backend/internal/proto"
 )
 
 // ignoredHeaders mirrors the header block-list, so a client can't spoof
@@ -75,4 +77,23 @@ func filterForwardHeaders(headers http.Header) http.Header {
 	}
 
 	return filtered
+}
+
+// filterAndConvertToProtoHeaders performs filtering and proto conversion in a
+// single pass, eliminating intermediate http.Header map allocations.
+func filterAndConvertToProtoHeaders(headers http.Header) []*proto.Header {
+	if len(headers) == 0 {
+		return nil
+	}
+
+	result := make([]*proto.Header, 0, len(headers))
+	for key, values := range headers {
+		if _, ignored := ignoredHeaders[strings.ToLower(key)]; ignored {
+			continue
+		}
+		for _, value := range values {
+			result = append(result, &proto.Header{Key: key, Value: value})
+		}
+	}
+	return result
 }

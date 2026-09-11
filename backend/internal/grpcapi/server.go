@@ -500,7 +500,7 @@ func (s *NodeServer) failPending(reason string) {
 
 func (s *NodeServer) nextRequestID() string {
 	next := s.reqSeq.Add(1)
-	return fmt.Sprintf("sub-%d-%d", time.Now().UnixNano(), next)
+	return "sub-" + strconv.FormatInt(time.Now().UnixNano(), 10) + "-" + strconv.FormatUint(next, 10)
 }
 
 func okStatus(message string) *statuspb.Status {

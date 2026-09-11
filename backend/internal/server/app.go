@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/exodus/subscription-page/backend/internal/assets"
@@ -75,9 +76,13 @@ type PanelBridge interface {
 }
 
 type App struct {
-	cfg        config.Config
-	bridge     PanelBridge
-	assetsPath string
+	cfg            config.Config
+	bridge         PanelBridge
+	assetsPath     string
+	indexHTML      string
+	assetsReplacer *strings.Replacer
+	jsCacheMu      sync.RWMutex
+	jsCache        map[string][]byte
 }
 
 type subpageConfigByShortEnvelope struct {
@@ -186,11 +191,51 @@ func New(cfg config.Config, bridge PanelBridge) (*App, error) {
 
 	logger.WithContext("Bootstrap").Debugf("[CONFIG] assets path: %s", assetsPath)
 
+	var indexHTML string
+	if indexBytes, readErr := os.ReadFile(filepath.Join(assetsPath, "index.html")); readErr == nil {
+		indexHTML = string(indexBytes)
+	}
+
+	var assetsReplacer *strings.Replacer
+	if trimmed := cfg.Backend.Trimmed(); trimmed != "" {
+		assetPrefix := "/" + strings.Trim(trimmed, "/") + "/"
+		assetsReplacer = strings.NewReplacer(
+			`"/assets/`, `"`+assetPrefix+`assets/`,
+			`'/assets/`, `'`+assetPrefix+`assets/`,
+			`(/assets/`, `(`+assetPrefix+`assets/`,
+			`"/locales/`, `"`+assetPrefix+`locales/`,
+			`'/locales/`, `'`+assetPrefix+`locales/`,
+			`(/locales/`, `(`+assetPrefix+`locales/`,
+		)
+	}
+
 	return &App{
-		cfg:        cfg,
-		bridge:     bridge,
-		assetsPath: assetsPath,
+		cfg:            cfg,
+		bridge:         bridge,
+		assetsPath:     assetsPath,
+		indexHTML:      indexHTML,
+		assetsReplacer: assetsReplacer,
+		jsCache:        make(map[string][]byte),
 	}, nil
+}
+
+func (a *App) getIndexHTML() (string, error) {
+	if a.indexHTML != "" {
+		return a.indexHTML, nil
+	}
+	indexBytes, err := os.ReadFile(filepath.Join(a.assetsPath, "index.html"))
+	if err != nil {
+		return "", err
+	}
+	a.indexHTML = string(indexBytes)
+	return a.indexHTML, nil
+}
+
+func (a *App) prefixAssetsInHTML(content string) string {
+	if a.assetsReplacer == nil {
+		return content
+	}
+	return a.assetsReplacer.Replace(content)
 }
 
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -309,8 +354,7 @@ func (a *App) handleAppConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	subpageConfigUUID, _ := claims["subpageConfigUuid"].(string)
-	subpageConfigUUID = strings.TrimSpace(subpageConfigUUID)
+	subpageConfigUUID := strings.TrimSpace(claims.SubpageConfigUUID)
 	if subpageConfigUUID == "" {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusNotFound)
@@ -358,6 +402,17 @@ func (a *App) serveStatic(w http.ResponseWriter, r *http.Request, requestPath st
 	w.Header().Set("Cache-Control", "public, max-age=604800, immutable")
 
 	if a.cfg.SubPath != "" && strings.HasSuffix(cleanFullPath, ".js") {
+		a.jsCacheMu.RLock()
+		cached, ok := a.jsCache[cleanFullPath]
+		a.jsCacheMu.RUnlock()
+		if ok {
+			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+			if r.Method != http.MethodHead {
+				_, _ = w.Write(cached)
+			}
+			return
+		}
+
 		content, readErr := os.ReadFile(cleanFullPath)
 		if readErr == nil {
 			prefix := a.cfg.SubPath
@@ -366,9 +421,18 @@ func (a *App) serveStatic(w http.ResponseWriter, r *http.Request, requestPath st
 				`"/assets/app-config.json"`,
 				fmt.Sprintf("%q", prefix+"/assets/app-config.json"),
 			)
+			rewrittenBytes := []byte(rewritten)
+
+			a.jsCacheMu.Lock()
+			if a.jsCache == nil {
+				a.jsCache = make(map[string][]byte)
+			}
+			a.jsCache[cleanFullPath] = rewrittenBytes
+			a.jsCacheMu.Unlock()
+
 			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 			if r.Method != http.MethodHead {
-				_, _ = io.WriteString(w, rewritten)
+				_, _ = w.Write(rewrittenBytes)
 			}
 			return
 		}
@@ -400,7 +464,7 @@ func (a *App) proxySubscription(
 		ShortUuid:  shortUUID,
 		ClientType: clientType,
 		ClientIp:   clientIP,
-		Headers:    toProtoHeaders(filterForwardHeaders(r.Header)),
+		Headers:    filterAndConvertToProtoHeaders(r.Header),
 	})
 	if err != nil {
 		logger.WithContext("RootService").Errorf("Error in GetSubscription Request: %v", err)
@@ -443,7 +507,7 @@ func (a *App) returnWebpage(clientIP, shortUUID string, w http.ResponseWriter, r
 	subpageEnvelopeRaw, err := a.requestJSON(r.Context(), &proto.SubscriptionBridgeRequest{
 		Operation: bridgeOperationSubpageByShortUUID,
 		ShortUuid: shortUUID,
-		Headers:   toProtoHeaders(filterForwardHeaders(r.Header)),
+		Headers:   filterAndConvertToProtoHeaders(r.Header),
 	})
 	if err != nil {
 		logger.WithContext("RootService").Errorf("Error in GetSubpageConfig Request: %v", err)
@@ -490,10 +554,10 @@ func (a *App) returnWebpage(clientIP, shortUUID string, w http.ResponseWriter, r
 		hideConnectionKeys(subscriptionData)
 	}
 
-	sessionToken, err := security.SignJWT(security.Claims{
-		"sessionId":         security.RandomToken(32),
-		"subpageConfigUuid": subpageConfigUUID,
-		"exp":               time.Now().Add(33 * time.Minute).Unix(),
+	sessionToken, err := security.SignJWT(security.SessionClaims{
+		SessionID:         security.RandomToken(32),
+		SubpageConfigUUID: subpageConfigUUID,
+		Exp:               time.Now().Add(33 * time.Minute).Unix(),
 	}, a.cfg.SessionSecret)
 	if err != nil {
 		logger.WithContext("RootService").Errorf("Error in returnWebpage: failed to build session jwt: %v", err)
@@ -518,7 +582,7 @@ func (a *App) returnWebpage(clientIP, shortUUID string, w http.ResponseWriter, r
 	}
 	panelDataBase64 := base64.StdEncoding.EncodeToString(panelData)
 
-	indexHTML, err := os.ReadFile(filepath.Join(a.assetsPath, "index.html"))
+	indexHTML, err := a.getIndexHTML()
 	if err != nil {
 		logger.WithContext("RootService").Errorf("Error in returnWebpage: failed to read index.html: %v", err)
 		closeConnection(w)
@@ -526,12 +590,12 @@ func (a *App) returnWebpage(clientIP, shortUUID string, w http.ResponseWriter, r
 	}
 
 	rendered := renderIndexTemplate(
-		string(indexHTML),
+		indexHTML,
 		settings.MetaTitle,
 		settings.MetaDescription,
 		panelDataBase64,
 	)
-	rendered = prefixAssetsInHTML(rendered, a.cfg.Backend.Trimmed())
+	rendered = a.prefixAssetsInHTML(rendered)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if r.Method != http.MethodHead {
@@ -540,7 +604,7 @@ func (a *App) returnWebpage(clientIP, shortUUID string, w http.ResponseWriter, r
 }
 
 func (a *App) returnIndex(w http.ResponseWriter, r *http.Request) {
-	indexHTML, err := os.ReadFile(filepath.Join(a.assetsPath, "index.html"))
+	indexHTML, err := a.getIndexHTML()
 	if err != nil {
 		logger.WithContext("RootService").Errorf("Error in returnIndex: failed to read index.html: %v", err)
 		closeConnection(w)
@@ -549,7 +613,7 @@ func (a *App) returnIndex(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if r.Method != http.MethodHead {
-		_, _ = w.Write(indexHTML)
+		_, _ = io.WriteString(w, indexHTML)
 	}
 }
 
@@ -583,13 +647,13 @@ func (a *App) getSubpageConfigByUUID(ctx context.Context, subpageConfigUUID stri
 	return resp, nil
 }
 
-func (a *App) verifySessionCookie(r *http.Request) (security.Claims, error) {
+func (a *App) verifySessionCookie(r *http.Request) (*security.SessionClaims, error) {
 	cookie, err := r.Cookie(sessionCookieName)
 	if err != nil {
 		return nil, err
 	}
 
-	return security.VerifyJWT(cookie.Value, a.cfg.SessionSecret)
+	return security.VerifySessionJWT(cookie.Value, a.cfg.SessionSecret)
 }
 
 func (a *App) applyCustomPrefix(requestPath string) (string, bool) {

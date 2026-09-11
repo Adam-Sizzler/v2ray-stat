@@ -120,11 +120,11 @@ func Load() (Config, error) {
 	pathPrefix := normalizeBasePath(rawPath)
 	grpcToken := strings.TrimSpace(os.Getenv("SUB_GRPC_TOKEN"))
 
-	appPort, err := parsePort(os.Getenv("SUB_APP_PORT"), DefaultSubAppPort)
+	appPort, err := parsePort("SUB_APP_PORT", os.Getenv("SUB_APP_PORT"), DefaultSubAppPort)
 	if err != nil {
 		return Config{}, err
 	}
-	grpcPort, err := parsePort(os.Getenv("SUB_GRPC_PORT"), DefaultSubGRPCPort)
+	grpcPort, err := parsePort("SUB_GRPC_PORT", os.Getenv("SUB_GRPC_PORT"), DefaultSubGRPCPort)
 	if err != nil {
 		return Config{}, err
 	}
@@ -206,14 +206,14 @@ func getEnvOrDefault(key, fallback string) string {
 	return value
 }
 
-func parsePort(raw string, fallback int) (int, error) {
+func parsePort(envKey, raw string, fallback int) (int, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return fallback, nil
 	}
 	port, err := strconv.Atoi(trimmed)
 	if err != nil || port < 1 || port > 65535 {
-		return 0, NewEnvError("SUB_GRPC_PORT", fmt.Sprintf("Invalid port value %q. Use a number from 1 to 65535.", raw))
+		return 0, NewEnvError(envKey, fmt.Sprintf("Invalid port value %q. Use a number from 1 to 65535.", raw))
 	}
 	return port, nil
 }

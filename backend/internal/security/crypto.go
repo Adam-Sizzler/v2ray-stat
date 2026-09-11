@@ -17,6 +17,14 @@ import (
 
 type Claims map[string]any
 
+const jwtHeaderHS256 = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9" // base64.RawURLEncoding of {"alg":"HS256","typ":"JWT"}
+
+type SessionClaims struct {
+	SessionID         string `json:"sessionId"`
+	SubpageConfigUUID string `json:"subpageConfigUuid"`
+	Exp               int64  `json:"exp"`
+}
+
 func EncryptUUID(uuidValue, secretKey string) (string, error) {
 	key := sha256.Sum256([]byte(secretKey))
 
@@ -39,7 +47,8 @@ func EncryptUUID(uuidValue, secretKey string) (string, error) {
 	tagSize := gcm.Overhead()
 	tagStart := len(ciphertext) - tagSize
 
-	combined := append([]byte{}, nonce...)
+	combined := make([]byte, 0, len(nonce)+len(ciphertext))
+	combined = append(combined, nonce...)
 	combined = append(combined, ciphertext[tagStart:]...)
 	combined = append(combined, ciphertext[:tagStart]...)
 
@@ -73,7 +82,9 @@ func DecryptUUID(data, secretKey string) (string, error) {
 	nonce := raw[:nonceSize]
 	tag := raw[nonceSize : nonceSize+tagSize]
 	ciphertext := raw[nonceSize+tagSize:]
-	sealed := append(append([]byte{}, ciphertext...), tag...)
+	sealed := make([]byte, 0, len(ciphertext)+len(tag))
+	sealed = append(sealed, ciphertext...)
+	sealed = append(sealed, tag...)
 
 	plaintext, err := gcm.Open(nil, nonce, sealed, nil)
 	if err != nil {
@@ -83,23 +94,14 @@ func DecryptUUID(data, secretKey string) (string, error) {
 	return string(plaintext), nil
 }
 
-func SignJWT(claims Claims, secret string) (string, error) {
-	headerBytes, err := json.Marshal(map[string]string{
-		"alg": "HS256",
-		"typ": "JWT",
-	})
-	if err != nil {
-		return "", err
-	}
-
+func SignJWT(claims any, secret string) (string, error) {
 	payloadBytes, err := json.Marshal(claims)
 	if err != nil {
 		return "", err
 	}
 
-	headerPart := base64.RawURLEncoding.EncodeToString(headerBytes)
 	payloadPart := base64.RawURLEncoding.EncodeToString(payloadBytes)
-	signingInput := headerPart + "." + payloadPart
+	signingInput := jwtHeaderHS256 + "." + payloadPart
 
 	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = mac.Write([]byte(signingInput))
@@ -108,7 +110,7 @@ func SignJWT(claims Claims, secret string) (string, error) {
 	return signingInput + "." + signature, nil
 }
 
-func VerifyJWT(token, secret string) (Claims, error) {
+func verifyJWTSignature(token, secret string) ([]byte, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("invalid jwt format")
@@ -128,7 +130,29 @@ func VerifyJWT(token, secret string) (Claims, error) {
 		return nil, fmt.Errorf("invalid jwt signature")
 	}
 
-	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	return base64.RawURLEncoding.DecodeString(parts[1])
+}
+
+func VerifySessionJWT(token, secret string) (*SessionClaims, error) {
+	payloadBytes, err := verifyJWTSignature(token, secret)
+	if err != nil {
+		return nil, err
+	}
+
+	var claims SessionClaims
+	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
+		return nil, err
+	}
+
+	if claims.Exp > 0 && time.Now().Unix() > claims.Exp {
+		return nil, fmt.Errorf("jwt expired")
+	}
+
+	return &claims, nil
+}
+
+func VerifyJWT(token, secret string) (Claims, error) {
+	payloadBytes, err := verifyJWTSignature(token, secret)
 	if err != nil {
 		return nil, err
 	}

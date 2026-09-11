@@ -10,12 +10,16 @@ import (
 )
 
 func renderIndexTemplate(templateContent, metaTitle, metaDescription, panelData string) string {
-	rendered := strings.ReplaceAll(templateContent, "<%- panelData %>", panelData)
-	rendered = strings.ReplaceAll(rendered, "<%= metaDescription %>", html.EscapeString(metaDescription))
-	rendered = strings.ReplaceAll(rendered, "<%- metaDescription %>", html.EscapeString(metaDescription))
-	rendered = strings.ReplaceAll(rendered, "<%= metaTitle %>", html.EscapeString(metaTitle))
-	rendered = strings.ReplaceAll(rendered, "<%- metaTitle %>", html.EscapeString(metaTitle))
-	return rendered
+	escapedDesc := html.EscapeString(metaDescription)
+	escapedTitle := html.EscapeString(metaTitle)
+	replacer := strings.NewReplacer(
+		"<%- panelData %>", panelData,
+		"<%= metaDescription %>", escapedDesc,
+		"<%- metaDescription %>", escapedDesc,
+		"<%= metaTitle %>", escapedTitle,
+		"<%- metaTitle %>", escapedTitle,
+	)
+	return replacer.Replace(templateContent)
 }
 
 func getRealIP(r *http.Request, trustProxySetting string) string {

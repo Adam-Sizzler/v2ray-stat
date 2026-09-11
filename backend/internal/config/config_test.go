@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestConfigSubPathMethods(t *testing.T) {
 	tests := []struct {
@@ -92,5 +95,26 @@ func TestValidateBasePath(t *testing.T) {
 		if err := validateBasePath(path); err == nil {
 			t.Errorf("expected invalid for %q, got nil error", path)
 		}
+	}
+}
+
+func TestParsePort(t *testing.T) {
+	port, err := parsePort("SUB_APP_PORT", "8080", 3010)
+	if err != nil || port != 8080 {
+		t.Fatalf("expected 8080, got %d, %v", port, err)
+	}
+
+	port, err = parsePort("SUB_APP_PORT", "", 3010)
+	if err != nil || port != 3010 {
+		t.Fatalf("expected fallback 3010, got %d, %v", port, err)
+	}
+
+	_, err = parsePort("SUB_APP_PORT", "invalid", 3010)
+	if err == nil {
+		t.Fatal("expected error for invalid port")
+	}
+	var envErrs EnvErrors
+	if !errors.As(err, &envErrs) || len(envErrs) == 0 || envErrs[0].Key != "SUB_APP_PORT" {
+		t.Fatalf("expected EnvError with key SUB_APP_PORT, got %v", err)
 	}
 }

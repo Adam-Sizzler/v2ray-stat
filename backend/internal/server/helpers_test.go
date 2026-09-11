@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/exodus/subscription-page/backend/internal/config"
@@ -131,5 +132,26 @@ func TestApp_ApplyCustomPrefix(t *testing.T) {
 				t.Errorf("applyCustomPrefix() route = %q, want %q", route, tt.wantRoute)
 			}
 		})
+	}
+}
+
+func TestRenderIndexTemplate(t *testing.T) {
+	template := `<html><head><title><%= metaTitle %></title><meta name="description" content="<%= metaDescription %>"></head><body><script>window.__DATA__ = "<%- panelData %>";</script></body></html>`
+	title := "My & VPN"
+	desc := "Fast <&> Secure"
+	panelData := "base64data123"
+
+	result := renderIndexTemplate(template, title, desc, panelData)
+
+	expectedTitle := "My &amp; VPN"
+	expectedDesc := "Fast &lt;&amp;&gt; Secure"
+	if !strings.Contains(result, expectedTitle) {
+		t.Errorf("expected title %q in result, got: %s", expectedTitle, result)
+	}
+	if !strings.Contains(result, expectedDesc) {
+		t.Errorf("expected desc %q in result, got: %s", expectedDesc, result)
+	}
+	if !strings.Contains(result, panelData) {
+		t.Errorf("expected panel data %q in result, got: %s", panelData, result)
 	}
 }
