@@ -32,7 +32,7 @@ func ValidateUUIDs(values []string) error {
 // optional filter/list request fields.
 func ValidateUUIDsAllowEmpty(values []string) error {
 	for _, value := range values {
-		if _, err := ParseUUID(value); err != nil {
+		if _, err := uuid.Parse(strings.TrimSpace(value)); err != nil {
 			return fmt.Errorf("invalid uuid value")
 		}
 	}

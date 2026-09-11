@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -83,7 +84,8 @@ func WithRequestLogging(cfg *config.BackendConfig, component string, next http.H
 		}
 		serviceLogger := cfg.Logger.RoleService(role, logger.ServiceHTTP)
 
-		msg := fmt.Sprintf("%s %s %d %dms", r.Method, r.URL.Path, statusCode, durationMs)
+		var msgBuf [128]byte
+		msg := formatRequestLogMessage(msgBuf[:0], r.Method, r.URL.Path, statusCode, durationMs)
 		if cfg.Log.IsHTTPLoggingEnabled {
 			serviceLogger.Info(msg,
 				"component", component,
@@ -103,23 +105,37 @@ func WithRequestLogging(cfg *config.BackendConfig, component string, next http.H
 				"duration_ms", durationMs,
 			)
 		}
-		serviceLogger.Trace("HTTP request details",
-			"component", component,
-			"method", r.Method,
-			"path", r.URL.Path,
-			"query", r.URL.RawQuery,
-			"status", statusCode,
-			"bytes", lrw.bytes,
-			"duration_ms", durationMs,
-			"duration_us", duration.Microseconds(),
-			"client_ip", GetClientIP(r, cfg),
-			"remote_addr", r.RemoteAddr,
-			"user_agent", r.UserAgent(),
-			"x_exodus_real_ip", r.Header.Get(ExodusRealIPHeader),
-			"x_forwarded_for", r.Header.Get("X-Forwarded-For"),
-			"x_forwarded_proto", r.Header.Get("X-Forwarded-Proto"),
-		)
+		if serviceLogger.IsTraceEnabled() {
+			serviceLogger.Trace("HTTP request details",
+				"component", component,
+				"method", r.Method,
+				"path", r.URL.Path,
+				"query", r.URL.RawQuery,
+				"status", statusCode,
+				"bytes", lrw.bytes,
+				"duration_ms", durationMs,
+				"duration_us", duration.Microseconds(),
+				"client_ip", GetClientIP(r, cfg),
+				"remote_addr", r.RemoteAddr,
+				"user_agent", r.UserAgent(),
+				"x_exodus_real_ip", r.Header.Get(ExodusRealIPHeader),
+				"x_forwarded_for", r.Header.Get("X-Forwarded-For"),
+				"x_forwarded_proto", r.Header.Get("X-Forwarded-Proto"),
+			)
+		}
 	})
+}
+
+func formatRequestLogMessage(buf []byte, method, path string, status int, durationMs int64) string {
+	buf = append(buf, method...)
+	buf = append(buf, ' ')
+	buf = append(buf, path...)
+	buf = append(buf, ' ')
+	buf = strconv.AppendInt(buf, int64(status), 10)
+	buf = append(buf, ' ')
+	buf = strconv.AppendInt(buf, durationMs, 10)
+	buf = append(buf, "ms"...)
+	return string(buf)
 }
 
 var skippedStaticExts = []string{".css", ".js", ".map", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp", ".woff", ".woff2", ".ttf", ".eot"}

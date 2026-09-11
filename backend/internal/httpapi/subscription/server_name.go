@@ -1,7 +1,7 @@
 package subscription
 
 import (
-	"net"
+	"net/netip"
 	"strings"
 )
 
@@ -11,15 +11,12 @@ func isDomainAddress(addr string) bool {
 	if addr == "" {
 		return false
 	}
-	// Check IPv4
-	if net.ParseIP(addr) != nil {
-		return false
+	clean := addr
+	if strings.HasPrefix(clean, "[") && strings.HasSuffix(clean, "]") && len(clean) > 2 {
+		clean = clean[1 : len(clean)-1]
 	}
-	// Check bracketed IPv6 [::1]
-	if strings.HasPrefix(addr, "[") && strings.HasSuffix(addr, "]") {
-		if net.ParseIP(addr[1:len(addr)-1]) != nil {
-			return false
-		}
+	if _, err := netip.ParseAddr(clean); err == nil {
+		return false
 	}
 	return strings.Contains(addr, ".")
 }

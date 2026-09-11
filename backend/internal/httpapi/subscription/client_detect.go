@@ -63,13 +63,13 @@ func extractSyntheticHwidHeaders(r *http.Request, userUUID, requestIP string) *H
 	var b strings.Builder
 	b.Grow(128)
 	b.WriteString("exodus:synthetic-hwid:v1|ua=")
-	b.WriteString(strings.ToLower(ptrString(userAgentPtr)))
+	writeLowerString(&b, ptrString(userAgentPtr))
 	b.WriteString("|platform=")
-	b.WriteString(strings.ToLower(ptrString(platform)))
+	writeLowerString(&b, ptrString(platform))
 	b.WriteString("|os=")
-	b.WriteString(strings.ToLower(ptrString(osVersion)))
+	writeLowerString(&b, ptrString(osVersion))
 	b.WriteString("|model=")
-	b.WriteString(strings.ToLower(ptrString(deviceModel)))
+	writeLowerString(&b, ptrString(deviceModel))
 	signature := b.String()
 
 	return &HwidHeaders{
@@ -95,6 +95,16 @@ func normalizeHwidMetadata(platform, osVersion, deviceModel, userAgent *string) 
 		deviceModel = stringPtrIfNotEmpty("unknown")
 	}
 	return normalizedPlatform, stringPtrIfNotEmpty(ptrString(osVersion)), stringPtrIfNotEmpty(ptrString(deviceModel)), normalizedUserAgent
+}
+
+func writeLowerString(b *strings.Builder, s string) {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		b.WriteByte(c)
+	}
 }
 
 func deterministicSyntheticHwid(userUUID, signature string) string {
@@ -139,12 +149,14 @@ func ptrString(value *string) string {
 	return strings.TrimSpace(*value)
 }
 
+var userAgentSeparators = [...]string{"/", " ", "(", ";"}
+
 func inferClientAppFromUserAgent(userAgent string) string {
 	userAgent = strings.TrimSpace(userAgent)
 	if userAgent == "" {
 		return ""
 	}
-	for _, sep := range []string{"/", " ", "(", ";"} {
+	for _, sep := range userAgentSeparators {
 		if idx := strings.Index(userAgent, sep); idx > 0 {
 			return strings.TrimSpace(userAgent[:idx])
 		}
