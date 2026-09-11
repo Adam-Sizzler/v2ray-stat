@@ -21,14 +21,42 @@ import (
 // DeployConfigTaskPayload is JSON payload for SubmitTask(operation=deploy_config).
 // It accepts either "config" or "singbox_config" with raw sing-box JSON.
 type DeployConfigTaskPayload struct {
-	Config            json.RawMessage       `json:"config"`
-	SingboxConfig     json.RawMessage       `json:"singbox_config"`
-	Listen            string                `json:"listen"`
-	Restart           *bool                 `json:"restart"`
-	ForceRestart      *bool                 `json:"force_restart"`
-	ForceRestartCamel *bool                 `json:"forceRestart"`
-	Stats             DeployConfigTaskStats `json:"stats"`
-	Modules           DeployModulesPayload  `json:"modules"`
+	Config            json.RawMessage         `json:"config"`
+	SingboxConfig     json.RawMessage         `json:"singbox_config"`
+	Listen            string                  `json:"listen"`
+	Restart           *bool                   `json:"restart"`
+	ForceRestart      *bool                   `json:"force_restart"`
+	ForceRestartCamel *bool                   `json:"forceRestart"`
+	Stats             DeployConfigTaskStats   `json:"stats"`
+	Modules           DeployModulesPayload    `json:"modules"`
+	Internals         *DeployInternalsPayload `json:"internals"`
+	Hashes            *DeployHashesPayload    `json:"hashes"`
+}
+
+type DeployInternalsPayload struct {
+	Hashes       DeployHashesPayload `json:"hashes"`
+	ForceRestart *bool               `json:"force_restart"`
+}
+
+type DeployHashesPayload struct {
+	EmptyConfig string              `json:"emptyConfig"`
+	Inbounds    []DeployInboundHash `json:"inbounds"`
+}
+
+type DeployInboundHash struct {
+	Tag        string `json:"tag"`
+	Hash       string `json:"hash"`
+	UsersCount int    `json:"usersCount"`
+}
+
+func (task DeployConfigTaskPayload) getHashes() *DeployHashesPayload {
+	if task.Hashes != nil {
+		return task.Hashes
+	}
+	if task.Internals != nil {
+		return &task.Internals.Hashes
+	}
+	return nil
 }
 
 type DeployConfigTaskStats struct {
@@ -96,7 +124,7 @@ func (s *NodeServer) DeployConfig(ctx context.Context, task DeployConfigTaskPayl
 	}
 	log.Debug("DeployConfig started", "config_bytes", len(rawConfig))
 
-	logInternalUserExtraction(s.Cfg.LoggerFor("InternalService"), rawConfig)
+	logInternalUserExtraction(s.Cfg.LoggerFor("InternalService"), rawConfig, task.getHashes())
 
 	configPath := config.FixedSingboxConfigPath
 
@@ -581,25 +609,41 @@ func (h *HashedSet) Size() int {
 }
 
 func computeEmptyConfigHash(rawConfig json.RawMessage) string {
-	var parsed map[string]any
+	var parsed map[string]json.RawMessage
 	if err := json.Unmarshal(rawConfig, &parsed); err != nil {
 		return sha256Hex(rawConfig)
 	}
-	if inbounds, ok := parsed["inbounds"].([]any); ok {
-		cleanInbounds := make([]any, 0, len(inbounds))
-		for _, in := range inbounds {
-			if inMap, ok := in.(map[string]any); ok {
-				copyMap := make(map[string]any, len(inMap))
-				for k, v := range inMap {
-					if k != "users" && k != "clients" {
-						copyMap[k] = v
-					}
-				}
-				cleanInbounds = append(cleanInbounds, copyMap)
-			}
-		}
-		parsed["inbounds"] = cleanInbounds
+	inboundsRaw, ok := parsed["inbounds"]
+	if !ok || len(inboundsRaw) == 0 {
+		return sha256Hex(rawConfig)
 	}
+
+	var inbounds []map[string]json.RawMessage
+	if err := json.Unmarshal(inboundsRaw, &inbounds); err != nil {
+		return sha256Hex(rawConfig)
+	}
+
+	hasChanged := false
+	for _, inMap := range inbounds {
+		if _, hasUsers := inMap["users"]; hasUsers {
+			delete(inMap, "users")
+			hasChanged = true
+		}
+		if _, hasClients := inMap["clients"]; hasClients {
+			delete(inMap, "clients")
+			hasChanged = true
+		}
+	}
+	if !hasChanged {
+		return sha256Hex(rawConfig)
+	}
+
+	cleanInboundsJSON, err := json.Marshal(inbounds)
+	if err != nil {
+		return sha256Hex(rawConfig)
+	}
+	parsed["inbounds"] = cleanInboundsJSON
+
 	cleanJSON, err := json.Marshal(parsed)
 	if err != nil {
 		return sha256Hex(rawConfig)
@@ -607,14 +651,30 @@ func computeEmptyConfigHash(rawConfig json.RawMessage) string {
 	return sha256Hex(cleanJSON)
 }
 
-func logInternalUserExtraction(log *config.Logger, rawConfig json.RawMessage) {
-	if log == nil {
+func logInternalUserExtraction(log *config.Logger, rawConfig json.RawMessage, hashes *DeployHashesPayload) {
+	if log == nil || !log.Enabled(config.LogLevelInfo) {
 		return
 	}
 	start := time.Now()
 	log.Log("Cleaning up internal service.")
 	log.Log("Starting user extraction from inbounds...")
-	log.Log(fmt.Sprintf("▸ Empty Config Hash: %s", computeEmptyConfigHash(rawConfig)))
+
+	emptyHash := ""
+	if hashes != nil && hashes.EmptyConfig != "" {
+		emptyHash = hashes.EmptyConfig
+	} else {
+		emptyHash = computeEmptyConfigHash(rawConfig)
+	}
+	log.Log(fmt.Sprintf("▸ Empty Config Hash: %s", emptyHash))
+
+	remoteHashes := make(map[string]string)
+	if hashes != nil {
+		for _, item := range hashes.Inbounds {
+			if item.Tag != "" {
+				remoteHashes[item.Tag] = item.Hash
+			}
+		}
+	}
 
 	var parsed struct {
 		Inbounds []map[string]any `json:"inbounds"`
@@ -645,8 +705,12 @@ func logInternalUserExtraction(log *config.Logger, rawConfig json.RawMessage) {
 				}
 			}
 			if userSet.Size() > 0 {
-				h := userSet.Hash64String()
-				log.Log(fmt.Sprintf("▸ %s · %d users · %s (%s)", tag, userSet.Size(), h, h))
+				localHash := userSet.Hash64String()
+				remoteHash, hasRemote := remoteHashes[tag]
+				if !hasRemote || remoteHash == "" {
+					remoteHash = "N/A"
+				}
+				log.Log(fmt.Sprintf("▸ %s · %d users · %s (%s)", tag, userSet.Size(), localHash, remoteHash))
 			}
 		}
 	}

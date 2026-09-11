@@ -57,7 +57,7 @@ var (
 	fatalPfxRegexp = regexp.MustCompile(`^(?:FATAL|ERROR)(?:\[[0-9]+\])?\s*`)
 )
 
-// TailSingboxLogLines reads the last N lines from the Sing-box log file.
+// TailSingboxLogLines reads the last N lines from the Sing-box log file using pure Go reverse file scanning.
 func TailSingboxLogLines(logPath string, n int) []string {
 	if logPath == "" {
 		logPath = DefaultSingboxLogPath
@@ -66,23 +66,9 @@ func TailSingboxLogLines(logPath string, n int) []string {
 		n = 10
 	}
 
-	// Try tail command first
-	out, err := exec.Command("tail", "-n", fmt.Sprintf("%d", n), logPath).Output()
-	var rawLines []string
-	if err == nil {
-		rawLines = strings.Split(string(out), "\n")
-	} else {
-		// Fallback to reading file directly
-		content, readErr := os.ReadFile(logPath)
-		if readErr != nil {
-			return nil
-		}
-		allLines := strings.Split(string(content), "\n")
-		if len(allLines) > n {
-			rawLines = allLines[len(allLines)-n:]
-		} else {
-			rawLines = allLines
-		}
+	rawLines, err := readTailLines(logPath, n)
+	if err != nil {
+		return nil
 	}
 
 	cleaned := make([]string, 0, len(rawLines))
@@ -95,6 +81,80 @@ func TailSingboxLogLines(logPath string, n int) []string {
 		}
 	}
 	return cleaned
+}
+
+func readTailLines(filePath string, n int) ([]string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	stat, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	fileSize := stat.Size()
+	if fileSize == 0 {
+		return nil, nil
+	}
+
+	const bufSize = 4096
+	buf := make([]byte, bufSize)
+	var rawLines []string
+	var lineBuf []byte
+
+	offset := fileSize
+	newlineCount := 0
+
+	for offset > 0 && newlineCount <= n {
+		readSize := int64(bufSize)
+		if offset < readSize {
+			readSize = offset
+		}
+		offset -= readSize
+
+		_, err := file.Seek(offset, 0)
+		if err != nil {
+			break
+		}
+		nRead, err := file.Read(buf[:readSize])
+		if err != nil || nRead == 0 {
+			break
+		}
+
+		for i := nRead - 1; i >= 0; i-- {
+			b := buf[i]
+			if b == '\n' {
+				if len(lineBuf) > 0 || newlineCount > 0 {
+					for l, r := 0, len(lineBuf)-1; l < r; l, r = l+1, r-1 {
+						lineBuf[l], lineBuf[r] = lineBuf[r], lineBuf[l]
+					}
+					rawLines = append(rawLines, string(lineBuf))
+					lineBuf = lineBuf[:0]
+					newlineCount++
+					if newlineCount >= n {
+						break
+					}
+				}
+			} else if b != '\r' {
+				lineBuf = append(lineBuf, b)
+			}
+		}
+	}
+
+	if len(lineBuf) > 0 && newlineCount < n {
+		for l, r := 0, len(lineBuf)-1; l < r; l, r = l+1, r-1 {
+			lineBuf[l], lineBuf[r] = lineBuf[r], lineBuf[l]
+		}
+		rawLines = append(rawLines, string(lineBuf))
+	}
+
+	for l, r := 0, len(rawLines)-1; l < r; l, r = l+1, r-1 {
+		rawLines[l], rawLines[r] = rawLines[r], rawLines[l]
+	}
+
+	return rawLines, nil
 }
 
 // ExtractSingboxLogReason scans recent log lines to find the root-cause error reason.

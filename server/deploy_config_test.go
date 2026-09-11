@@ -1,9 +1,13 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
+
+	"exodus-node/config"
 
 	"github.com/iancoleman/orderedmap"
 )
@@ -277,5 +281,48 @@ func TestBuildSingboxConfigWithV2RayAPIOptionOverrides(t *testing.T) {
 	}
 	if !reflect.DeepEqual(summary.Users, []string{"u1"}) {
 		t.Fatalf("unexpected summary.Users: %v", summary.Users)
+	}
+}
+
+func TestLogInternalUserExtractionWithRemoteHashes(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	var buf bytes.Buffer
+	logger := config.NewExodusLogger(&buf, "debug")
+
+	rawConfig := json.RawMessage(`{
+		"inbounds": [
+			{
+				"tag": "vless-in",
+				"type": "vless",
+				"users": [
+					{"uuid": "11111111-2222-3333-4444-555555555555"}
+				]
+			}
+		]
+	}`)
+
+	hashes := &DeployHashesPayload{
+		EmptyConfig: "remote-empty-config-sha256",
+		Inbounds: []DeployInboundHash{
+			{Tag: "vless-in", Hash: "remote-hash-123", UsersCount: 1},
+		},
+	}
+
+	logInternalUserExtraction(logger, rawConfig, hashes)
+
+	out := buf.String()
+	if !strings.Contains(out, "▸ Empty Config Hash: remote-empty-config-sha256") {
+		t.Fatalf("expected remote empty config hash, got: %q", out)
+	}
+	if !strings.Contains(out, "(remote-hash-123)") {
+		t.Fatalf("expected remote inbound hash in log, got: %q", out)
+	}
+
+	// Test fallback when hashes is nil
+	buf.Reset()
+	logInternalUserExtraction(logger, rawConfig, nil)
+	outFallback := buf.String()
+	if !strings.Contains(outFallback, "(N/A)") {
+		t.Fatalf("expected (N/A) fallback when remote hashes missing, got: %q", outFallback)
 	}
 }

@@ -28,6 +28,8 @@ type s6ProcessInfo struct {
 
 type s6Client struct {
 	servicePath string
+	svstatBin   string
+	svcBin      string
 	logger      interface {
 		Trace(string, ...any)
 		Debug(string, ...any)
@@ -169,9 +171,13 @@ func newS6Client(cfg *config.NodeConfig) *s6Client {
 	}
 	return &s6Client{
 		servicePath: servicePath,
+		svstatBin:   findExecutable("s6-svstat", "/command/s6-svstat", "/usr/bin/s6-svstat"),
+		svcBin:      findExecutable("s6-svc", "/command/s6-svc", "/usr/bin/s6-svc"),
 		logger:      logger,
 	}
 }
+
+var pidRegexp = regexp.MustCompile(`\(pid (\d+)\)`)
 
 func findExecutable(names ...string) string {
 	for _, name := range names {
@@ -186,7 +192,10 @@ func findExecutable(names ...string) string {
 }
 
 func (c *s6Client) GetProcessInfo(ctx context.Context, name string) (s6ProcessInfo, error) {
-	svstatBin := findExecutable("s6-svstat", "/command/s6-svstat", "/usr/bin/s6-svstat")
+	svstatBin := c.svstatBin
+	if svstatBin == "" {
+		svstatBin = findExecutable("s6-svstat", "/command/s6-svstat", "/usr/bin/s6-svstat")
+	}
 	if svstatBin == "" {
 		return s6ProcessInfo{Name: name, StateName: "STOPPED", PID: 0}, nil
 	}
@@ -202,8 +211,7 @@ func (c *s6Client) GetProcessInfo(ctx context.Context, name string) (s6ProcessIn
 	pid := 0
 	if strings.HasPrefix(outputStr, "up") || strings.Contains(outputStr, "(pid") {
 		state = "RUNNING"
-		re := regexp.MustCompile(`\(pid (\d+)\)`)
-		matches := re.FindStringSubmatch(outputStr)
+		matches := pidRegexp.FindStringSubmatch(outputStr)
 		if len(matches) == 2 {
 			pid, _ = strconv.Atoi(matches[1])
 		}
@@ -217,7 +225,10 @@ func (c *s6Client) GetProcessInfo(ctx context.Context, name string) (s6ProcessIn
 }
 
 func (c *s6Client) StartProcess(ctx context.Context, name string, wait bool) error {
-	svcBin := findExecutable("s6-svc", "/command/s6-svc", "/usr/bin/s6-svc")
+	svcBin := c.svcBin
+	if svcBin == "" {
+		svcBin = findExecutable("s6-svc", "/command/s6-svc", "/usr/bin/s6-svc")
+	}
 	if svcBin == "" {
 		if c.logger != nil {
 			c.logger.Debug("s6-svc binary not found; s6 mock start active")
@@ -236,7 +247,10 @@ func (c *s6Client) StartProcess(ctx context.Context, name string, wait bool) err
 }
 
 func (c *s6Client) StopProcess(ctx context.Context, name string, wait bool) error {
-	svcBin := findExecutable("s6-svc", "/command/s6-svc", "/usr/bin/s6-svc")
+	svcBin := c.svcBin
+	if svcBin == "" {
+		svcBin = findExecutable("s6-svc", "/command/s6-svc", "/usr/bin/s6-svc")
+	}
 	if svcBin == "" {
 		if c.logger != nil {
 			c.logger.Debug("s6-svc binary not found; s6 mock stop active")

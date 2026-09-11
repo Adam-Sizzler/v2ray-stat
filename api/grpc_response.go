@@ -17,6 +17,8 @@ import (
 	"exodus-node/config"
 	"exodus-node/constant"
 	"exodus-node/sdk"
+
+	"golang.org/x/sys/unix"
 )
 
 // Stat represents a single statistic entry.
@@ -264,21 +266,26 @@ func (s *Service) GetApiResponse(ctx context.Context) (*ApiResponse, error) {
 				}
 				s.logCoreStatsFailure("Core stats query failed; returning degraded stats", err)
 			} else {
-				userBytes := make(map[string]int64)
 				for _, item := range stats {
 					result.Stat = append(result.Stat, Stat{
 						Name:  item.Name,
 						Value: strconv.FormatInt(item.Value, 10),
 					})
-					if strings.HasPrefix(item.Name, "user>>>") {
-						parts := strings.Split(item.Name, ">>>")
-						if len(parts) == 4 && parts[2] == "traffic" && item.Value > 0 {
-							userBytes[parts[1]] += item.Value
+				}
+				if s.logger.Enabled(config.LogLevelTrace) {
+					userBytes := make(map[string]int64)
+					for _, item := range stats {
+						if item.Value > 0 && strings.HasPrefix(item.Name, "user>>>") {
+							rest := item.Name[len("user>>>"):]
+							if idx := strings.Index(rest, ">>>traffic>>>"); idx >= 0 {
+								username := rest[:idx]
+								userBytes[username] += item.Value
+							}
 						}
 					}
-				}
-				for username, totalBytes := range userBytes {
-					s.logger.Trace("Recorded user traffic delta", "user", username, "bytes", totalBytes)
+					for username, totalBytes := range userBytes {
+						s.logger.Trace("Recorded user traffic delta", "user", username, "bytes", totalBytes)
+					}
 				}
 			}
 
@@ -457,23 +464,54 @@ func detectAvailableRAMBytes() uint64 {
 	return available
 }
 
-func detectHostname() string {
-	hostname, err := os.Hostname()
-	if err != nil || strings.TrimSpace(hostname) == "" {
+var (
+	cachedHostname = sync.OnceValue(func() string {
+		hostname, err := os.Hostname()
+		if err != nil || strings.TrimSpace(hostname) == "" {
+			return "unknown"
+		}
+		return hostname
+	})
+
+	cachedKernelRelease = sync.OnceValue(func() string {
+		var uts unix.Utsname
+		if err := unix.Uname(&uts); err == nil {
+			buf := make([]byte, 0, 65)
+			for _, c := range uts.Release {
+				if c == 0 {
+					break
+				}
+				buf = append(buf, byte(c))
+			}
+			if len(buf) > 0 {
+				return string(buf)
+			}
+		}
+		out, err := exec.Command("uname", "-r").Output()
+		if err == nil {
+			if release := strings.TrimSpace(string(out)); release != "" {
+				return release
+			}
+		}
 		return "unknown"
-	}
-	return hostname
+	})
+
+	cachedOSVersion = sync.OnceValue(func() string {
+		if content, err := os.ReadFile("/proc/version"); err == nil {
+			if version := strings.TrimSpace(string(content)); version != "" {
+				return version
+			}
+		}
+		return cachedKernelRelease()
+	})
+)
+
+func detectHostname() string {
+	return cachedHostname()
 }
 
 func detectKernelRelease() string {
-	out, err := exec.Command("uname", "-r").Output()
-	if err != nil {
-		return "unknown"
-	}
-	if release := strings.TrimSpace(string(out)); release != "" {
-		return release
-	}
-	return "unknown"
+	return cachedKernelRelease()
 }
 
 func detectOSType() string {
@@ -484,12 +522,7 @@ func detectOSType() string {
 }
 
 func detectOSVersion() string {
-	if content, err := os.ReadFile("/proc/version"); err == nil {
-		if version := strings.TrimSpace(string(content)); version != "" {
-			return version
-		}
-	}
-	return detectKernelRelease()
+	return cachedOSVersion()
 }
 
 func detectSystemUptime() float64 {

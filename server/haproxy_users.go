@@ -14,30 +14,52 @@ import (
 var haproxyUsersFilePath = "/opt/app/haproxy/data/users.csv"
 
 func buildHaproxyUsersContent(users []HaproxyUserEntry) string {
-	lines := make([]string, 0, len(users)*4)
+	if len(users) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(users) * 120)
+
+	hasEntries := false
 	for _, user := range users {
 		username := strings.TrimSpace(user.Username)
 		if username == "" {
 			continue
 		}
 		if uuid := strings.TrimSpace(user.VLESSUUID); uuid != "" {
-			lines = append(lines, fmt.Sprintf("%s,%s", username, uuid))
+			b.WriteString(username)
+			b.WriteByte(',')
+			b.WriteString(uuid)
+			b.WriteByte('\n')
+			hasEntries = true
 		}
 		if trojan := normalizeTrojanHash(user.TrojanPassword); trojan != "" {
-			lines = append(lines, fmt.Sprintf("%s,%s", username, trojan))
+			b.WriteString(username)
+			b.WriteByte(',')
+			b.WriteString(trojan)
+			b.WriteByte('\n')
+			hasEntries = true
 		}
 		if anytls := normalizeAnytlsHash(user.AnytlsPassword); anytls != "" {
-			lines = append(lines, fmt.Sprintf("%s,%s", username, anytls))
+			b.WriteString(username)
+			b.WriteByte(',')
+			b.WriteString(anytls)
+			b.WriteByte('\n')
+			hasEntries = true
 		}
 		if naive := normalizeNaiveToken(username, user.NaivePassword); naive != "" {
-			lines = append(lines, fmt.Sprintf("%s,basic:%s", username, naive))
+			b.WriteString(username)
+			b.WriteString(",basic:")
+			b.WriteString(naive)
+			b.WriteByte('\n')
+			hasEntries = true
 		}
 	}
 
-	if len(lines) == 0 {
+	if !hasEntries {
 		return ""
 	}
-	return strings.Join(lines, "\n") + "\n"
+	return b.String()
 }
 
 func applyHaproxyModule(modules DeployModulesPayload) (bool, error) {

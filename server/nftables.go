@@ -8,9 +8,10 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -214,6 +215,14 @@ func ExecuteNodePluginCommand(raw json.RawMessage) (bool, error) {
 }
 
 func blockNftIPs(items []BlockedIPEntry) error {
+	if len(items) == 0 {
+		return nil
+	}
+	type itemElement struct {
+		elem    nftIPElement
+		timeout int
+	}
+	parsed := make([]itemElement, 0, len(items))
 	for _, item := range items {
 		ipStr := strings.TrimSpace(item.IP)
 		if ipStr == "" {
@@ -223,33 +232,46 @@ func blockNftIPs(items []BlockedIPEntry) error {
 		if err != nil {
 			return err
 		}
-		if err := withNftConn(func(conn *nftables.Conn) error {
-			for _, spec := range nftTableSpecs {
-				if ipElem.IsIPv6 != (spec.Family == nftables.TableFamilyIPv6) {
-					continue
-				}
-				setName := ipSetNameForSpec(nftIngressIPSet, spec)
-				set := &nftables.Set{
-					Table:      &nftables.Table{Family: spec.Family, Name: spec.Name},
-					Name:       setName,
-					Interval:   true,
-					AutoMerge:  true,
-					HasTimeout: true,
-				}
-				elements := nftSetElementsForIP(ipElem, item.Timeout)
-				if err := conn.SetAddElements(set, elements); err != nil {
-					return fmt.Errorf("add IP to set %s/%s: %w", spec.Name, setName, err)
+		parsed = append(parsed, itemElement{elem: ipElem, timeout: item.Timeout})
+	}
+	if len(parsed) == 0 {
+		return nil
+	}
+
+	return withNftConn(func(conn *nftables.Conn) error {
+		for _, spec := range nftTableSpecs {
+			setName := ipSetNameForSpec(nftIngressIPSet, spec)
+			set := &nftables.Set{
+				Table:      &nftables.Table{Family: spec.Family, Name: spec.Name},
+				Name:       setName,
+				Interval:   true,
+				AutoMerge:  true,
+				HasTimeout: true,
+			}
+			isV6 := spec.Family == nftables.TableFamilyIPv6
+			var elements []nftables.SetElement
+			for _, p := range parsed {
+				if p.elem.IsIPv6 == isV6 {
+					elements = append(elements, nftSetElementsForIP(p.elem, p.timeout)...)
 				}
 			}
-			return nil
-		}); err != nil {
-			return err
+			if len(elements) == 0 {
+				continue
+			}
+			slices.SortFunc(elements, compareSetElements)
+			if err := conn.SetAddElements(set, elements); err != nil {
+				return fmt.Errorf("add IP to set %s/%s: %w", spec.Name, setName, err)
+			}
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 func unblockNftIPs(items []BlockedIPEntry) error {
+	if len(items) == 0 {
+		return nil
+	}
+	parsed := make([]nftIPElement, 0, len(items))
 	for _, item := range items {
 		ipStr := strings.TrimSpace(item.IP)
 		if ipStr == "" {
@@ -259,30 +281,38 @@ func unblockNftIPs(items []BlockedIPEntry) error {
 		if err != nil {
 			return err
 		}
-		if err := withNftConn(func(conn *nftables.Conn) error {
-			for _, spec := range nftTableSpecs {
-				if ipElem.IsIPv6 != (spec.Family == nftables.TableFamilyIPv6) {
-					continue
-				}
-				setName := ipSetNameForSpec(nftIngressIPSet, spec)
-				set := &nftables.Set{
-					Table:      &nftables.Table{Family: spec.Family, Name: spec.Name},
-					Name:       setName,
-					Interval:   true,
-					AutoMerge:  true,
-					HasTimeout: true,
-				}
-				elements := nftSetElementsForIP(ipElem, 0)
-				if err := conn.SetDeleteElements(set, elements); err != nil && !isENOENT(err) {
-					return fmt.Errorf("delete IP from set %s/%s: %w", spec.Name, setName, err)
+		parsed = append(parsed, ipElem)
+	}
+	if len(parsed) == 0 {
+		return nil
+	}
+
+	return withNftConn(func(conn *nftables.Conn) error {
+		for _, spec := range nftTableSpecs {
+			setName := ipSetNameForSpec(nftIngressIPSet, spec)
+			set := &nftables.Set{
+				Table:      &nftables.Table{Family: spec.Family, Name: spec.Name},
+				Name:       setName,
+				Interval:   true,
+				AutoMerge:  true,
+				HasTimeout: true,
+			}
+			isV6 := spec.Family == nftables.TableFamilyIPv6
+			var elements []nftables.SetElement
+			for _, elem := range parsed {
+				if elem.IsIPv6 == isV6 {
+					elements = append(elements, nftSetElementsForIP(elem, 0)...)
 				}
 			}
-			return nil
-		}); err != nil {
-			return err
+			if len(elements) == 0 {
+				continue
+			}
+			if err := conn.SetDeleteElements(set, elements); err != nil && !isENOENT(err) {
+				return fmt.Errorf("delete IP from set %s/%s: %w", spec.Name, setName, err)
+			}
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 func executeNftCommand(fn func() error) (bool, error) {
@@ -551,19 +581,27 @@ func syncNftIPSet(baseSetName string, rawIPs []string, timeoutSeconds int) error
 			if len(elements) == 0 {
 				continue
 			}
-			sort.Slice(elements, func(i, j int) bool {
-				cmp := bytes.Compare(elements[i].Key, elements[j].Key)
-				if cmp != 0 {
-					return cmp < 0
-				}
-				return !elements[i].IntervalEnd && elements[j].IntervalEnd
-			})
+			slices.SortFunc(elements, compareSetElements)
 			if err := conn.SetAddElements(set, elements); err != nil {
 				return fmt.Errorf("add IP elements to nft set %s/%s: %w", spec.Name, setName, err)
 			}
 		}
 		return nil
 	})
+}
+
+func compareSetElements(a, b nftables.SetElement) int {
+	cmp := bytes.Compare(a.Key, b.Key)
+	if cmp != 0 {
+		return cmp
+	}
+	if !a.IntervalEnd && b.IntervalEnd {
+		return -1
+	}
+	if a.IntervalEnd && !b.IntervalEnd {
+		return 1
+	}
+	return 0
 }
 
 func syncNftPortSet(baseSetName string, rawPorts []int) error {
@@ -664,12 +702,12 @@ func mergeIPRanges(ranges []ipRange) []ipRange {
 	if len(ranges) <= 1 {
 		return ranges
 	}
-	sort.Slice(ranges, func(i, j int) bool {
-		cmp := ranges[i].start.Compare(ranges[j].start)
+	slices.SortFunc(ranges, func(a, b ipRange) int {
+		cmp := a.start.Compare(b.start)
 		if cmp != 0 {
-			return cmp < 0
+			return cmp
 		}
-		return ranges[i].end.Compare(ranges[j].end) > 0
+		return b.end.Compare(a.end)
 	})
 	merged := make([]ipRange, 0, len(ranges))
 	curr := ranges[0]
@@ -756,31 +794,32 @@ func normalizeNftPorts(rawPorts []int) ([]int, error) {
 		seen[port] = struct{}{}
 		ports = append(ports, port)
 	}
-	sort.Ints(ports)
+	slices.Sort(ports)
 	return ports, nil
 }
 
 func prefixRange(prefix netip.Prefix) (netip.Addr, netip.Addr) {
 	start := prefix.Masked().Addr()
 	bits := addressBits(start)
-	startBytes := addrBytes(start)
-	endBytes := append([]byte(nil), startBytes...)
-	for bit := prefix.Bits(); bit < bits; bit++ {
+	pBits := prefix.Bits()
+
+	if start.Is4() {
+		raw := start.As4()
+		for bit := pBits; bit < bits; bit++ {
+			byteIndex := bit / 8
+			bitIndex := 7 - (bit % 8)
+			raw[byteIndex] |= 1 << bitIndex
+		}
+		return start, netip.AddrFrom4(raw)
+	}
+
+	raw := start.As16()
+	for bit := pBits; bit < bits; bit++ {
 		byteIndex := bit / 8
 		bitIndex := 7 - (bit % 8)
-		endBytes[byteIndex] |= 1 << bitIndex
+		raw[byteIndex] |= 1 << bitIndex
 	}
-	end := netip.AddrFrom16([16]byte{})
-	if start.Is4() {
-		var raw [4]byte
-		copy(raw[:], endBytes)
-		end = netip.AddrFrom4(raw)
-	} else {
-		var raw [16]byte
-		copy(raw[:], endBytes)
-		end = netip.AddrFrom16(raw)
-	}
-	return start, end
+	return start, netip.AddrFrom16(raw)
 }
 
 func addressBits(addr netip.Addr) int {
@@ -805,7 +844,13 @@ func uint16Key(value uint16) []byte {
 	return out
 }
 
+var cachedCapNetAdmin = sync.OnceValue(detectCapNetAdmin)
+
 func hasCapNetAdmin() bool {
+	return cachedCapNetAdmin()
+}
+
+func detectCapNetAdmin() bool {
 	status, err := os.ReadFile("/proc/self/status")
 	if err != nil {
 		return false

@@ -11,6 +11,8 @@ import (
 
 	"exodus-node/config"
 	"exodus-node/constant"
+
+	"golang.org/x/sys/unix"
 )
 
 // GetAuthValidationMessage returns the SECRET_KEY or GRPC_TOKEN validation table.
@@ -55,7 +57,7 @@ func GetStartMessage(cfg *config.NodeConfig) string {
 				"Sing-box Path: /usr/local/bin/sing-box",
 			},
 			{fmt.Sprintf("%dC, %s, %s", runtime.NumCPU(), detectCPUModelForLogs(), formatIECBytesForLogs(detectTotalRAMForLogs()))},
-			{"Kernel: " + strings.TrimSpace(runCommandForLogs("uname", "-r"))},
+			{"Kernel: " + detectKernelReleaseForLogs()},
 			wrapPrefixedLogLine("Network Interfaces: ", strings.Join(detectNetworkInterfacesForLogs(), ", "), logTableWidth-4),
 		},
 	)
@@ -324,6 +326,23 @@ func runCommandForLogs(name string, args ...string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func detectKernelReleaseForLogs() string {
+	var uts unix.Utsname
+	if err := unix.Uname(&uts); err == nil {
+		buf := make([]byte, 0, 65)
+		for _, c := range uts.Release {
+			if c == 0 {
+				break
+			}
+			buf = append(buf, byte(c))
+		}
+		if len(buf) > 0 {
+			return string(buf)
+		}
+	}
+	return strings.TrimSpace(runCommandForLogs("uname", "-r"))
 }
 
 func detectCPUModelForLogs() string {

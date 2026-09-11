@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sync"
 
 	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
@@ -161,13 +162,26 @@ func (s *NodeServer) GetTaskStatus(ctx context.Context, req *proto.TaskStatusReq
 	}, nil
 }
 
+var gzipReaderPool = sync.Pool{}
+
 func decompressGzipIfNeeded(payload []byte) ([]byte, error) {
 	if len(payload) >= 2 && payload[0] == 0x1f && payload[1] == 0x8b {
-		gr, err := gzip.NewReader(bytes.NewReader(payload))
-		if err != nil {
-			return nil, err
+		reader := bytes.NewReader(payload)
+		var gr *gzip.Reader
+		if v := gzipReaderPool.Get(); v != nil {
+			gr = v.(*gzip.Reader)
+			if err := gr.Reset(reader); err != nil {
+				gzipReaderPool.Put(gr)
+				return nil, err
+			}
+		} else {
+			var err error
+			gr, err = gzip.NewReader(reader)
+			if err != nil {
+				return nil, err
+			}
 		}
-		defer gr.Close()
+		defer gzipReaderPool.Put(gr)
 		return io.ReadAll(gr)
 	}
 	return payload, nil

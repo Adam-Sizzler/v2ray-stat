@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -234,31 +234,29 @@ type exodusConsoleWriter struct {
 	color bool
 }
 
+var consoleLogBufPool = sync.Pool{
+	New: func() any {
+		return bytes.NewBuffer(make([]byte, 0, 512))
+	},
+}
+
 func (w *exodusConsoleWriter) Write(p []byte) (int, error) {
-	var event struct {
-		Level   string         `json:"level"`
-		Time    string         `json:"time"`
-		Context string         `json:"context"`
-		Message string         `json:"message"`
-		Fields  map[string]any `json:"-"`
-	}
-	fields := map[string]any{}
-	decoder := json.NewDecoder(bytes.NewReader(p))
-	decoder.UseNumber()
-	if err := decoder.Decode(&fields); err != nil {
+	var rawFields map[string]json.RawMessage
+	if err := json.Unmarshal(p, &rawFields); err != nil {
 		return w.writeRaw(strings.TrimRight(string(p), "\n"))
 	}
 
-	event.Level, _ = fields["level"].(string)
-	event.Time, _ = fields["time"].(string)
-	event.Context, _ = fields["context"].(string)
-	event.Message, _ = fields["message"].(string)
-	delete(fields, "level")
-	delete(fields, "time")
-	delete(fields, "context")
-	delete(fields, "message")
+	timeVal := unquoteRawString(rawFields["time"])
+	levelVal := unquoteRawString(rawFields["level"])
+	contextVal := unquoteRawString(rawFields["context"])
+	messageVal := unquoteRawString(rawFields["message"])
 
-	msg := strings.Trim(event.Message, "\n")
+	delete(rawFields, "level")
+	delete(rawFields, "time")
+	delete(rawFields, "context")
+	delete(rawFields, "message")
+
+	msg := strings.Trim(messageVal, "\n")
 	if isBoxMessage(msg) {
 		if w.color {
 			msg = colorizeMultiline(msg, ansiGreen)
@@ -266,31 +264,95 @@ func (w *exodusConsoleWriter) Write(p []byte) (int, error) {
 		return w.writeRaw(msg)
 	}
 
-	line := event.Time
-	level := strings.ToUpper(event.Level)
-	if level == "" {
-		level = "INFO"
+	buf := consoleLogBufPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	defer consoleLogBufPool.Put(buf)
+
+	buf.WriteString(timeVal)
+	buf.WriteByte(' ')
+
+	levelUpper := strings.ToUpper(levelVal)
+	if levelUpper == "" {
+		levelUpper = "INFO"
 	}
 	if w.color {
-		level = colorizeLevel(level)
+		buf.WriteString(colorizeLevel(levelUpper))
+	} else {
+		buf.WriteString(levelUpper)
 	}
-	line += " " + level
-	if event.Context != "" {
-		ctx := "[" + event.Context + "]"
+
+	if contextVal != "" {
+		buf.WriteString(" ")
+		ctxStr := "[" + contextVal + "]"
 		if w.color {
-			ctx = colorize(ctx, ansiYellow)
+			buf.WriteString(colorize(ctxStr, ansiYellow))
+		} else {
+			buf.WriteString(ctxStr)
 		}
-		line += " " + ctx
 	}
-	line += " " + event.Message
-	extra := formatExtraFields(fields)
-	if extra != "" {
+
+	buf.WriteByte(' ')
+	buf.WriteString(messageVal)
+
+	if len(rawFields) > 0 {
+		keys := make([]string, 0, len(rawFields))
+		for k := range rawFields {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+
+		extraBuf := consoleLogBufPool.Get().(*bytes.Buffer)
+		extraBuf.Reset()
+		for _, k := range keys {
+			extraBuf.WriteByte(' ')
+			extraBuf.WriteString(k)
+			extraBuf.WriteByte('=')
+			extraBuf.WriteString(formatRawJSONValue(rawFields[k]))
+		}
+		extraStr := extraBuf.String()
+		consoleLogBufPool.Put(extraBuf)
+
 		if w.color {
-			extra = colorize(extra, ansiGray)
+			buf.WriteString(colorize(extraStr, ansiGray))
+		} else {
+			buf.WriteString(extraStr)
 		}
-		line += extra
 	}
-	return w.writeRaw(line)
+
+	buf.WriteByte('\n')
+
+	w.mu.Lock()
+	_, err := w.out.Write(buf.Bytes())
+	w.mu.Unlock()
+	return len(p), err
+}
+
+func unquoteRawString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	return string(raw)
+}
+
+func formatRawJSONValue(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return "null"
+	}
+	s := string(raw)
+	if strings.HasPrefix(s, `"`) && strings.HasSuffix(s, `"`) {
+		unquoted, err := strconv.Unquote(s)
+		if err == nil {
+			if strings.ContainsAny(unquoted, " \t\n\r") {
+				return strconv.Quote(unquoted)
+			}
+			return unquoted
+		}
+	}
+	return s
 }
 
 func (w *exodusConsoleWriter) writeRaw(line string) (int, error) {
@@ -305,59 +367,7 @@ func isBoxMessage(message string) bool {
 	return strings.HasPrefix(trimmed, "╭") || strings.HasPrefix(trimmed, "╔") || strings.HasPrefix(trimmed, "┌")
 }
 
-func formatExtraFields(fields map[string]any) string {
-	if len(fields) == 0 {
-		return ""
-	}
-	keys := make([]string, 0, len(fields))
-	for key := range fields {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
 
-	parts := make([]string, 0, len(keys))
-	for _, key := range keys {
-		parts = append(parts, key+"="+formatFieldValue(fields[key]))
-	}
-	return " " + strings.Join(parts, " ")
-}
-
-func formatFieldValue(value any) string {
-	switch typed := value.(type) {
-	case nil:
-		return "null"
-	case string:
-		if strings.ContainsAny(typed, " \t\n\r") {
-			return strconv.Quote(typed)
-		}
-		return typed
-	case error:
-		errStr := typed.Error()
-		if strings.ContainsAny(errStr, " \t\n\r") {
-			return strconv.Quote(errStr)
-		}
-		return errStr
-	case fmt.Stringer:
-		str := typed.String()
-		if strings.ContainsAny(str, " \t\n\r") {
-			return strconv.Quote(str)
-		}
-		return str
-	default:
-		data, err := json.Marshal(typed)
-		if err == nil {
-			s := string(data)
-			if strings.HasPrefix(s, `"`) && strings.HasSuffix(s, `"`) {
-				unquoted, unquoteErr := strconv.Unquote(s)
-				if unquoteErr == nil && !strings.ContainsAny(unquoted, " \t\n\r") {
-					return unquoted
-				}
-			}
-			return s
-		}
-		return fmt.Sprint(typed)
-	}
-}
 
 const (
 	ansiReset   = "\033[0m"

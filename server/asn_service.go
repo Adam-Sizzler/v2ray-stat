@@ -14,7 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,6 +31,17 @@ const (
 	DefaultAsnLmdbPath   = "/usr/local/share/asn/asn-prefixes.lmdb"
 	FallbackAsnLmdbPath  = "/var/lib/exodus-node/asn/asn-prefixes.lmdb"
 	DefaultAsnReleaseURL = "https://github.com/Adam-Sizzler/lmdb-go/releases/download/latest/asn-prefixes.lmdb.zst"
+
+	keyFmtOrderedBinary = 1
+	keyFmtString        = 2
+	keyFmt32BE          = 3
+	keyFmt32LE          = 4
+	keyFmt64BE          = 5
+	keyFmt64LE          = 6
+	keyFmtFloat64       = 7
+
+	codecMsgpack = 1
+	codecJSON    = 2
 )
 
 // AsnPrefixes represents the IPv4 and IPv6 subnets associated with an ASN.
@@ -41,11 +52,13 @@ type AsnPrefixes struct {
 
 // AsnLmdbService provides high-performance lookup of IP prefixes by ASN number from LMDB.
 type AsnLmdbService struct {
-	mu          sync.RWMutex
-	dbPath      string
-	env         *lmdb.Env
-	isAvailable bool
-	logger      interface {
+	mu                sync.RWMutex
+	dbPath            string
+	env               *lmdb.Env
+	isAvailable       bool
+	detectedKeyFormat int
+	detectedCodec     int
+	logger            interface {
 		Log(string, ...any)
 		Warn(string, ...any)
 		Error(string, ...any)
@@ -212,6 +225,122 @@ func (s *AsnLmdbService) IsAvailable() bool {
 	return s.isAvailable
 }
 
+func getKeyBytesByFormat(asn int, format int) []byte {
+	switch format {
+	case keyFmtOrderedBinary:
+		return encodeOrderedBinaryNumberKey(uint32(asn))
+	case keyFmtString:
+		return []byte(strconv.Itoa(asn))
+	case keyFmt32BE:
+		buf := make([]byte, 4)
+		binary.BigEndian.PutUint32(buf, uint32(asn))
+		return buf
+	case keyFmt32LE:
+		buf := make([]byte, 4)
+		binary.LittleEndian.PutUint32(buf, uint32(asn))
+		return buf
+	case keyFmt64BE:
+		buf := make([]byte, 8)
+		binary.BigEndian.PutUint64(buf, uint64(asn))
+		return buf
+	case keyFmt64LE:
+		buf := make([]byte, 8)
+		binary.LittleEndian.PutUint64(buf, uint64(asn))
+		return buf
+	case keyFmtFloat64:
+		buf := make([]byte, 8)
+		binary.BigEndian.PutUint64(buf, math.Float64bits(float64(asn)))
+		return buf
+	default:
+		return nil
+	}
+}
+
+func (s *AsnLmdbService) lookupInTxn(txn *lmdb.Txn, dbi lmdb.DBI, asn int) (*AsnPrefixes, error) {
+	if asn <= 0 {
+		return nil, nil
+	}
+
+	keyFmt := s.detectedKeyFormat
+	codec := s.detectedCodec
+
+	// Fast path: if key and codec formats are already discovered
+	if keyFmt > 0 && codec > 0 {
+		keyBytes := getKeyBytesByFormat(asn, keyFmt)
+		valBytes, err := txn.Get(dbi, keyBytes)
+		if err == nil && len(valBytes) > 0 {
+			var target AsnPrefixes
+			var unmarshalErr error
+			if codec == codecMsgpack {
+				unmarshalErr = msgpack.Unmarshal(valBytes, &target)
+			} else {
+				unmarshalErr = json.Unmarshal(valBytes, &target)
+			}
+			if unmarshalErr == nil && (len(target.IPv4) > 0 || len(target.IPv6) > 0) {
+				return &target, nil
+			}
+		}
+	}
+
+	// Fallback / discovery path: try candidate formats
+	asnStr := strconv.Itoa(asn)
+	buf32LE := make([]byte, 4)
+	binary.LittleEndian.PutUint32(buf32LE, uint32(asn))
+	buf32BE := make([]byte, 4)
+	binary.BigEndian.PutUint32(buf32BE, uint32(asn))
+	buf64LE := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf64LE, uint64(asn))
+	buf64BE := make([]byte, 8)
+	binary.BigEndian.PutUint64(buf64BE, uint64(asn))
+	bufFloat64 := make([]byte, 8)
+	binary.BigEndian.PutUint64(bufFloat64, math.Float64bits(float64(asn)))
+
+	candidates := []struct {
+		format   int
+		keyBytes []byte
+	}{
+		{keyFmtOrderedBinary, encodeOrderedBinaryNumberKey(uint32(asn))},
+		{keyFmtString, []byte(asnStr)},
+		{keyFmt32BE, buf32BE},
+		{keyFmt32LE, buf32LE},
+		{keyFmt64BE, buf64BE},
+		{keyFmt64LE, buf64LE},
+		{keyFmtFloat64, bufFloat64},
+	}
+
+	for _, cand := range candidates {
+		valBytes, err := txn.Get(dbi, cand.keyBytes)
+		if err == nil && len(valBytes) > 0 {
+			var target AsnPrefixes
+			if msgpack.Unmarshal(valBytes, &target) == nil && (len(target.IPv4) > 0 || len(target.IPv6) > 0) {
+				s.detectedKeyFormat = cand.format
+				s.detectedCodec = codecMsgpack
+				return &target, nil
+			}
+			if json.Unmarshal(valBytes, &target) == nil && (len(target.IPv4) > 0 || len(target.IPv6) > 0) {
+				s.detectedKeyFormat = cand.format
+				s.detectedCodec = codecJSON
+				return &target, nil
+			}
+			var genericMap map[string]any
+			if json.Unmarshal(valBytes, &genericMap) == nil {
+				parsed := parseGenericAsnMap(genericMap)
+				if len(parsed.IPv4) > 0 || len(parsed.IPv6) > 0 {
+					return &parsed, nil
+				}
+			}
+			if msgpack.Unmarshal(valBytes, &genericMap) == nil {
+				parsed := parseGenericAsnMap(genericMap)
+				if len(parsed.IPv4) > 0 || len(parsed.IPv6) > 0 {
+					return &parsed, nil
+				}
+			}
+		}
+	}
+
+	return nil, nil
+}
+
 // GetByASN returns the AsnPrefixes entry for a given ASN number.
 func (s *AsnLmdbService) GetByASN(asn int) (*AsnPrefixes, error) {
 	s.mu.RLock()
@@ -221,79 +350,21 @@ func (s *AsnLmdbService) GetByASN(asn int) (*AsnPrefixes, error) {
 		return nil, nil
 	}
 
-	var entry AsnPrefixes
-	found := false
-
+	var entry *AsnPrefixes
 	err := s.env.View(func(txn *lmdb.Txn) error {
 		dbi, openErr := txn.OpenRoot(0)
 		if openErr != nil {
 			return openErr
 		}
-
-		asnStr := strconv.Itoa(asn)
-		buf32LE := make([]byte, 4)
-		binary.LittleEndian.PutUint32(buf32LE, uint32(asn))
-		buf32BE := make([]byte, 4)
-		binary.BigEndian.PutUint32(buf32BE, uint32(asn))
-		buf64LE := make([]byte, 8)
-		binary.LittleEndian.PutUint64(buf64LE, uint64(asn))
-		buf64BE := make([]byte, 8)
-		binary.BigEndian.PutUint64(buf64BE, uint64(asn))
-		bufFloat64 := make([]byte, 8)
-		binary.BigEndian.PutUint64(bufFloat64, math.Float64bits(float64(asn)))
-
-		keyCandidates := [][]byte{
-			encodeOrderedBinaryNumberKey(uint32(asn)),
-			[]byte(asnStr),
-			buf32BE,
-			buf32LE,
-			buf64BE,
-			buf64LE,
-			bufFloat64,
-		}
-
-		for _, keyBytes := range keyCandidates {
-			valBytes, err := txn.Get(dbi, keyBytes)
-			if err == nil && len(valBytes) > 0 {
-				var target AsnPrefixes
-				if unmarshalErr := msgpack.Unmarshal(valBytes, &target); unmarshalErr == nil && (len(target.IPv4) > 0 || len(target.IPv6) > 0) {
-					entry = target
-					found = true
-					return nil
-				}
-				if unmarshalErr := json.Unmarshal(valBytes, &target); unmarshalErr == nil && (len(target.IPv4) > 0 || len(target.IPv6) > 0) {
-					entry = target
-					found = true
-					return nil
-				}
-				var genericMap map[string]any
-				if unmarshalErr := json.Unmarshal(valBytes, &genericMap); unmarshalErr == nil {
-					entry = parseGenericAsnMap(genericMap)
-					if len(entry.IPv4) > 0 || len(entry.IPv6) > 0 {
-						found = true
-						return nil
-					}
-				}
-				if unmarshalErr := msgpack.Unmarshal(valBytes, &genericMap); unmarshalErr == nil {
-					entry = parseGenericAsnMap(genericMap)
-					if len(entry.IPv4) > 0 || len(entry.IPv6) > 0 {
-						found = true
-						return nil
-					}
-				}
-			}
-		}
-
-		return nil
+		var lookupErr error
+		entry, lookupErr = s.lookupInTxn(txn, dbi, asn)
+		return lookupErr
 	})
 
 	if err != nil {
 		return nil, err
 	}
-	if !found {
-		return nil, nil
-	}
-	return &entry, nil
+	return entry, nil
 }
 
 func parseGenericAsnMap(m map[string]any) AsnPrefixes {
@@ -325,35 +396,52 @@ func (s *AsnLmdbService) ResolvePrefixes(asn int) (ipv4, ipv6 []string) {
 }
 
 // ResolveASNs resolves a list of ASNs into deduplicated and sorted lists of IPv4 and IPv6 CIDRs.
+// Executes in a single LMDB view transaction for high throughput.
 func (s *AsnLmdbService) ResolveASNs(asns []int) (ipv4, ipv6 []string) {
 	if len(asns) == 0 {
+		return nil, nil
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if !s.isAvailable || s.env == nil {
 		return nil, nil
 	}
 
 	seenV4 := make(map[string]struct{})
 	seenV6 := make(map[string]struct{})
 
-	for _, asn := range asns {
-		v4List, v6List := s.ResolvePrefixes(asn)
-		for _, cidr := range v4List {
-			seenV4[cidr] = struct{}{}
+	_ = s.env.View(func(txn *lmdb.Txn) error {
+		dbi, err := txn.OpenRoot(0)
+		if err != nil {
+			return err
 		}
-		for _, cidr := range v6List {
-			seenV6[cidr] = struct{}{}
+		for _, asn := range asns {
+			entry, lookupErr := s.lookupInTxn(txn, dbi, asn)
+			if lookupErr == nil && entry != nil {
+				for _, cidr := range entry.IPv4 {
+					seenV4[cidr] = struct{}{}
+				}
+				for _, cidr := range entry.IPv6 {
+					seenV6[cidr] = struct{}{}
+				}
+			}
 		}
-	}
+		return nil
+	})
 
 	outV4 := make([]string, 0, len(seenV4))
 	for cidr := range seenV4 {
 		outV4 = append(outV4, cidr)
 	}
-	sort.Strings(outV4)
+	slices.Sort(outV4)
 
 	outV6 := make([]string, 0, len(seenV6))
 	for cidr := range seenV6 {
 		outV6 = append(outV6, cidr)
 	}
-	sort.Strings(outV6)
+	slices.Sort(outV6)
 
 	return outV4, outV6
 }
