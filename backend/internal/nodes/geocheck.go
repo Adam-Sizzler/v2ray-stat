@@ -26,33 +26,34 @@ func (nm *NodeMonitor) ExecuteGeocheck(ctx context.Context, nodeUUID string, ip 
 		ctx = context.Background()
 	}
 
-	dbNodes, err := nm.loadActiveNodes()
-	if err != nil {
-		return "", fmt.Errorf("load nodes: %w", err)
-	}
+	var (
+		client         proto.NodeServiceClient
+		targetNodeName string
+	)
 
-	var targetNodeName string
-	for _, n := range dbNodes {
-		if n.UUID == nodeUUID {
-			targetNodeName = n.Name
+	nm.nodesLock.RLock()
+	for name, state := range nm.nodes {
+		if state == nil {
+			continue
+		}
+		if state.nodeUUID == nodeUUID {
+			targetNodeName = name
+			state.mutex.RLock()
+			if state.isConnected && state.client != nil {
+				client = state.client
+			}
+			state.mutex.RUnlock()
 			break
 		}
 	}
-	if targetNodeName == "" {
-		return "", fmt.Errorf("node not found: %s", nodeUUID)
-	}
-
-	var client proto.NodeServiceClient
-	nm.nodesLock.RLock()
-	state := nm.nodes[targetNodeName]
-	if state != nil {
-		state.mutex.RLock()
-		if state.isConnected && state.client != nil {
-			client = state.client
-		}
-		state.mutex.RUnlock()
-	}
 	nm.nodesLock.RUnlock()
+
+	if targetNodeName == "" {
+		err := nm.db.QueryRowContext(ctx, `SELECT name FROM nodes WHERE uuid = $1`, nodeUUID).Scan(&targetNodeName)
+		if err != nil {
+			return "", fmt.Errorf("node not found: %s", nodeUUID)
+		}
+	}
 
 	if client == nil {
 		return "", fmt.Errorf("node %s is not connected", targetNodeName)

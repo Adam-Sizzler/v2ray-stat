@@ -311,18 +311,57 @@ func (sm *SubNodeMonitor) updateRuntimeFromStats(nodeName string, stats []*proto
 		return
 	}
 
-	values := make(map[string]string, len(stats))
+	var (
+		subNodeVersion string
+		nodeVersion    string
+		singboxVersion string
+		subNodeUptime  string
+		singboxUptime  string
+		cpuCountStr    string
+		cpuModelStr    string
+		totalRAMStr    string
+		hasAny         bool
+	)
+
 	for _, stat := range stats {
 		if stat == nil {
 			continue
 		}
-		key := strings.ToLower(strings.TrimSpace(stat.GetName()))
-		if key == "" {
+		name := strings.TrimSpace(stat.GetName())
+		if name == "" {
 			continue
 		}
-		values[key] = strings.TrimSpace(stat.GetValue())
+		val := strings.TrimSpace(stat.GetValue())
+
+		switch {
+		case strings.EqualFold(name, subNodeRuntimeStatVersion):
+			subNodeVersion = val
+			hasAny = true
+		case strings.EqualFold(name, "node_version"):
+			nodeVersion = val
+			hasAny = true
+		case strings.EqualFold(name, "singbox_version"):
+			singboxVersion = val
+			hasAny = true
+		case strings.EqualFold(name, subNodeRuntimeStatUptime):
+			subNodeUptime = val
+			hasAny = true
+		case strings.EqualFold(name, "singbox_uptime"):
+			singboxUptime = val
+			hasAny = true
+		case strings.EqualFold(name, subNodeRuntimeStatCPUCount):
+			cpuCountStr = val
+			hasAny = true
+		case strings.EqualFold(name, subNodeRuntimeStatCPUModel):
+			cpuModelStr = val
+			hasAny = true
+		case strings.EqualFold(name, subNodeRuntimeStatTotalRAM):
+			totalRAMStr = val
+			hasAny = true
+		}
 	}
-	if len(values) == 0 {
+
+	if !hasAny {
 		return
 	}
 
@@ -332,33 +371,27 @@ func (sm *SubNodeMonitor) updateRuntimeFromStats(nodeName string, stats []*proto
 		runtime.SingboxUptime = "0"
 	}
 
-	if version, ok := normalizeSubNodeRuntimeVersion(firstNonEmptyString(
-		values[subNodeRuntimeStatVersion],
-		values["node_version"],
-	)); ok {
+	if version, ok := normalizeSubNodeRuntimeVersion(firstNonEmptyString(subNodeVersion, nodeVersion)); ok {
 		runtime.NodeVersion = new(version)
 	}
 
-	if singboxVersion, ok := normalizeSubNodeRuntimeVersion(values["singbox_version"]); ok {
-		runtime.SingboxVersion = new(singboxVersion)
+	if sbVersion, ok := normalizeSubNodeRuntimeVersion(singboxVersion); ok {
+		runtime.SingboxVersion = new(sbVersion)
 	}
 
-	if uptime, ok := normalizeSubNodeRuntimeUptime(firstNonEmptyString(
-		values[subNodeRuntimeStatUptime],
-		values["singbox_uptime"],
-	)); ok {
+	if uptime, ok := normalizeSubNodeRuntimeUptime(firstNonEmptyString(subNodeUptime, singboxUptime)); ok {
 		runtime.SingboxUptime = uptime
 	}
 
-	if cpuCount, ok := parseOptionalIntValue(values[subNodeRuntimeStatCPUCount]); ok {
+	if cpuCount, ok := parseOptionalIntValue(cpuCountStr); ok {
 		runtime.CPUCount = new(cpuCount)
 	}
 
-	if cpuModel, ok := parseOptionalStringValue(values[subNodeRuntimeStatCPUModel]); ok {
+	if cpuModel, ok := parseOptionalStringValue(cpuModelStr); ok {
 		runtime.CPUModel = new(cpuModel)
 	}
 
-	if totalRAM, ok := parseOptionalStringValue(values[subNodeRuntimeStatTotalRAM]); ok {
+	if totalRAM, ok := parseOptionalStringValue(totalRAMStr); ok {
 		runtime.TotalRAM = new(totalRAM)
 	}
 

@@ -28,16 +28,6 @@ func (nm *NodeMonitor) ExecuteNodePluginCommand(ctx context.Context, command jso
 		ctx = context.Background()
 	}
 
-	dbNodes, err := nm.loadActiveNodes()
-	if err != nil {
-		return fmt.Errorf("load nodes for plugin executor: %w", err)
-	}
-
-	nodesByName := make(map[string]string, len(dbNodes))
-	for _, n := range dbNodes {
-		nodesByName[n.Name] = n.UUID
-	}
-
 	targetFilter := make(map[string]struct{}, len(requestedNodeUUIDs))
 	for _, nodeUUID := range requestedNodeUUIDs {
 		trimmed := strings.TrimSpace(nodeUUID)
@@ -56,12 +46,9 @@ func (nm *NodeMonitor) ExecuteNodePluginCommand(ctx context.Context, command jso
 		state.mutex.RLock()
 		isReady := state.isConnected && state.client != nil
 		client := state.client
+		nodeUUID := state.nodeUUID
 		state.mutex.RUnlock()
-		if !isReady {
-			continue
-		}
-		nodeUUID, ok := nodesByName[nodeName]
-		if !ok {
+		if !isReady || nodeUUID == "" {
 			continue
 		}
 		if len(targetFilter) > 0 {

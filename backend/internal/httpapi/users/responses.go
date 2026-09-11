@@ -4,6 +4,8 @@ import (
 	"context"
 )
 
+var emptyInternalSquads = []internalSquadResponse{}
+
 func buildUserResponses(ctx context.Context, repo *UserRepository, records []userRecord, subscriptionBase string) ([]userAPI, error) {
 	userUUIDs := make([]string, 0, len(records))
 	for _, record := range records {
@@ -19,7 +21,7 @@ func buildUserResponses(ctx context.Context, repo *UserRepository, records []use
 	for _, record := range records {
 		activeSquads := activeSquadsMap[record.UUID]
 		if activeSquads == nil {
-			activeSquads = []internalSquadResponse{}
+			activeSquads = emptyInternalSquads
 		}
 		response = append(response, userAPI{
 			ID:                     record.ID,

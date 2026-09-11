@@ -266,6 +266,9 @@ func coalesceShortUUID(value *string, cfg *config.BackendConfig) string {
 }
 
 func generateCustomShortUUID(pattern string) string {
+	if pattern == "" {
+		return ""
+	}
 	const (
 		digits       = "0123456789"
 		lowerLetters = "abcdefghijklmnopqrstuvwxyz"
@@ -274,19 +277,35 @@ func generateCustomShortUUID(pattern string) string {
 		hexDigits    = "0123456789abcdef"
 	)
 
+	patLen := len(pattern)
+	var stackBuf [64]byte
+	var randBuf []byte
+	if patLen <= len(stackBuf) {
+		randBuf = stackBuf[:patLen]
+	} else {
+		randBuf = make([]byte, patLen)
+	}
+	if _, err := rand.Read(randBuf); err != nil {
+		for i := range randBuf {
+			randBuf[i] = 0
+		}
+	}
+
 	var sb strings.Builder
-	for _, ch := range pattern {
+	sb.Grow(patLen)
+	for i, ch := range pattern {
+		rByte := randBuf[i]
 		switch ch {
 		case '#', 'd':
-			sb.WriteByte(randomCharFrom(digits))
+			sb.WriteByte(digits[int(rByte)%len(digits)])
 		case '*', 'x':
-			sb.WriteByte(randomCharFrom(alphanumeric))
+			sb.WriteByte(alphanumeric[int(rByte)%len(alphanumeric)])
 		case 'a':
-			sb.WriteByte(randomCharFrom(lowerLetters))
+			sb.WriteByte(lowerLetters[int(rByte)%len(lowerLetters)])
 		case 'A':
-			sb.WriteByte(randomCharFrom(upperLetters))
+			sb.WriteByte(upperLetters[int(rByte)%len(upperLetters)])
 		case 'h', 'H':
-			sb.WriteByte(randomCharFrom(hexDigits))
+			sb.WriteByte(hexDigits[int(rByte)%len(hexDigits)])
 		default:
 			sb.WriteRune(ch)
 		}
@@ -303,11 +322,21 @@ func randomCharFrom(charset string) byte {
 }
 
 func generateRandomString(length int) string {
-	bytes := make([]byte, length)
-	if _, err := rand.Read(bytes); err != nil {
+	if length <= 0 {
 		return ""
 	}
-	return hex.EncodeToString(bytes)[:length]
+	rawLen := (length + 1) / 2
+	var stackBuf [32]byte
+	var buf []byte
+	if rawLen <= len(stackBuf) {
+		buf = stackBuf[:rawLen]
+	} else {
+		buf = make([]byte, rawLen)
+	}
+	if _, err := rand.Read(buf); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(buf)[:length]
 }
 
 func generateSubscriptionShortUUID(length int) string {

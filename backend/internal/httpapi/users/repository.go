@@ -302,7 +302,7 @@ func (r *UserRepository) getUsersActiveInternalSquads(ctx context.Context, userU
 		return result, nil
 	}
 	for _, userUUID := range userUUIDs {
-		result[userUUID] = []internalSquadResponse{}
+		result[userUUID] = emptyInternalSquads
 	}
 
 	rows, err := r.db.QueryContext(ctx, `

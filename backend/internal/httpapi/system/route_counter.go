@@ -38,6 +38,7 @@ type RouteCounter struct {
 	keys       []string
 	counts     []int64
 	slotByKey  map[string]int
+	slotCache  sync.Map
 	isFlushing bool
 	stopCh     chan struct{}
 }
@@ -78,17 +79,15 @@ func (rc *RouteCounter) Stop() {
 }
 
 func (rc *RouteCounter) Register(key string) int {
-	rc.mu.RLock()
-	slot, exists := rc.slotByKey[key]
-	rc.mu.RUnlock()
-	if exists {
-		return slot
+	if val, ok := rc.slotCache.Load(key); ok {
+		return val.(int)
 	}
 
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
-	slot, exists = rc.slotByKey[key]
+	slot, exists := rc.slotByKey[key]
 	if exists {
+		rc.slotCache.Store(key, slot)
 		return slot
 	}
 
@@ -96,6 +95,7 @@ func (rc *RouteCounter) Register(key string) int {
 	rc.keys = append(rc.keys, key)
 	rc.counts = append(rc.counts, 0)
 	rc.slotByKey[key] = slot
+	rc.slotCache.Store(key, slot)
 	return slot
 }
 
