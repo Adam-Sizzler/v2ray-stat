@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 
 	"exodus/internal/config"
@@ -11,11 +12,19 @@ import (
 
 const ExodusRealIPHeader = "X-Exodus-Real-IP"
 
+var clientIPHeaders = [...]string{
+	ExodusRealIPHeader,
+	"CF-Connecting-IP",
+	"True-Client-IP",
+	"X-Forwarded-For",
+	"X-Real-IP",
+}
+
 type clientIPContextKey struct{}
 
 type clientIPCandidate struct {
 	value  string
-	ip     net.IP
+	addr   netip.Addr
 	source string
 }
 
@@ -54,14 +63,9 @@ func ResolveClientIP(r *http.Request, cfg *config.BackendConfig) string {
 		return ""
 	}
 
-	candidates := make([]clientIPCandidate, 0, 8)
-	for _, header := range []string{
-		ExodusRealIPHeader,
-		"CF-Connecting-IP",
-		"True-Client-IP",
-		"X-Forwarded-For",
-		"X-Real-IP",
-	} {
+	var candidateBuf [8]clientIPCandidate
+	candidates := candidateBuf[:0]
+	for _, header := range clientIPHeaders {
 		candidates = appendHeaderIPCandidates(candidates, header, r.Header.Values(header))
 	}
 	if candidate, ok := parseIPCandidate(r.RemoteAddr, "RemoteAddr"); ok {
@@ -72,7 +76,7 @@ func ResolveClientIP(r *http.Request, cfg *config.BackendConfig) string {
 	if selected.value == "" {
 		selected.value = "0.0.0.0"
 	}
-	if cfg != nil && cfg.Logger != nil {
+	if cfg != nil && cfg.Logger != nil && cfg.Logger.IsDebugEnabled() {
 		cfg.Logger.Debug("Resolved client IP address", "client_ip", selected.value, "source", selected.source, "remote_addr", r.RemoteAddr)
 	}
 	return selected.value
@@ -80,6 +84,12 @@ func ResolveClientIP(r *http.Request, cfg *config.BackendConfig) string {
 
 func appendHeaderIPCandidates(candidates []clientIPCandidate, header string, values []string) []clientIPCandidate {
 	for _, value := range values {
+		if strings.IndexByte(value, ',') == -1 {
+			if candidate, ok := parseIPCandidate(value, header); ok {
+				candidates = append(candidates, candidate)
+			}
+			continue
+		}
 		for _, item := range strings.Split(value, ",") {
 			if candidate, ok := parseIPCandidate(item, header); ok {
 				candidates = append(candidates, candidate)
@@ -95,19 +105,14 @@ func parseIPCandidate(value, source string) (clientIPCandidate, bool) {
 		return clientIPCandidate{}, false
 	}
 
-	ip, ok := normalizeIPLiteral(trimmed)
+	addr, ok := normalizeIPAddr(trimmed)
 	if !ok {
 		return clientIPCandidate{}, false
 	}
-	return clientIPCandidate{value: ip.String(), ip: ip, source: source}, true
+	return clientIPCandidate{value: addr.String(), addr: addr, source: source}, true
 }
 
-// normalizeIPLiteral strips an optional port, brackets, IPv6 zone suffix,
-// and IPv4-mapped ::ffff: prefix from an IP literal and returns its
-// canonical net.IP (IPv4 forms are folded to 4-byte form via To4()). It
-// performs no DNS resolution: a hostname or other non-IP input returns
-// ok=false.
-func normalizeIPLiteral(trimmed string) (net.IP, bool) {
+func normalizeIPAddr(trimmed string) (netip.Addr, bool) {
 	if host, _, err := net.SplitHostPort(trimmed); err == nil {
 		trimmed = host
 	}
@@ -118,13 +123,30 @@ func normalizeIPLiteral(trimmed string) (net.IP, bool) {
 	if zone := strings.LastIndex(trimmed, "%"); zone > -1 {
 		trimmed = trimmed[:zone]
 	}
-	ip := net.ParseIP(trimmed)
-	if ip == nil {
+	addr, err := netip.ParseAddr(trimmed)
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	return addr.Unmap(), true
+}
+
+// normalizeIPLiteral strips an optional port, brackets, IPv6 zone suffix,
+// and IPv4-mapped ::ffff: prefix from an IP literal and returns its
+// canonical net.IP (IPv4 forms are folded to 4-byte form via To4()). It
+// performs no DNS resolution: a hostname or other non-IP input returns
+// ok=false.
+func normalizeIPLiteral(trimmed string) (net.IP, bool) {
+	addr, ok := normalizeIPAddr(trimmed)
+	if !ok {
 		return nil, false
 	}
-	if ip4 := ip.To4(); ip4 != nil {
-		ip = ip4
+	if addr.Is4() {
+		a4 := addr.As4()
+		return net.IPv4(a4[0], a4[1], a4[2], a4[3]), true
 	}
+	a16 := addr.As16()
+	ip := make(net.IP, 16)
+	copy(ip, a16[:])
 	return ip, true
 }
 
@@ -137,11 +159,11 @@ func normalizeIPLiteral(trimmed string) (net.IP, bool) {
 // normalization implementation instead of re-deriving their own or, worse,
 // falling back to a DNS lookup to decide the comparison.
 func CanonicalIP(raw string) string {
-	ip, ok := normalizeIPLiteral(strings.TrimSpace(raw))
+	addr, ok := normalizeIPAddr(strings.TrimSpace(raw))
 	if !ok {
 		return ""
 	}
-	return ip.String()
+	return addr.String()
 }
 
 func selectClientIPCandidate(candidates []clientIPCandidate) clientIPCandidate {
@@ -149,21 +171,21 @@ func selectClientIPCandidate(candidates []clientIPCandidate) clientIPCandidate {
 		return clientIPCandidate{}
 	}
 	for _, candidate := range candidates {
-		if !strings.EqualFold(candidate.source, "RemoteAddr") && isPublicClientIP(candidate.ip) {
+		if !strings.EqualFold(candidate.source, "RemoteAddr") && isPublicClientIP(candidate.addr) {
 			return candidate
 		}
 	}
 	return candidates[0]
 }
 
-func isPublicClientIP(ip net.IP) bool {
-	if ip == nil {
+func isPublicClientIP(addr netip.Addr) bool {
+	if !addr.IsValid() {
 		return false
 	}
-	return ip.IsGlobalUnicast() &&
-		!ip.IsPrivate() &&
-		!ip.IsLoopback() &&
-		!ip.IsLinkLocalUnicast() &&
-		!ip.IsLinkLocalMulticast() &&
-		!ip.IsUnspecified()
+	return addr.IsGlobalUnicast() &&
+		!addr.IsPrivate() &&
+		!addr.IsLoopback() &&
+		!addr.IsLinkLocalUnicast() &&
+		!addr.IsLinkLocalMulticast() &&
+		!addr.IsUnspecified()
 }

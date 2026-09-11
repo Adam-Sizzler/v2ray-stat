@@ -36,7 +36,10 @@ WORKDIR /build/backend
 
 # Copy go mod files and download dependencies
 COPY backend/go.mod backend/go.sum ./
-RUN go mod download
+RUN set -e; \
+    for i in 1 2 3 4 5; do \
+        go mod download && break || (echo "go mod download failed, retrying in 3s ($i/5)..." && sleep 3); \
+    done
 
 # Invalidate cache on build bust or code changes
 ARG BUILD_BUST=1

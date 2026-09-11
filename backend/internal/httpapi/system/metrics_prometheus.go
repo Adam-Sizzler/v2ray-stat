@@ -512,12 +512,16 @@ func parsePrometheusLine(line string) (prometheusSample, bool) {
 
 	nameAndLabels := strings.TrimSpace(line[:firstSpace])
 	valuePart := strings.TrimSpace(line[firstSpace+1:])
-	valueFields := strings.Fields(valuePart)
-	if len(valueFields) == 0 {
+	if valuePart == "" {
 		return sample, false
 	}
 
-	value, err := strconv.ParseFloat(valueFields[0], 64)
+	valueToken := valuePart
+	if end := strings.IndexAny(valuePart, " \t"); end >= 0 {
+		valueToken = valuePart[:end]
+	}
+
+	value, err := strconv.ParseFloat(valueToken, 64)
 	if err != nil {
 		return sample, false
 	}
@@ -585,9 +589,15 @@ func parsePrometheusLabels(raw string) map[string]string {
 		}
 
 		rawValue := text[:valueEnd]
-		decodedValue, err := strconv.Unquote(`"` + rawValue + `"`)
-		if err != nil {
+		var decodedValue string
+		if strings.IndexByte(rawValue, '\\') == -1 {
 			decodedValue = rawValue
+		} else {
+			var err error
+			decodedValue, err = strconv.Unquote(`"` + rawValue + `"`)
+			if err != nil {
+				decodedValue = rawValue
+			}
 		}
 		if key != "" {
 			result[key] = decodedValue

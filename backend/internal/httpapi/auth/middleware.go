@@ -43,9 +43,8 @@ func WithOptionalPanelAuth(db *sql.DB, cfg *config.BackendConfig, next http.Hand
 
 func authenticateRequest(r *http.Request, db *sql.DB, cfg *config.BackendConfig) (*AuthPrincipal, error) {
 	if authHeader := r.Header.Get("Authorization"); authHeader != "" {
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
-			token := strings.TrimSpace(parts[1])
+		if len(authHeader) > 7 && strings.EqualFold(authHeader[:7], "Bearer ") {
+			token := strings.TrimSpace(authHeader[7:])
 			if token != "" {
 				return resolveToken(token, db, cfg)
 			}

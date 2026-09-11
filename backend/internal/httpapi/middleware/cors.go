@@ -13,6 +13,11 @@ var (
 	defaultCORSHeaders = []string{"Content-Type", "Authorization", "X-API-Token", "Cookie"}
 )
 
+const (
+	defaultCORSMethodsHeader = "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
+	defaultCORSHeadersHeader = "Content-Type, Authorization, X-API-Token, Cookie"
+)
+
 // WithCORS adds CORS headers and Server header to all responses.
 func WithCORS(cfg *config.BackendConfig, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -85,10 +90,8 @@ func WithCORS(cfg *config.BackendConfig, next http.Handler) http.Handler {
 		if allowOrigin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
 			w.Header().Add("Vary", "Origin")
-		}
-		if allowOrigin != "" {
-			w.Header().Set("Access-Control-Allow-Methods", strings.Join(defaultCORSMethods, ", "))
-			w.Header().Set("Access-Control-Allow-Headers", strings.Join(defaultCORSHeaders, ", "))
+			w.Header().Set("Access-Control-Allow-Methods", defaultCORSMethodsHeader)
+			w.Header().Set("Access-Control-Allow-Headers", defaultCORSHeadersHeader)
 			w.Header().Set("Access-Control-Max-Age", "86400")
 		}
 
@@ -154,8 +157,10 @@ func firstHeaderValue(value string) string {
 	if value == "" {
 		return ""
 	}
-	parts := strings.Split(value, ",")
-	return strings.TrimSpace(parts[0])
+	if idx := strings.IndexByte(value, ','); idx >= 0 {
+		return strings.TrimSpace(value[:idx])
+	}
+	return strings.TrimSpace(value)
 }
 
 func parseForwardedProto(forwarded string) string {

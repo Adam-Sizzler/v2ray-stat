@@ -41,3 +41,16 @@ func TestWithClientIPStoresResolvedIPInContext(t *testing.T) {
 
 	WithClientIP(nil, next).ServeHTTP(httptest.NewRecorder(), req)
 }
+
+func BenchmarkResolveClientIP(b *testing.B) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "172.18.0.8:47242"
+	req.Header.Set("X-Forwarded-For", "144.31.119.150, 172.18.0.1")
+	req.Header.Set("X-Real-IP", "172.18.0.1")
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		_ = ResolveClientIP(req, nil)
+	}
+}

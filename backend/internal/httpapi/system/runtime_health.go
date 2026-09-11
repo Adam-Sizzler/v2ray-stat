@@ -417,8 +417,9 @@ func readRuntimeHistogramStatsMs(metricName string) (float64, float64, string) {
 }
 
 func readRuntimeHistogramMeanAndP99Ms(metricName string) (float64, float64, string) {
-	samples := []metrics.Sample{{Name: metricName}}
-	metrics.Read(samples)
+	var samples [1]metrics.Sample
+	samples[0].Name = metricName
+	metrics.Read(samples[:])
 	if samples[0].Value.Kind() != metrics.KindFloat64Histogram {
 		return 0, 0, "unavailable"
 	}
@@ -480,8 +481,9 @@ func readRuntimeHistogramMeanAndP99Ms(metricName string) (float64, float64, stri
 }
 
 func readRuntimeHistogramP99Ms(metricName string) (float64, string) {
-	samples := []metrics.Sample{{Name: metricName}}
-	metrics.Read(samples)
+	var samples [1]metrics.Sample
+	samples[0].Name = metricName
+	metrics.Read(samples[:])
 	if samples[0].Value.Kind() != metrics.KindFloat64Histogram {
 		return 0, "unavailable"
 	}

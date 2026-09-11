@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"exodus/internal/config"
@@ -15,8 +16,8 @@ import (
 )
 
 var (
-	tokenCacheLock sync.RWMutex
-	tokenCache     = make(map[string]cachedTokenPrincipal)
+	tokenCache      sync.Map
+	tokenCacheCount int64
 )
 
 type cachedTokenPrincipal struct {
@@ -31,12 +32,13 @@ func resolveToken(token string, db *sql.DB, cfg *config.BackendConfig) (*AuthPri
 		return nil, errors.New("empty token")
 	}
 
-	tokenCacheLock.RLock()
-	if cached, ok := tokenCache[token]; ok && time.Now().Before(cached.expiresAt) {
-		tokenCacheLock.RUnlock()
-		return cached.principal, nil
+	if val, ok := tokenCache.Load(token); ok {
+		cached := val.(cachedTokenPrincipal)
+		if time.Now().Before(cached.expiresAt) {
+			return cached.principal, nil
+		}
+		tokenCache.Delete(token)
 	}
-	tokenCacheLock.RUnlock()
 
 	var principal *AuthPrincipal
 	var err error
@@ -55,16 +57,15 @@ func resolveToken(token string, db *sql.DB, cfg *config.BackendConfig) (*AuthPri
 }
 
 func cacheResolvedPrincipal(token string, principal *AuthPrincipal) {
-	tokenCacheLock.Lock()
-	defer tokenCacheLock.Unlock()
-
-	if len(tokenCache) > 1000 {
+	if atomic.AddInt64(&tokenCacheCount, 1) > 1000 {
+		atomic.StoreInt64(&tokenCacheCount, 0)
 		now := time.Now()
-		for k, v := range tokenCache {
-			if now.After(v.expiresAt) {
-				delete(tokenCache, k)
+		tokenCache.Range(func(k, v any) bool {
+			if cached, ok := v.(cachedTokenPrincipal); ok && now.After(cached.expiresAt) {
+				tokenCache.Delete(k)
 			}
-		}
+			return true
+		})
 	}
 
 	ttl := tokenCacheTTL
@@ -75,10 +76,10 @@ func cacheResolvedPrincipal(token string, principal *AuthPrincipal) {
 		}
 	}
 
-	tokenCache[token] = cachedTokenPrincipal{
+	tokenCache.Store(token, cachedTokenPrincipal{
 		principal: principal,
 		expiresAt: time.Now().Add(ttl),
-	}
+	})
 }
 
 func resolveAdminJWT(token string, db *sql.DB, cfg *config.BackendConfig) (*AuthPrincipal, error) {
