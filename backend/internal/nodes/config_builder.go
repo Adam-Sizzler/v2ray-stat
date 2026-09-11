@@ -309,9 +309,13 @@ func (nm *NodeMonitor) loadNodeHaproxyUsers(ctx context.Context, nodeUUID string
 	return items, matched, rows.Err()
 }
 
-func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID string) (json.RawMessage, *deployInternalsBlock, string, error) {
+func (nm *NodeMonitor) buildNodeConfigForDeploy(
+	ctx context.Context,
+	nodeUUID string,
+	preloadedSnippets *resolvedConfigSnippets,
+) (json.RawMessage, *deployInternalsBlock, string, int, error) {
 	if strings.TrimSpace(nodeUUID) == "" {
-		return nil, nil, "", fmt.Errorf("node uuid is empty")
+		return nil, nil, "", 0, fmt.Errorf("node uuid is empty")
 	}
 
 	if ctx == nil {
@@ -328,9 +332,9 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 	`, nodeUUID)
 	if err := row.Scan(&profileUUID, &profileConfig); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil, "", fmt.Errorf("node %s has no active config profile", nodeUUID)
+			return nil, nil, "", 0, fmt.Errorf("node %s has no active config profile", nodeUUID)
 		}
-		return nil, nil, "", err
+		return nil, nil, "", 0, err
 	}
 
 	rows, err := nm.db.QueryContext(ctx, `
@@ -340,7 +344,7 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 		WHERE cpitn.node_uuid = $1
 	`, nodeUUID)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", 0, err
 	}
 	defer rows.Close()
 
@@ -348,16 +352,16 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 	for rows.Next() {
 		var item nodeInboundBinding
 		if err := rows.Scan(&item.InboundUUID, &item.Tag); err != nil {
-			return nil, nil, "", err
+			return nil, nil, "", 0, err
 		}
 		bindings = append(bindings, item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", 0, err
 	}
 
 	if len(bindings) == 0 {
-		return nil, nil, "", fmt.Errorf("node %s has no active inbounds", nodeUUID)
+		return nil, nil, "", 0, fmt.Errorf("node %s has no active inbounds", nodeUUID)
 	}
 
 	bindingByInboundUUID := make(map[string]nodeInboundBinding, len(bindings))
@@ -395,7 +399,7 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 		ORDER BY u.id ASC
 	`, inboundUUIDs)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", 0, err
 	}
 	defer userRows.Close()
 
@@ -416,7 +420,7 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 			&user.Hysteria2Pass,
 			&user.AnytlsPassword,
 		); err != nil {
-			return nil, nil, "", err
+			return nil, nil, "", 0, err
 		}
 		binding, ok := bindingByInboundUUID[inboundUUID]
 		tag := normalizeTagValue(binding.Tag)
@@ -434,7 +438,7 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 		usersByTag[tag] = append(usersByTag[tag], user)
 	}
 	if err := userRows.Err(); err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", 0, err
 	}
 
 	uniqueUserCount := 0
@@ -448,18 +452,18 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 
 	parsed := orderedmap.New()
 	if err := json.Unmarshal(profileConfig, parsed); err != nil {
-		return nil, nil, "", fmt.Errorf("invalid profile config json: %w", err)
+		return nil, nil, "", 0, fmt.Errorf("invalid profile config json: %w", err)
 	}
 
-	nm.expandSnippets(ctx, parsed)
+	nm.expandSnippets(ctx, parsed, preloadedSnippets)
 
 	rawInboundsRaw, ok := parsed.Get("inbounds")
 	if !ok {
-		return nil, nil, "", fmt.Errorf("profile config has no valid inbounds array")
+		return nil, nil, "", 0, fmt.Errorf("profile config has no valid inbounds array")
 	}
 	rawInbounds, ok := rawInboundsRaw.([]any)
 	if !ok {
-		return nil, nil, "", fmt.Errorf("profile config has no valid inbounds array")
+		return nil, nil, "", 0, fmt.Errorf("profile config has no valid inbounds array")
 	}
 
 	matchedActiveTags := 0
@@ -534,7 +538,7 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 
 	finalConfig, err := json.Marshal(parsed)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("marshal deploy config: %w", err)
+		return nil, nil, "", 0, fmt.Errorf("marshal deploy config: %w", err)
 	}
 
 	internals := &deployInternalsBlock{
@@ -543,7 +547,7 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 			Inbounds:    inboundHashes,
 		},
 	}
-	return finalConfig, internals, profileUUID, nil
+	return finalConfig, internals, profileUUID, len(filteredInbounds), nil
 }
 
 func normalizeInboundType(inbound any) string {
@@ -660,8 +664,34 @@ func userIdentifier(user inboundUserCredentials) string {
 	return user.Username
 }
 
-func buildInboundUsers(inboundType string, users []inboundUserCredentials) []any {
-	result := make([]any, 0, len(users))
+type inboundVlessUserItem struct {
+	Name    string `json:"name"`
+	UUID    string `json:"uuid"`
+	AlterID *int   `json:"alterId,omitempty"`
+}
+
+type inboundPasswordUserItem struct {
+	Name     string `json:"name"`
+	Password string `json:"password"`
+}
+
+type inboundNaiveUserItem struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type inboundAuthStrUserItem struct {
+	Name    string `json:"name"`
+	AuthStr string `json:"auth_str"`
+}
+
+type inboundTuicUserItem struct {
+	Name     string `json:"name"`
+	UUID     string `json:"uuid"`
+	Password string `json:"password"`
+}
+
+func buildInboundUsers(inboundType string, users []inboundUserCredentials) any {
 	normalizedType := strings.ToLower(strings.TrimSpace(inboundType))
 	if normalizedType == "ss" {
 		normalizedType = "shadowsocks"
@@ -671,93 +701,123 @@ func buildInboundUsers(inboundType string, users []inboundUserCredentials) []any
 	}
 	switch normalizedType {
 	case "vless", "vmess":
-		for _, user := range users {
-			item := map[string]any{
-				"name": userIdentifier(user),
-				"uuid": user.VLESSUUID,
-			}
-			if normalizedType == "vmess" {
-				item["alterId"] = 0
-			}
-			result = append(result, item)
+		var alterIDZero *int
+		if normalizedType == "vmess" {
+			zero := 0
+			alterIDZero = &zero
 		}
+		result := make([]inboundVlessUserItem, len(users))
+		for i, user := range users {
+			result[i] = inboundVlessUserItem{
+				Name:    userIdentifier(user),
+				UUID:    user.VLESSUUID,
+				AlterID: alterIDZero,
+			}
+		}
+		return result
 	case "trojan":
-		for _, user := range users {
-			result = append(result, map[string]any{
-				"name":     userIdentifier(user),
-				"password": user.TrojanPassword,
-			})
+		result := make([]inboundPasswordUserItem, len(users))
+		for i, user := range users {
+			result[i] = inboundPasswordUserItem{
+				Name:     userIdentifier(user),
+				Password: user.TrojanPassword,
+			}
 		}
+		return result
 	case "shadowsocks":
-		for _, user := range users {
-			result = append(result, map[string]any{
-				"name":     userIdentifier(user),
-				"password": user.SSPassword,
-			})
+		result := make([]inboundPasswordUserItem, len(users))
+		for i, user := range users {
+			result[i] = inboundPasswordUserItem{
+				Name:     userIdentifier(user),
+				Password: user.SSPassword,
+			}
 		}
+		return result
 	case "naive":
-		for _, user := range users {
-			result = append(result, map[string]any{
-				"username": userIdentifier(user),
-				"password": user.NaivePassword,
-			})
+		result := make([]inboundNaiveUserItem, len(users))
+		for i, user := range users {
+			result[i] = inboundNaiveUserItem{
+				Username: userIdentifier(user),
+				Password: user.NaivePassword,
+			}
 		}
+		return result
 	case "anytls":
-		for _, user := range users {
-			result = append(result, map[string]any{
-				"name":     userIdentifier(user),
-				"password": user.AnytlsPassword,
-			})
+		result := make([]inboundPasswordUserItem, len(users))
+		for i, user := range users {
+			result[i] = inboundPasswordUserItem{
+				Name:     userIdentifier(user),
+				Password: user.AnytlsPassword,
+			}
 		}
+		return result
 	case "shadowtls":
-		for _, user := range users {
-			result = append(result, map[string]any{
-				"name":     userIdentifier(user),
-				"password": user.ShadowTLSPass,
-			})
+		result := make([]inboundPasswordUserItem, len(users))
+		for i, user := range users {
+			result[i] = inboundPasswordUserItem{
+				Name:     userIdentifier(user),
+				Password: user.ShadowTLSPass,
+			}
 		}
+		return result
 	case "hysteria":
-		for _, user := range users {
-			result = append(result, map[string]any{
-				"name":     userIdentifier(user),
-				"auth_str": user.Hysteria2Pass,
-			})
+		result := make([]inboundAuthStrUserItem, len(users))
+		for i, user := range users {
+			result[i] = inboundAuthStrUserItem{
+				Name:    userIdentifier(user),
+				AuthStr: user.Hysteria2Pass,
+			}
 		}
+		return result
 	case "hysteria2":
-		for _, user := range users {
-			result = append(result, map[string]any{
-				"name":     userIdentifier(user),
-				"password": user.Hysteria2Pass,
-			})
+		result := make([]inboundPasswordUserItem, len(users))
+		for i, user := range users {
+			result[i] = inboundPasswordUserItem{
+				Name:     userIdentifier(user),
+				Password: user.Hysteria2Pass,
+			}
 		}
+		return result
 	case "tuic":
-		for _, user := range users {
-			result = append(result, map[string]any{
-				"name":     userIdentifier(user),
-				"uuid":     user.VLESSUUID,
-				"password": user.TrojanPassword,
-			})
+		result := make([]inboundTuicUserItem, len(users))
+		for i, user := range users {
+			result[i] = inboundTuicUserItem{
+				Name:     userIdentifier(user),
+				UUID:     user.VLESSUUID,
+				Password: user.TrojanPassword,
+			}
 		}
+		return result
 	default:
 		return []any{}
 	}
-	return result
 }
 
-func (nm *NodeMonitor) expandSnippets(ctx context.Context, parsed *orderedmap.OrderedMap) {
-	if parsed == nil {
-		return
+type resolvedConfigSnippets struct {
+	ArraySnippets map[string][]any
+	RootSnippets  map[string]map[string]any
+}
+
+func (nm *NodeMonitor) loadConfigSnippets(ctx context.Context) *resolvedConfigSnippets {
+	res := &resolvedConfigSnippets{
+		ArraySnippets: make(map[string][]any),
+		RootSnippets:  make(map[string]map[string]any),
+	}
+	if nm == nil || nm.db == nil {
+		return res
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
 	rows, err := nm.db.QueryContext(ctx, `SELECT name, snippet FROM config_profile_snippets`)
 	if err != nil {
-		nm.cfg.Logger.Warn("Failed to load config snippets", "err", err)
-		return
+		if nm.cfg != nil && nm.cfg.Logger != nil {
+			nm.cfg.Logger.Warn("Failed to load config snippets", "err", err)
+		}
+		return res
 	}
 	defer rows.Close()
-
-	arraySnippets := make(map[string][]any)
-	rootSnippets := make(map[string]map[string]any)
 
 	for rows.Next() {
 		var name string
@@ -767,7 +827,7 @@ func (nm *NodeMonitor) expandSnippets(ctx context.Context, parsed *orderedmap.Or
 		}
 		var arr []any
 		if err := json.Unmarshal(raw, &arr); err == nil {
-			arraySnippets[name] = arr
+			res.ArraySnippets[name] = arr
 			mergedRoot := make(map[string]any)
 			for _, item := range arr {
 				if m, ok := item.(map[string]any); ok {
@@ -777,19 +837,33 @@ func (nm *NodeMonitor) expandSnippets(ctx context.Context, parsed *orderedmap.Or
 				}
 			}
 			if len(mergedRoot) > 0 {
-				rootSnippets[name] = mergedRoot
+				res.RootSnippets[name] = mergedRoot
 			}
 		} else {
 			var obj map[string]any
 			if err := json.Unmarshal(raw, &obj); err == nil {
-				rootSnippets[name] = obj
+				res.RootSnippets[name] = obj
 			}
 		}
 	}
-	if err := rows.Err(); err != nil {
+	if err := rows.Err(); err != nil && nm.cfg != nil && nm.cfg.Logger != nil {
 		nm.cfg.Logger.Warn("Failed reading config snippets rows", "err", err)
+	}
+	return res
+}
+
+func (nm *NodeMonitor) expandSnippets(ctx context.Context, parsed *orderedmap.OrderedMap, preloaded *resolvedConfigSnippets) {
+	if parsed == nil {
 		return
 	}
+
+	snippets := preloaded
+	if snippets == nil {
+		snippets = nm.loadConfigSnippets(ctx)
+	}
+
+	arraySnippets := snippets.ArraySnippets
+	rootSnippets := snippets.RootSnippets
 
 	if len(arraySnippets) == 0 && len(rootSnippets) == 0 {
 		return

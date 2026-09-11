@@ -122,6 +122,8 @@ func WithRequestLogging(cfg *config.BackendConfig, component string, next http.H
 	})
 }
 
+var skippedStaticExts = []string{".css", ".js", ".map", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp", ".woff", ".woff2", ".ttf", ".eot"}
+
 func shouldSkipAccessLog(cfg *config.BackendConfig, path string) bool {
 	if cfg == nil {
 		return false
@@ -139,8 +141,7 @@ func shouldSkipAccessLog(cfg *config.BackendConfig, path string) bool {
 	if strings.HasPrefix(path, "/assets/") || strings.HasPrefix(path, "/locales/") {
 		return true
 	}
-	staticExts := []string{".css", ".js", ".map", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp", ".woff", ".woff2", ".ttf", ".eot"}
-	for _, ext := range staticExts {
+	for _, ext := range skippedStaticExts {
 		if strings.HasSuffix(path, ext) {
 			return true
 		}

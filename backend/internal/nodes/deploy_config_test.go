@@ -1,6 +1,9 @@
 package users
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestBuildInboundUsersUsesSingboxProtocolCredentials(t *testing.T) {
 	users := []inboundUserCredentials{
@@ -27,22 +30,29 @@ func TestBuildInboundUsersUsesSingboxProtocolCredentials(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			items := buildInboundUsers(tc.protocol, users)
-			if len(items) != 1 {
-				t.Fatalf("got %d users, want 1", len(items))
+			rawJSON, err := json.Marshal(items)
+			if err != nil {
+				t.Fatalf("failed to marshal: %v", err)
 			}
-			item, ok := items[0].(map[string]any)
-			if !ok {
-				t.Fatalf("unexpected item type %T", items[0])
+			var list []map[string]any
+			if err := json.Unmarshal(rawJSON, &list); err != nil {
+				t.Fatalf("failed to unmarshal: %v", err)
 			}
+			if len(list) != 1 {
+				t.Fatalf("got %d users, want 1", len(list))
+			}
+			item := list[0]
 			if got := item[tc.wantKey]; got != tc.wantValue {
 				t.Fatalf("field %s got %#v, want %#v", tc.wantKey, got, tc.wantValue)
 			}
 		})
 	}
 
-	tuic := buildInboundUsers("tuic", users)[0].(map[string]any)
-	if got := tuic["uuid"]; got != users[0].VLESSUUID {
-		t.Fatalf("tuic uuid got %#v, want %#v", got, users[0].VLESSUUID)
+	tuicRaw, _ := json.Marshal(buildInboundUsers("tuic", users))
+	var tuicList []map[string]any
+	_ = json.Unmarshal(tuicRaw, &tuicList)
+	if len(tuicList) == 0 || tuicList[0]["uuid"] != users[0].VLESSUUID {
+		t.Fatalf("tuic uuid got %#v, want %#v", tuicList[0]["uuid"], users[0].VLESSUUID)
 	}
 }
 

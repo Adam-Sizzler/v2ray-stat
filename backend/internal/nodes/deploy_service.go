@@ -1,8 +1,6 @@
 package users
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -79,13 +77,14 @@ func (nm *NodeMonitor) deployToConnectedNodes(restart bool, forceRestart bool, r
 	// Node-independent data: identical for every target in this deploy cycle,
 	// so it's loaded once instead of once per node (was a per-target N+1).
 	sharedLists := nm.loadSharedLists(nm.globalCtx)
+	snippets := nm.loadConfigSnippets(nm.globalCtx)
 
 	batchStart := time.Now()
 	var lastProfileUUID string
 
 	for _, target := range targets {
 		start := time.Now()
-		configJSON, internals, profileUUID, err := nm.buildNodeConfigForDeploy(nm.globalCtx, target.uuid)
+		configJSON, internals, profileUUID, inboundsCount, err := nm.buildNodeConfigForDeploy(nm.globalCtx, target.uuid, snippets)
 		if err != nil {
 			nm.cfg.Logger.Warn("Failed to build node deploy config", "node", target.name, "node_uuid", target.uuid, "error", err)
 			continue
@@ -94,11 +93,6 @@ func (nm *NodeMonitor) deployToConnectedNodes(restart bool, forceRestart bool, r
 			lastProfileUUID = profileUUID
 		}
 
-		var parsedConfig struct {
-			Inbounds []any `json:"inbounds"`
-		}
-		_ = json.Unmarshal(configJSON, &parsedConfig)
-		inboundsCount := len(parsedConfig.Inbounds)
 		nm.cfg.Logger.RoleService(logger.RoleWorkers, "StartAllNodesByProfileQueueProcessor").Info(fmt.Sprintf("Node %s has %d active inbounds.", target.uuid, inboundsCount))
 
 		genDuration := time.Since(start).Milliseconds()
@@ -144,32 +138,6 @@ func (nm *NodeMonitor) deployToConnectedNodes(restart bool, forceRestart bool, r
 				modules.HaproxyUsers = haproxyUsers
 			}
 		}
-
-		// Payload compression measurements matching transport logging
-		modulesStart := time.Now()
-		modulesBytes, _ := json.Marshal(modules)
-		rawModulesSize := float64(len(modulesBytes))
-		compressedModulesSize := rawModulesSize
-		var gzBuf bytes.Buffer
-		gzWriter := gzip.NewWriter(&gzBuf)
-		if _, err := gzWriter.Write(modulesBytes); err == nil {
-			_ = gzWriter.Close()
-			compressedModulesSize = float64(gzBuf.Len())
-		}
-		modulesDuration := time.Since(modulesStart).Milliseconds()
-		nm.cfg.Logger.RoleService(logger.RoleWorkers, "NodeTransport").Info(fmt.Sprintf("[GZIP] [SYNC-NODE-PLUGINS] %dms | %.2f B -> %.2f B", modulesDuration, rawModulesSize, compressedModulesSize))
-
-		configStart := time.Now()
-		rawConfigSize := float64(len(configJSON))
-		compressedConfigSize := rawConfigSize
-		gzBuf.Reset()
-		gzWriter = gzip.NewWriter(&gzBuf)
-		if _, err := gzWriter.Write(configJSON); err == nil {
-			_ = gzWriter.Close()
-			compressedConfigSize = float64(gzBuf.Len())
-		}
-		configDuration := time.Since(configStart).Milliseconds()
-		nm.cfg.Logger.RoleService(logger.RoleWorkers, "NodeTransport").Info(fmt.Sprintf("[GZIP] [START SINGBOX] %dms | %.2f B -> %.2f B", configDuration, rawConfigSize, compressedConfigSize))
 
 		restartFlag := restart
 		forceRestartFlag := forceRestart

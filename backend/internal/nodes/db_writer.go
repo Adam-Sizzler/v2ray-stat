@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"exodus/internal/notifications"
@@ -121,6 +122,7 @@ func bulkUpsertUserTraffic(ctx context.Context, db *sql.DB, usageDeltas []userUs
 		chunk := usageDeltas[start:end]
 
 		var query strings.Builder
+		query.Grow(len(chunk)*48 + 512)
 		args := make([]any, 0, len(chunk)*3)
 
 		query.WriteString(`
@@ -142,7 +144,7 @@ func bulkUpsertUserTraffic(ctx context.Context, db *sql.DB, usageDeltas []userUs
 			if i > 0 {
 				query.WriteString(", ")
 			}
-			query.WriteString(fmt.Sprintf("($%d::bigint, $%d::bigint, $%d::uuid)", idx, idx+1, idx+2))
+			writePlaceholder3(&query, idx, "uuid")
 			args = append(args, delta.UserID, delta.TotalBytes, nodeUUID)
 			idx += 3
 		}
@@ -186,6 +188,7 @@ func bulkUpsertNodeUserUsageHistory(ctx context.Context, db *sql.DB, nodeID int6
 		chunk := usageDeltas[start:end]
 
 		var query strings.Builder
+		query.Grow(len(chunk)*48 + 256)
 		args := make([]any, 0, len(chunk)*3)
 
 		query.WriteString(`
@@ -197,7 +200,7 @@ func bulkUpsertNodeUserUsageHistory(ctx context.Context, db *sql.DB, nodeID int6
 			if i > 0 {
 				query.WriteString(", ")
 			}
-			query.WriteString(fmt.Sprintf("($%d::bigint, $%d::bigint, $%d::bigint)", idx, idx+1, idx+2))
+			writePlaceholder3(&query, idx, "bigint")
 			args = append(args, nodeID, delta.UserID, delta.HistoryBytes)
 			idx += 3
 		}
@@ -233,4 +236,17 @@ func optionalStatusMessage(message string) (string, any) {
 		return "", nil
 	}
 	return trimmed, trimmed
+}
+
+func writePlaceholder3(b *strings.Builder, idx int, type3 string) {
+	var buf [16]byte
+	b.WriteString("($")
+	b.Write(strconv.AppendInt(buf[:0], int64(idx), 10))
+	b.WriteString("::bigint, $")
+	b.Write(strconv.AppendInt(buf[:0], int64(idx+1), 10))
+	b.WriteString("::bigint, $")
+	b.Write(strconv.AppendInt(buf[:0], int64(idx+2), 10))
+	b.WriteString("::")
+	b.WriteString(type3)
+	b.WriteByte(')')
 }

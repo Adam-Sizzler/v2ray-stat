@@ -627,28 +627,67 @@ func canonicalNodeMetricName(metricName string) string {
 
 func writePrometheusMetricLine(builder *strings.Builder, metricName string, labels map[string]string, value string) {
 	builder.WriteString(metricName)
-	builder.WriteString("{")
-	builder.WriteString(formatPrometheusLabels(labels))
-	builder.WriteString("} ")
+	if len(labels) > 0 {
+		builder.WriteByte('{')
+		appendPrometheusLabels(builder, labels)
+		builder.WriteString("} ")
+	} else {
+		builder.WriteByte(' ')
+	}
 	builder.WriteString(value)
-	builder.WriteString("\n")
+	builder.WriteByte('\n')
+}
+
+func appendPrometheusLabels(builder *strings.Builder, labels map[string]string) {
+	if len(labels) == 0 {
+		return
+	}
+	var keysBuf [8]string
+	var keys []string
+	if len(labels) <= len(keysBuf) {
+		keys = keysBuf[:0]
+	} else {
+		keys = make([]string, 0, len(labels))
+	}
+	for key := range labels {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for i, key := range keys {
+		if i > 0 {
+			builder.WriteByte(',')
+		}
+		builder.WriteString(key)
+		builder.WriteString(`="`)
+		writeEscapedPrometheusLabelValue(builder, labels[key])
+		builder.WriteByte('"')
+	}
 }
 
 func formatPrometheusLabels(labels map[string]string) string {
 	if len(labels) == 0 {
 		return ""
 	}
-	keys := make([]string, 0, len(labels))
-	for key := range labels {
-		keys = append(keys, key)
+	var b strings.Builder
+	appendPrometheusLabels(&b, labels)
+	return b.String()
+}
+
+func writeEscapedPrometheusLabelValue(builder *strings.Builder, value string) {
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		switch c {
+		case '\\':
+			builder.WriteString(`\\`)
+		case '\n':
+			builder.WriteString(`\n`)
+		case '"':
+			builder.WriteString(`\"`)
+		default:
+			builder.WriteByte(c)
+		}
 	}
-	sort.Strings(keys)
-	parts := make([]string, 0, len(keys))
-	for _, key := range keys {
-		value := escapePrometheusLabelValue(labels[key])
-		parts = append(parts, fmt.Sprintf(`%s="%s"`, key, value))
-	}
-	return strings.Join(parts, ",")
 }
 
 func escapePrometheusLabelValue(value string) string {

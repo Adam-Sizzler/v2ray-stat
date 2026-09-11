@@ -122,25 +122,25 @@ func (c *Cache) GetMany(ctx context.Context, uuids []string) (map[string]HotCach
 			break
 		}
 
-		infoRaw := mgetString(values[base])
-		statsRaw := mgetString(values[base+1])
+		infoRaw := mgetBytes(values[base])
+		statsRaw := mgetBytes(values[base+1])
 		onlineRaw := mgetString(values[base+2])
-		versionsRaw := mgetString(values[base+3])
+		versionsRaw := mgetBytes(values[base+3])
 		uptimeRaw := mgetString(values[base+4])
 
 		hot := HotCache{
 			SingboxUptime: parseInt64(uptimeRaw),
 			UsersOnline:   int(parseInt64(onlineRaw)),
 		}
-		if validJSON(infoRaw) && validJSON(statsRaw) {
+		if len(infoRaw) > 0 && len(statsRaw) > 0 {
 			hot.System = &NodeSystem{
-				Info:  json.RawMessage(infoRaw),
-				Stats: json.RawMessage(statsRaw),
+				Info:  infoRaw,
+				Stats: statsRaw,
 			}
 		}
-		if strings.TrimSpace(versionsRaw) != "" {
+		if len(versionsRaw) > 0 {
 			var versions NodeVersions
-			if err := json.Unmarshal([]byte(versionsRaw), &versions); err == nil {
+			if err := json.Unmarshal(versionsRaw, &versions); err == nil {
 				hot.Versions = &versions
 			}
 		}
@@ -161,6 +161,20 @@ func mgetString(v any) string {
 		return string(val)
 	default:
 		return fmt.Sprint(val)
+	}
+}
+
+func mgetBytes(v any) []byte {
+	if v == nil {
+		return nil
+	}
+	switch val := v.(type) {
+	case []byte:
+		return val
+	case string:
+		return []byte(val)
+	default:
+		return fmt.Append(nil, val)
 	}
 }
 
@@ -230,10 +244,7 @@ func (c *Cache) setJSON(ctx context.Context, redisKey string, payload json.RawMe
 	if c == nil || c.client == nil || strings.TrimSpace(redisKey) == "" || len(payload) == 0 {
 		return nil
 	}
-	if !json.Valid(payload) {
-		return nil
-	}
-	return c.client.Set(ctx, redisKey, string(payload), ttl).Err()
+	return c.client.Set(ctx, redisKey, []byte(payload), ttl).Err()
 }
 
 func key(prefix, uuid string) string {

@@ -119,22 +119,47 @@ func (nm *NodeMonitor) updateNodeRuntimeFromStats(nodeName string, stats []*prot
 		return
 	}
 
-	values := make(map[string]string, len(stats))
+	var (
+		rawCoreStatus     string
+		rawCoreError      string
+		rawSingboxVersion string
+		rawNodeVersion    string
+		rawSingboxUptime  string
+		rawSystemInfo     string
+		rawSystemStats    string
+	)
+
 	for _, stat := range stats {
 		if stat == nil {
 			continue
 		}
-		key := strings.ToLower(strings.TrimSpace(stat.GetName()))
-		if key == "" {
+		name := stat.GetName()
+		// Fast skip for user traffic, inbound, outbound: names containing '>>>'
+		if len(name) > 6 && (name[0] == 'u' || name[0] == 'i' || name[0] == 'o') && strings.Contains(name, ">>>") {
 			continue
 		}
-		values[key] = strings.TrimSpace(stat.GetValue())
+		switch strings.ToLower(strings.TrimSpace(name)) {
+		case "core_status":
+			rawCoreStatus = stat.GetValue()
+		case "core_error":
+			rawCoreError = stat.GetValue()
+		case "singbox_version":
+			rawSingboxVersion = stat.GetValue()
+		case "node_version":
+			rawNodeVersion = stat.GetValue()
+		case "singbox_uptime":
+			rawSingboxUptime = stat.GetValue()
+		case "system_info":
+			rawSystemInfo = stat.GetValue()
+		case "system_stats":
+			rawSystemStats = stat.GetValue()
+		}
 	}
 
 	trafficDelta := extractTrafficStatsDelta(stats)
 
-	coreStatus := strings.ToLower(strings.TrimSpace(values["core_status"]))
-	coreError := strings.TrimSpace(values["core_error"])
+	coreStatus := strings.ToLower(strings.TrimSpace(rawCoreStatus))
+	coreError := strings.TrimSpace(rawCoreError)
 	switch coreStatus {
 	case "running", "ok", "healthy":
 		nm.updateConnectionStatus(nodeName, true, false, "")
@@ -142,11 +167,11 @@ func (nm *NodeMonitor) updateNodeRuntimeFromStats(nodeName string, stats []*prot
 		nm.updateConnectionStatus(nodeName, false, false, coreError)
 	}
 
-	singboxVersion := firstNonEmptyString(values["singbox_version"])
-	nodeVersion := firstNonEmptyString(values["node_version"])
-	singboxUptime, hasSingboxUptime := parseOptionalUptimeSeconds(values["singbox_uptime"])
-	systemInfo := parseOptionalJSONRaw(values["system_info"])
-	systemStats := parseOptionalJSONRaw(values["system_stats"])
+	singboxVersion := firstNonEmptyString(rawSingboxVersion)
+	nodeVersion := firstNonEmptyString(rawNodeVersion)
+	singboxUptime, hasSingboxUptime := parseOptionalUptimeSeconds(rawSingboxUptime)
+	systemInfo := parseOptionalJSONRaw(rawSystemInfo)
+	systemStats := parseOptionalJSONRaw(rawSystemStats)
 	usersOnline := trafficDelta.UsersOnline
 
 	persistedNodeUUID := ""
@@ -360,10 +385,10 @@ func (nm *NodeMonitor) updateHotCacheNodeRuntime(
 	}
 
 	if nm.hotCache != nil && strings.TrimSpace(nodeUUID) != "" {
-		if systemInfo != nil && json.Valid(systemInfo) {
+		if len(systemInfo) > 0 {
 			_ = nm.hotCache.SetSystemInfo(ctx, nodeUUID, systemInfo)
 		}
-		if systemStats != nil && json.Valid(systemStats) {
+		if len(systemStats) > 0 {
 			_ = nm.hotCache.SetSystemStats(ctx, nodeUUID, systemStats)
 		}
 		if singboxVersion != "" || nodeVersion != "" {
@@ -443,12 +468,11 @@ func extractTrafficStatsDelta(stats []*proto.Stat) trafficStatsDelta {
 			idx := strings.Index(rest, ">>>")
 			if idx > 0 && strings.HasPrefix(rest[idx+3:], "traffic>>>") {
 				tag := rest[:idx]
-				direction := strings.ToLower(rest[idx+3+10:])
+				dir := rest[idx+3+10:]
 				counters := delta.InboundByTag[tag]
-				switch direction {
-				case "uplink":
+				if strings.EqualFold(dir, "uplink") {
 					counters.UploadBytes += val
-				case "downlink":
+				} else if strings.EqualFold(dir, "downlink") {
 					counters.DownloadBytes += val
 				}
 				delta.InboundByTag[tag] = counters
@@ -461,18 +485,13 @@ func extractTrafficStatsDelta(stats []*proto.Stat) trafficStatsDelta {
 			idx := strings.Index(rest, ">>>")
 			if idx > 0 && strings.HasPrefix(rest[idx+3:], "traffic>>>") {
 				tag := rest[:idx]
-				direction := strings.ToLower(rest[idx+3+10:])
-				switch direction {
-				case "uplink":
-					delta.TotalUploadBytes += val
-				case "downlink":
-					delta.TotalDownloadBytes += val
-				}
+				dir := rest[idx+3+10:]
 				counters := delta.OutboundByTag[tag]
-				switch direction {
-				case "uplink":
+				if strings.EqualFold(dir, "uplink") {
+					delta.TotalUploadBytes += val
 					counters.UploadBytes += val
-				case "downlink":
+				} else if strings.EqualFold(dir, "downlink") {
+					delta.TotalDownloadBytes += val
 					counters.DownloadBytes += val
 				}
 				delta.OutboundByTag[tag] = counters
