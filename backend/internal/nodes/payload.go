@@ -15,6 +15,22 @@ type deployTaskPayload struct {
 	Restart      *bool                   `json:"restart,omitempty"`
 	ForceRestart *bool                   `json:"force_restart,omitempty"`
 	Modules      *deployModulesTaskBlock `json:"modules,omitempty"`
+	Internals    *deployInternalsBlock   `json:"internals,omitempty"`
+}
+
+type deployInternalsBlock struct {
+	Hashes deployHashesBlock `json:"hashes"`
+}
+
+type deployHashesBlock struct {
+	EmptyConfig string              `json:"emptyConfig"`
+	Inbounds    []deployInboundHash `json:"inbounds"`
+}
+
+type deployInboundHash struct {
+	Tag        string `json:"tag"`
+	Hash       string `json:"hash"`
+	UsersCount int    `json:"usersCount"`
 }
 
 type deployModulesTaskBlock struct {

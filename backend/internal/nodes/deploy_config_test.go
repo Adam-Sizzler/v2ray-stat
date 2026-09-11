@@ -139,3 +139,31 @@ func TestOptionalStatusMessage(t *testing.T) {
 		})
 	}
 }
+
+func TestHashedSet(t *testing.T) {
+	hs := NewHashedSet()
+	hs.Add("user1")
+	hs.Add("user2")
+	hs.Add("user1") // duplicate
+	if hs.Size() != 2 {
+		t.Fatalf("expected size 2, got %d", hs.Size())
+	}
+	hash := hs.Hash64String()
+	if len(hash) != 16 {
+		t.Fatalf("expected 16-char hex hash, got %q", hash)
+	}
+}
+
+func TestDeleteField(t *testing.T) {
+	m := map[string]any{
+		"tag":   "vless-in",
+		"users": []any{"alice", "bob"},
+	}
+	cleaned := deleteField(m, "users").(map[string]any)
+	if _, ok := cleaned["users"]; ok {
+		t.Fatalf("expected users to be deleted")
+	}
+	if cleaned["tag"] != "vless-in" {
+		t.Fatalf("expected tag to be preserved, got %v", cleaned["tag"])
+	}
+}

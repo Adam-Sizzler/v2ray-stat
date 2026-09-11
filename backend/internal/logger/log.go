@@ -5,9 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"os"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -148,7 +147,7 @@ func newLogger(level, logFormat, timezone string, writer io.Writer, role, servic
 	zlvl := parseZerologLevel(level)
 	out := writer
 	if logFormat == FormatConsole {
-		out = &consoleJSONWriter{out: writer, timezone: loc, color: true}
+		out = &consoleJSONWriter{out: writer, timezone: loc, color: shouldColorizeLogs()}
 	}
 
 	base := zerolog.New(out).Level(zlvl).With().Timestamp().Logger()
@@ -497,6 +496,12 @@ func inferServiceFromMessage(msg, fallback string) string {
 	}
 }
 
+var consoleLogBufPool = sync.Pool{
+	New: func() any {
+		return bytes.NewBuffer(make([]byte, 0, 512))
+	},
+}
+
 type consoleJSONWriter struct {
 	out      io.Writer
 	timezone *time.Location
@@ -509,104 +514,152 @@ func (w *consoleJSONWriter) Write(p []byte) (int, error) {
 	if len(line) == 0 {
 		return len(p), nil
 	}
-	var fields map[string]any
-	if err := json.Unmarshal(line, &fields); err != nil {
+	var rawFields map[string]json.RawMessage
+	if err := json.Unmarshal(line, &rawFields); err != nil {
 		_, writeErr := w.out.Write(p)
 		return len(p), writeErr
 	}
 
-	formatted := w.format(fields)
+	timeVal := unquoteRawString(rawFields["time"])
+	levelVal := unquoteRawString(rawFields["level"])
+	msgVal := unquoteRawString(rawFields["message"])
+	roleVal := cleanContext(unquoteRawString(rawFields["role"]), "")
+	serviceVal := unquoteRawString(rawFields["context"])
+	if serviceVal == "" {
+		serviceVal = unquoteRawString(rawFields["service"])
+	}
+	serviceVal = cleanContext(serviceVal, "")
+
+	delete(rawFields, "time")
+	delete(rawFields, "level")
+	delete(rawFields, "message")
+	delete(rawFields, "role")
+	delete(rawFields, "context")
+	delete(rawFields, "service")
+
+	cleanMsg := strings.Trim(msgVal, "\n")
+	if isBoxMessage(cleanMsg) {
+		if w.color {
+			cleanMsg = colorizeMultiline(cleanMsg, ansiGreen)
+		}
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		_, err := fmt.Fprintln(w.out, cleanMsg)
+		return len(p), err
+	}
+
+	buf := consoleLogBufPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	defer consoleLogBufPool.Put(buf)
+
+	timestamp := formatConsoleTimestampStr(timeVal, w.timezone)
+	buf.WriteString(colorize(timestamp, ansiWhite, w.color))
+	buf.WriteByte(' ')
+
+	levelUpper := strings.ToUpper(levelVal)
+	if levelUpper == "" || levelUpper == "<NIL>" {
+		levelUpper = "INFO"
+	}
+	buf.WriteString(colorize(levelUpper, levelColor(levelUpper), w.color))
+
+	if roleVal != "" {
+		buf.WriteByte(' ')
+		buf.WriteString(colorize("["+roleVal+"]", ansiYellow, w.color))
+	}
+	if serviceVal != "" {
+		buf.WriteByte(' ')
+		buf.WriteString(colorize("["+serviceVal+"]", ansiYellow, w.color))
+	}
+	if cleanMsg != "" && cleanMsg != "<nil>" {
+		buf.WriteByte(' ')
+		buf.WriteString(cleanMsg)
+	}
+
+	if len(rawFields) > 0 {
+		keys := make([]string, 0, len(rawFields))
+		for k := range rawFields {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+
+		extraBuf := consoleLogBufPool.Get().(*bytes.Buffer)
+		extraBuf.Reset()
+		for _, k := range keys {
+			extraBuf.WriteByte(' ')
+			extraBuf.WriteString(k)
+			extraBuf.WriteByte('=')
+			extraBuf.WriteString(formatRawJSONValue(rawFields[k]))
+		}
+		extraStr := extraBuf.String()
+		consoleLogBufPool.Put(extraBuf)
+
+		buf.WriteString(colorize(extraStr, ansiGray, w.color))
+	}
+
+	buf.WriteByte('\n')
+
 	w.mu.Lock()
-	defer w.mu.Unlock()
-	_, err := fmt.Fprintln(w.out, formatted)
+	_, err := w.out.Write(buf.Bytes())
+	w.mu.Unlock()
 	return len(p), err
 }
 
-func (w *consoleJSONWriter) format(fields map[string]any) string {
-	timestamp := formatConsoleTimestamp(fields["time"], w.timezone)
-	level := strings.ToUpper(fmt.Sprint(fields["level"]))
-	if level == "" || level == "<NIL>" {
-		level = "INFO"
-	}
-	message := fmt.Sprint(fields["message"])
-	role := cleanContext(fmt.Sprint(fields["role"]), "")
-	service := cleanContext(fmt.Sprint(firstNonNil(fields["context"], fields["service"])), "")
-
-	parts := make([]string, 0, 6)
-	parts = append(parts, colorize(timestamp, ansiWhite, w.color))
-	parts = append(parts, colorize(level, levelColor(level), w.color))
-	if role != "" {
-		parts = append(parts, colorize("["+role+"]", ansiYellow, w.color))
-	}
-	if service != "" {
-		parts = append(parts, colorize("["+service+"]", ansiYellow, w.color))
-	}
-	if message != "" && message != "<nil>" {
-		parts = append(parts, message)
-	}
-
-	extra := formatExtraFields(fields)
-	if extra != "" {
-		parts = append(parts, colorize(extra, ansiGray, w.color))
-	}
-	return strings.Join(parts, " ")
-}
-
-func formatConsoleTimestamp(raw any, loc *time.Location) string {
+func formatConsoleTimestampStr(raw string, loc *time.Location) string {
 	if loc == nil {
 		loc = time.UTC
 	}
-	if value, ok := raw.(string); ok && strings.TrimSpace(value) != "" {
-		if parsed, err := time.Parse(time.RFC3339Nano, value); err == nil {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed != "" {
+		if parsed, err := time.Parse(time.RFC3339Nano, trimmed); err == nil {
 			return parsed.In(loc).Format("2006-01-02 15:04:05.000")
 		}
-		return value
+		return trimmed
 	}
 	return time.Now().In(loc).Format("2006-01-02 15:04:05.000")
 }
 
-func formatExtraFields(fields map[string]any) string {
-	ignored := map[string]bool{
-		"time": true, "level": true, "message": true, "role": true, "context": true, "service": true,
+func unquoteRawString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
 	}
-	keys := make([]string, 0, len(fields))
-	for key := range fields {
-		if !ignored[key] {
-			keys = append(keys, key)
-		}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
 	}
-	sort.Strings(keys)
-
-	parts := make([]string, 0, len(keys))
-	for _, key := range keys {
-		parts = append(parts, key+"="+formatFieldValue(fields[key]))
-	}
-	return strings.Join(parts, " ")
+	return string(raw)
 }
 
-func formatFieldValue(value any) string {
-	switch typed := value.(type) {
-	case string:
-		if strings.ContainsAny(typed, " \t\n\r") {
-			return strconv.Quote(typed)
-		}
-		return typed
-	case float64:
-		if math.Trunc(typed) == typed {
-			return strconv.FormatInt(int64(typed), 10)
-		}
-		return strconv.FormatFloat(typed, 'f', -1, 64)
-	case bool:
-		return strconv.FormatBool(typed)
-	case nil:
+func formatRawJSONValue(raw json.RawMessage) string {
+	if len(raw) == 0 {
 		return "null"
-	default:
-		encoded, err := json.Marshal(typed)
-		if err != nil {
-			return fmt.Sprint(typed)
-		}
-		return string(encoded)
 	}
+	s := string(raw)
+	if strings.HasPrefix(s, `"`) && strings.HasSuffix(s, `"`) {
+		unquoted, err := strconv.Unquote(s)
+		if err == nil {
+			if strings.ContainsAny(unquoted, " \t\n\r") {
+				return strconv.Quote(unquoted)
+			}
+			return unquoted
+		}
+	}
+	return s
+}
+
+func isBoxMessage(message string) bool {
+	trimmed := strings.TrimLeft(message, "\r\n ")
+	return strings.HasPrefix(trimmed, "╭") || strings.HasPrefix(trimmed, "╔") || strings.HasPrefix(trimmed, "┌") || strings.HasPrefix(trimmed, "│")
+}
+
+func colorizeMultiline(value, color string) string {
+	lines := strings.Split(value, "\n")
+	for i, line := range lines {
+		if line == "" {
+			continue
+		}
+		lines[i] = color + line + ansiReset
+	}
+	return strings.Join(lines, "\n")
 }
 
 func levelColor(level string) string {
@@ -624,6 +677,16 @@ func levelColor(level string) string {
 	default:
 		return ansiWhite
 	}
+}
+
+func shouldColorizeLogs() bool {
+	if os.Getenv("NO_COLOR") != "" {
+		return false
+	}
+	if strings.EqualFold(os.Getenv("LOG_COLORS"), "false") {
+		return false
+	}
+	return true
 }
 
 func colorize(value, color string, enabled bool) string {

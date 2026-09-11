@@ -2,7 +2,9 @@ package users
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -307,9 +309,9 @@ func (nm *NodeMonitor) loadNodeHaproxyUsers(ctx context.Context, nodeUUID string
 	return items, matched, rows.Err()
 }
 
-func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID string) (json.RawMessage, string, error) {
+func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID string) (json.RawMessage, *deployInternalsBlock, string, error) {
 	if strings.TrimSpace(nodeUUID) == "" {
-		return nil, "", fmt.Errorf("node uuid is empty")
+		return nil, nil, "", fmt.Errorf("node uuid is empty")
 	}
 
 	if ctx == nil {
@@ -326,9 +328,9 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 	`, nodeUUID)
 	if err := row.Scan(&profileUUID, &profileConfig); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, "", fmt.Errorf("node %s has no active config profile", nodeUUID)
+			return nil, nil, "", fmt.Errorf("node %s has no active config profile", nodeUUID)
 		}
-		return nil, "", err
+		return nil, nil, "", err
 	}
 
 	rows, err := nm.db.QueryContext(ctx, `
@@ -338,7 +340,7 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 		WHERE cpitn.node_uuid = $1
 	`, nodeUUID)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	defer rows.Close()
 
@@ -346,16 +348,16 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 	for rows.Next() {
 		var item nodeInboundBinding
 		if err := rows.Scan(&item.InboundUUID, &item.Tag); err != nil {
-			return nil, "", err
+			return nil, nil, "", err
 		}
 		bindings = append(bindings, item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 
 	if len(bindings) == 0 {
-		return nil, "", fmt.Errorf("node %s has no active inbounds", nodeUUID)
+		return nil, nil, "", fmt.Errorf("node %s has no active inbounds", nodeUUID)
 	}
 
 	bindingByInboundUUID := make(map[string]nodeInboundBinding, len(bindings))
@@ -393,7 +395,7 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 		ORDER BY u.id ASC
 	`, inboundUUIDs)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	defer userRows.Close()
 
@@ -414,7 +416,7 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 			&user.Hysteria2Pass,
 			&user.AnytlsPassword,
 		); err != nil {
-			return nil, "", err
+			return nil, nil, "", err
 		}
 		binding, ok := bindingByInboundUUID[inboundUUID]
 		tag := normalizeTagValue(binding.Tag)
@@ -432,7 +434,7 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 		usersByTag[tag] = append(usersByTag[tag], user)
 	}
 	if err := userRows.Err(); err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 
 	uniqueUserCount := 0
@@ -446,18 +448,18 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 
 	parsed := orderedmap.New()
 	if err := json.Unmarshal(profileConfig, parsed); err != nil {
-		return nil, "", fmt.Errorf("invalid profile config json: %w", err)
+		return nil, nil, "", fmt.Errorf("invalid profile config json: %w", err)
 	}
 
 	nm.expandSnippets(ctx, parsed)
 
 	rawInboundsRaw, ok := parsed.Get("inbounds")
 	if !ok {
-		return nil, "", fmt.Errorf("profile config has no valid inbounds array")
+		return nil, nil, "", fmt.Errorf("profile config has no valid inbounds array")
 	}
 	rawInbounds, ok := rawInboundsRaw.([]any)
 	if !ok {
-		return nil, "", fmt.Errorf("profile config has no valid inbounds array")
+		return nil, nil, "", fmt.Errorf("profile config has no valid inbounds array")
 	}
 
 	matchedActiveTags := 0
@@ -473,7 +475,10 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 		nm.cfg.Logger.Warn("No selected inbound tags matched config inbounds; keeping all profile inbounds", "node_uuid", nodeUUID, "selected_tags", len(activeTags), "config_inbounds", len(rawInbounds))
 	}
 
+	emptyInbounds := make([]any, 0, len(rawInbounds))
 	filteredInbounds := make([]any, 0, len(rawInbounds))
+	inboundHashes := make([]deployInboundHash, 0, len(activeTags))
+
 	for _, raw := range rawInbounds {
 		tag := getFieldString(raw, "tag")
 		normTag := normalizeTagValue(tag)
@@ -483,20 +488,62 @@ func (nm *NodeMonitor) buildNodeConfigForDeploy(ctx context.Context, nodeUUID st
 		if !useFallbackKeepAll && !isActiveTag && !isUnsecureInbound(inboundType) {
 			continue
 		}
+
+		emptyInbounds = append(emptyInbounds, deleteField(raw, "users"))
+
 		if isActiveTag {
-			raw = setField(raw, "users", buildInboundUsers(inboundType, usersByTag[normTag]))
+			users := usersByTag[normTag]
+			raw = setField(raw, "users", buildInboundUsers(inboundType, users))
+
+			userSet := NewHashedSet()
+			for _, u := range users {
+				if u.VLESSUUID != "" {
+					userSet.Add(u.VLESSUUID)
+				} else if u.TrojanPassword != "" {
+					userSet.Add(u.TrojanPassword)
+				} else if u.SSPassword != "" {
+					userSet.Add(u.SSPassword)
+				} else if u.Hysteria2Pass != "" {
+					userSet.Add(u.Hysteria2Pass)
+				} else if u.NaivePassword != "" {
+					userSet.Add(u.NaivePassword)
+				} else if u.ShadowTLSPass != "" {
+					userSet.Add(u.ShadowTLSPass)
+				} else if u.AnytlsPassword != "" {
+					userSet.Add(u.AnytlsPassword)
+				}
+			}
+			inboundHashes = append(inboundHashes, deployInboundHash{
+				Tag:        normTag,
+				Hash:       userSet.Hash64String(),
+				UsersCount: userSet.Size(),
+			})
 		}
 
 		filteredInbounds = append(filteredInbounds, raw)
+	}
+
+	parsed.Set("inbounds", emptyInbounds)
+	emptyJSON, err := json.Marshal(parsed)
+	emptyConfigHash := ""
+	if err == nil {
+		emptyConfigHash = sha256Hex(emptyJSON)
 	}
 
 	parsed.Set("inbounds", filteredInbounds)
 
 	finalConfig, err := json.Marshal(parsed)
 	if err != nil {
-		return nil, "", fmt.Errorf("marshal deploy config: %w", err)
+		return nil, nil, "", fmt.Errorf("marshal deploy config: %w", err)
 	}
-	return finalConfig, profileUUID, nil
+
+	internals := &deployInternalsBlock{
+		Hashes: deployHashesBlock{
+			EmptyConfig: emptyConfigHash,
+			Inbounds:    inboundHashes,
+		},
+	}
+	return finalConfig, internals, profileUUID, nil
 }
 
 func normalizeInboundType(inbound any) string {
@@ -554,6 +601,47 @@ func setField(v any, key string, value any) any {
 	default:
 		return v
 	}
+}
+
+func deleteField(v any, key string) any {
+	switch m := v.(type) {
+	case map[string]any:
+		cp := make(map[string]any, len(m))
+		for k, val := range m {
+			if k != key {
+				cp[k] = val
+			}
+		}
+		return cp
+	case orderedmap.OrderedMap:
+		cp := orderedmap.New()
+		for _, k := range m.Keys() {
+			if k != key {
+				val, _ := m.Get(k)
+				cp.Set(k, val)
+			}
+		}
+		return *cp
+	case *orderedmap.OrderedMap:
+		if m == nil {
+			return orderedmap.New()
+		}
+		cp := orderedmap.New()
+		for _, k := range m.Keys() {
+			if k != key {
+				val, _ := m.Get(k)
+				cp.Set(k, val)
+			}
+		}
+		return cp
+	default:
+		return v
+	}
+}
+
+func sha256Hex(b []byte) string {
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
 }
 
 func isUnsecureInbound(inboundType string) bool {

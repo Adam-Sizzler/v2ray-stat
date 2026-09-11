@@ -85,7 +85,7 @@ func (nm *NodeMonitor) deployToConnectedNodes(restart bool, forceRestart bool, r
 
 	for _, target := range targets {
 		start := time.Now()
-		configJSON, profileUUID, err := nm.buildNodeConfigForDeploy(nm.globalCtx, target.uuid)
+		configJSON, internals, profileUUID, err := nm.buildNodeConfigForDeploy(nm.globalCtx, target.uuid)
 		if err != nil {
 			nm.cfg.Logger.Warn("Failed to build node deploy config", "node", target.name, "node_uuid", target.uuid, "error", err)
 			continue
@@ -178,6 +178,7 @@ func (nm *NodeMonitor) deployToConnectedNodes(restart bool, forceRestart bool, r
 			Restart:      &restartFlag,
 			ForceRestart: &forceRestartFlag,
 			Modules:      modules,
+			Internals:    internals,
 		})
 		if err != nil {
 			nm.cfg.Logger.Warn("Failed to serialize deploy payload", "node", target.name, "error", err)
