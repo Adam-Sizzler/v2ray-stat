@@ -3,6 +3,7 @@ package notifications
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -76,13 +77,39 @@ func (d *Dispatcher) Enqueue(ctx context.Context, event Event) error {
 		ctx = context.Background()
 	}
 
+	dedupeID := notificationDedupeID(event)
+
 	if d.notifier.webhookEnabled() && d.cfg.Notifications.EventChannelEnabled(event.Event, "webhook") {
-		_ = d.worker.EnqueueWebhook(ctx, event)
+		_ = d.worker.EnqueueWebhook(ctx, event, dedupeID)
 	}
 
 	if d.notifier.telegramEnabled() && d.cfg.Notifications.EventChannelEnabled(event.Event, "telegram") {
-		_ = d.worker.EnqueueTelegram(ctx, event)
+		_ = d.worker.EnqueueTelegram(ctx, event, dedupeID)
 	}
 
 	return nil
+}
+
+// notificationDedupeID builds a stable idempotency key for events that are
+// prone to being emitted more than once for the same underlying fact (e.g.
+// a daily billing scan re-evaluating the same billing cycle). Passing this
+// as the asynq TaskID prevents duplicate deliveries if Emit is ever called
+// twice for the same logical notification, mirroring the dedup pattern
+// already used for PUSH_TO_DB_QUEUE and the subscription queues.
+//
+// For event types without a well-defined identity, it returns "" so the
+// existing (non-deduped) behavior is preserved.
+func notificationDedupeID(event Event) string {
+	switch event.Scope {
+	case ScopeCRM:
+		return fmt.Sprintf(
+			"crm:%s:%s:%s:%s",
+			event.Event,
+			stringValue(event.Data, "providerName"),
+			stringValue(event.Data, "nodeName"),
+			stringValue(event.Data, "nextBillingAt"),
+		)
+	default:
+		return ""
+	}
 }

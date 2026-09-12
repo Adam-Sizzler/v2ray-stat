@@ -42,6 +42,11 @@ type QueueOptions struct {
 	SchedulerInterval time.Duration
 	BlockTimeout      time.Duration
 	Retention         int64
+	// RetryDelayFunc, when set, overrides asynq's default exponential
+	// backoff for this queue. n is the retry attempt number, err is the
+	// error returned by the handler, taskType is the job name. Return 0 to
+	// fall back to asynq's default backoff for that particular failure.
+	RetryDelayFunc func(n int, err error, taskType string) time.Duration
 }
 
 type JobOptions struct {
@@ -134,16 +139,23 @@ func (p *Processor) RegisterQueue(options QueueOptions, handlers map[string]Hand
 		concurrency = 1
 	}
 
-	srv := asynq.NewServer(
-		p.redisOpt,
-		asynq.Config{
-			Concurrency: concurrency,
-			Queues: map[string]int{
-				options.Name: 10,
-			},
-			Logger: &asynqLogger{cfg: p.cfg},
+	asynqCfg := asynq.Config{
+		Concurrency: concurrency,
+		Queues: map[string]int{
+			options.Name: 10,
 		},
-	)
+		Logger: &asynqLogger{cfg: p.cfg},
+	}
+	if options.RetryDelayFunc != nil {
+		custom := options.RetryDelayFunc
+		asynqCfg.RetryDelayFunc = func(n int, e error, t *asynq.Task) time.Duration {
+			if d := custom(n, e, t.Type()); d > 0 {
+				return d
+			}
+			return asynq.DefaultRetryDelayFunc(n, e, t)
+		}
+	}
+	srv := asynq.NewServer(p.redisOpt, asynqCfg)
 
 	mux := asynq.NewServeMux()
 	for name, handler := range handlers {
@@ -218,7 +230,10 @@ func (p *Processor) Enqueue(ctx context.Context, queue string, name string, payl
 		opts = append(opts, asynq.ProcessIn(options.Delay))
 	}
 
-	if options.Attempts > 0 {
+	// options.Attempts maps directly onto asynq's "number of retries", not
+	// "total attempts" — MaxRetry(0) genuinely means no retries (1 attempt
+	// total). Only skip the option when Attempts is negative (unset).
+	if options.Attempts >= 0 {
 		opts = append(opts, asynq.MaxRetry(options.Attempts))
 	}
 

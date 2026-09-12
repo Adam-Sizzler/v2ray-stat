@@ -211,29 +211,60 @@ func (n *Notifier) sendWebhook(ctx context.Context, event Event) error {
 
 	var lastErr error
 	for _, url := range targetURLs {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
-		if err != nil {
+		if err := n.postWebhookWithRetry(ctx, url, payload, signature, timestamp); err != nil {
 			lastErr = err
-			continue
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Exodus-Signature", signature)
-		req.Header.Set("X-Exodus-Timestamp", timestamp)
-		req.Header.Set("User-Agent", "Exodus")
-
-		resp, err := n.client.Do(req)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		_ = resp.Body.Close()
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			lastErr = fmt.Errorf("webhook %s returned %d: %s", url, resp.StatusCode, strings.TrimSpace(string(body)))
-			continue
 		}
 	}
 	return lastErr
+}
+
+// postWebhookWithRetry mirrors upstream Exodus webhook delivery policy
+// (webhook-logger.processor.ts: rxjs `retry({count: 3, delay: 5000})`) — up
+// to 3 retries (4 attempts total) of the same POST, 5s apart, within this
+// single job execution. Unlike Telegram, webhook receivers are expected to
+// tolerate at-least-once delivery, so a blind retry here is safe.
+func (n *Notifier) postWebhookWithRetry(ctx context.Context, url string, payload []byte, signature, timestamp string) error {
+	const maxRetries = 3
+	const retryDelay = 5 * time.Second
+
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(retryDelay):
+			}
+		}
+		if err := n.postWebhookOnce(ctx, url, payload, signature, timestamp); err != nil {
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+	return fmt.Errorf("failed to send webhook after %d retries: %w", maxRetries, lastErr)
+}
+
+func (n *Notifier) postWebhookOnce(ctx context.Context, url string, payload []byte, signature, timestamp string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Exodus-Signature", signature)
+	req.Header.Set("X-Exodus-Timestamp", timestamp)
+	req.Header.Set("User-Agent", "Exodus")
+
+	resp, err := n.client.Do(req)
+	if err != nil {
+		return err
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	_ = resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("webhook %s returned %d: %s", url, resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
 }
 
 func (n *Notifier) sendTelegram(ctx context.Context, event Event) error {
@@ -300,6 +331,12 @@ func (e RateLimitError) Error() string {
 
 func (e RateLimitError) Unwrap() error {
 	return e.Err
+}
+
+// RetryDelay lets the jobqueue package's RetryDelayFunc respect Telegram's
+// Retry-After without jobqueue needing to import the notifications package.
+func (e RateLimitError) RetryDelay() time.Duration {
+	return e.RetryAfter
 }
 
 func telegramRetryAfter(body []byte) time.Duration {
